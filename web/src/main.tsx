@@ -16,6 +16,9 @@ const Search = lazy(() => import('./pages/Search'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Bookmarks = lazy(() => import('./pages/Bookmarks'));
+const Trending = lazy(() => import('./pages/Trending'));
+const DMs = lazy(() => import('./pages/DMs'));
+const DMThread = lazy(() => import('./pages/DMThread'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const root = document.getElementById('root');
@@ -51,6 +54,9 @@ render(
       <Route path="/2fa" component={TwoFA} />
       <Route path="/notifications" component={Notifications} />
       <Route path="/bookmarks" component={Bookmarks} />
+      <Route path="/trending" component={Trending} />
+      <Route path="/dm" component={DMs} />
+      <Route path="/dm/:username" component={DMThread} />
       <Route path="/settings" component={Settings} />
       <Route path="/search" component={Search} />
       {/* `@` gets URL-encoded to %40 by browsers, which then doesn't match

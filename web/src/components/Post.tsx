@@ -3,6 +3,7 @@ import { A } from '@solidjs/router';
 import type { PostView } from '../api';
 import { api } from '../api';
 import { me } from '../auth';
+import { pushToast } from './Toast';
 import { relTime, visibleLength } from '../util';
 
 const EMOJI = ['\u{1F525}', '\u{1F422}', '\u{1F91D}', '\u{1F64F}', '\u{1F602}'];
@@ -97,6 +98,41 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
     props.onChange?.();
   };
 
+  const share = async () => {
+    const url = `${window.location.origin}/posts/${props.post.id}`;
+    const sharable = navigator.share as unknown;
+    if (typeof sharable === 'function') {
+      try {
+        await (navigator.share as (d: ShareData) => Promise<void>)({
+          url,
+          title: `@${props.post.author.username} — burncpu`,
+        });
+        return;
+      } catch {
+        // user cancelled or unsupported — fall through to clipboard
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      pushToast('Link kopyalandı', 'ok');
+    } catch {
+      pushToast('Link: ' + url);
+    }
+  };
+
+  const togglePin = async () => {
+    if (busy()) return;
+    setBusy(true);
+    try {
+      await api.post(`/users/me/pin/${props.post.id}`);
+      pushToast('Profile sabitlendi', 'ok');
+    } catch (e) {
+      pushToast((e as Error).message, 'warn');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (deleted()) {
     return (
       <article class="post">
@@ -166,13 +202,20 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
         <span class="tiny muted">
           {reactionsTotal()} · <A href={`/posts/${props.post.id}`}>{props.post.replies_count} reply</A>
         </span>
+        <button
+          onClick={share}
+          disabled={busy()}
+          title="Paylaş"
+          style="margin-left: auto;"
+        >
+          🔗
+        </button>
         <Show when={me()}>
           <button
             class={bookmarked() ? 'active' : ''}
             onClick={toggleBookmark}
             disabled={busy()}
             title="Kaydet"
-            style="margin-left: auto;"
           >
             🔖
           </button>
@@ -180,6 +223,9 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
             🔁
           </button>
           <Show when={isMine()}>
+            <button onClick={togglePin} disabled={busy()} title="Profile sabitle">
+              📌
+            </button>
             <button onClick={() => setEditing((v) => !v)} disabled={busy()} title="Düzenle">
               ✏️
             </button>

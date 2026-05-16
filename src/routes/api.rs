@@ -1,6 +1,6 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
-use super::{admin, auth, bookmarks, feed, invites, media, notifications, posts, search, users};
+use super::{admin, auth, bookmarks, dm, feed, invites, media, notifications, posts, search, trending, users};
 use crate::state::AppState;
 use axum::{routing::get, Router};
 use serde_json::json;
@@ -67,6 +67,18 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "PATCH  /api/v1/posts/{id}":           "edit (author only) — sets edited_at",
                         "POST   /api/v1/posts/{id}/repost":    "repost (optional quote body)",
                         "DELETE /api/v1/users/me":             "delete own account (X-Confirm-Username header)",
+                        "GET    /api/v1/users/me/export":      "GDPR JSON download",
+                        "POST   /api/v1/users/me/pin/{post_id}":   "pin post to profile",
+                        "DELETE /api/v1/users/me/pin/{post_id}":   "unpin",
+                        "GET    /api/v1/users/lookup ?prefix=": "username typeahead",
+                        "GET    /api/v1/dm/threads":           "DM thread list",
+                        "GET    /api/v1/dm/threads/{u}":       "open / fetch thread",
+                        "POST   /api/v1/dm/threads/{u}":       "send DM (requires mutual follow)",
+                        "PATCH  /api/v1/dm/threads/{u}/read":  "mark thread read",
+                        "DELETE /api/v1/dm/messages/{id}":     "soft-delete own message",
+                        "GET    /api/v1/trending/hashtags":    "hashtag counts (window=24h)",
+                        "GET    /api/v1/trending/posts":       "most-reacted public posts",
+                        "GET    /embed/posts/{id}":            "minimal HTML with per-post OG meta (used by share crawlers)",
                         "GET    /healthz":                     "liveness probe",
                     },
                 }))
@@ -83,4 +95,6 @@ pub fn router(_state: AppState) -> Router<AppState> {
         .nest("/notifications", notifications::router())
         .nest("/media", media::router())
         .nest("/bookmarks", bookmarks::router())
+        .nest("/dm", dm::router())
+        .nest("/trending", trending::router())
 }

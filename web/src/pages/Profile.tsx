@@ -1,6 +1,7 @@
 import { createResource, createSignal, For, Show } from 'solid-js';
 import { useParams } from '@solidjs/router';
-import { api, type Profile } from '../api';
+import { api, type Profile, type PostView } from '../api';
+import Post from '../components/Post';
 import { me } from '../auth';
 import { relTime } from '../util';
 
@@ -23,6 +24,19 @@ export default function ProfilePage() {
     () => params.username,
     (u) => api.get<BriefPost[]>(`/users/${u}/posts?limit=50`),
   );
+  const [pinned, { refetch: refetchPinned }] = createResource<PostView | null, string>(
+    () => profile()?.pinned_post_id ?? null as unknown as string,
+    async (id: string) => {
+      try { return await api.get<PostView>(`/posts/${id}`); } catch { return null; }
+    },
+  );
+  const unpin = async () => {
+    const p = profile();
+    if (!p?.pinned_post_id) return;
+    await api.del(`/users/me/pin/${p.pinned_post_id}`);
+    refetchProfile();
+    refetchPinned();
+  };
   const [following, setFollowing] = createSignal<boolean | null>(null);
   const [busy, setBusy] = createSignal(false);
 
@@ -87,6 +101,19 @@ export default function ProfilePage() {
                 </div>
               </Show>
             </header>
+            <Show when={pinned()}>
+              {(pp) => (
+                <>
+                  <h3 style="margin-top: 22px; display: flex; align-items: center; gap: 8px;">
+                    📌 Sabitlenmiş
+                    <Show when={me()?.username === p().username}>
+                      <button class="ghost tiny" onClick={unpin}>kaldır</button>
+                    </Show>
+                  </h3>
+                  <Post post={pp() as PostView} />
+                </>
+              )}
+            </Show>
             <h2 class="page-title" style="margin-top: 22px;">
               Postlar
             </h2>

@@ -76,6 +76,7 @@ async fn main() -> Result<()> {
         .route("/", get(routes::index::handler))
         .route("/healthz", get(routes::health::handler))
         .route("/sitemap.xml", get(routes::sitemap::handler))
+        .route("/embed/posts/{id}", get(routes::embed::post_embed))
         .nest("/rss", routes::rss::router())
         .nest("/api/v1", routes::api::router(state.clone()))
         // 6 MiB request body cap (5 MiB media + multipart overhead)

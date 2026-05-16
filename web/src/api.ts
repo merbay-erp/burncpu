@@ -77,6 +77,7 @@ export interface Profile {
   role: string;
   created_at: string;
   last_seen_at: string | null;
+  pinned_post_id: string | null;
   counts: { posts: number; followers: number; following: number };
 }
 

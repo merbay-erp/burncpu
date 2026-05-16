@@ -2,6 +2,7 @@ import { createSignal, Show, For, createResource, onMount } from 'solid-js';
 import QRCode from 'qrcode';
 import { api, type Profile } from '../api';
 import { me, setCachedMe } from '../auth';
+import { locale, setLocale } from '../i18n';
 
 type Tab = 'profile' | 'security' | 'invites';
 
@@ -167,8 +168,51 @@ function ProfileTab() {
           {busy() ? 'Kaydediliyor…' : 'Kaydet'}
         </button>
       </div>
+      <PrefsBlock />
+      <ExportBlock />
       <DangerZone />
     </form>
+  );
+}
+
+function PrefsBlock() {
+  return (
+    <div style="margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--border);">
+      <h3 style="margin: 0 0 10px;">Dil / Language</h3>
+      <div class="flex">
+        <button
+          type="button"
+          class={locale() === 'tr' ? 'primary' : ''}
+          onClick={() => setLocale('tr')}
+        >
+          Türkçe
+        </button>
+        <button
+          type="button"
+          class={locale() === 'en' ? 'primary' : ''}
+          onClick={() => setLocale('en')}
+        >
+          English
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ExportBlock() {
+  const download = (e: Event) => {
+    e.preventDefault();
+    window.location.assign('/api/v1/users/me/export');
+  };
+  return (
+    <div style="margin-top: 18px;">
+      <h3 style="margin: 0 0 6px;">Verini indir</h3>
+      <p class="muted tiny" style="margin-top: 0;">
+        Profil, postlar, takipler, tepkiler, kayıtlılar ve medya bilgilerinin
+        JSON dökümü. Tarayıcın "burncpu-export-YYYY-MM-DD.json" olarak kaydeder.
+      </p>
+      <button type="button" onClick={download}>JSON indir</button>
+    </div>
   );
 }
 

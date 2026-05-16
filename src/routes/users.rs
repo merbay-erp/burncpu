@@ -27,11 +27,174 @@ use uuid::Uuid;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/me", get(get_me).patch(patch_me).delete(delete_me))
+        .route("/me/export", get(export_me))
+        .route("/me/pin/{post_id}", post(pin_post).delete(unpin_post))
         .route("/{username}", get(get_profile))
         .route("/{username}/posts", get(user_posts))
         .route("/{username}/followers", get(followers))
         .route("/{username}/following", get(following))
         .route("/{username}/follow", post(follow).delete(unfollow))
+        .route("/lookup", get(lookup_prefix))
+}
+
+#[derive(Deserialize)]
+pub struct LookupQuery {
+    prefix: String,
+    #[serde(default = "default_lookup_limit")]
+    limit: i64,
+}
+fn default_lookup_limit() -> i64 { 8 }
+
+async fn lookup_prefix(
+    State(state): State<AppState>,
+    Query(q): Query<LookupQuery>,
+) -> Result<Json<Vec<UserBrief>>, AppError> {
+    let p = q.prefix.trim().to_lowercase();
+    if p.is_empty() || p.len() > 32 {
+        return Ok(Json(vec![]));
+    }
+    let limit = q.limit.clamp(1, 20);
+    let pattern = format!("{}%", p);
+    let rows: Vec<UserBrief> = sqlx::query_as(
+        r#"
+        SELECT id, username, display_name, avatar_url
+        FROM users
+        WHERE username LIKE $1 AND role <> 'suspended'
+        ORDER BY (CASE WHEN username = $2 THEN 0 ELSE 1 END), username ASC
+        LIMIT $3
+        "#,
+    )
+    .bind(&pattern)
+    .bind(&p)
+    .bind(limit)
+    .fetch_all(&state.pg)
+    .await?;
+    Ok(Json(rows))
+}
+
+// ─── Pinned post ────────────────────────────────────────────────
+
+async fn pin_post(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    axum::extract::Path(post_id): axum::extract::Path<Uuid>,
+) -> Result<axum::http::StatusCode, AppError> {
+    let owner: Option<Uuid> = sqlx::query_scalar(
+        "SELECT author_id FROM posts WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live' AND visibility = 'public'",
+    )
+    .bind(post_id)
+    .fetch_optional(&state.pg)
+    .await?;
+    let owner = owner.ok_or(AppError::NotFound)?;
+    if owner != user.user_id {
+        return Err(AppError::Forbidden);
+    }
+    sqlx::query("UPDATE users SET pinned_post_id = $1 WHERE id = $2")
+        .bind(post_id)
+        .bind(user.user_id)
+        .execute(&state.pg)
+        .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+async fn unpin_post(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    axum::extract::Path(_post_id): axum::extract::Path<Uuid>,
+) -> Result<axum::http::StatusCode, AppError> {
+    sqlx::query("UPDATE users SET pinned_post_id = NULL WHERE id = $1")
+        .bind(user.user_id)
+        .execute(&state.pg)
+        .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+// ─── Account export ─────────────────────────────────────────────
+
+async fn export_me(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> Result<axum::response::Response, AppError> {
+    use axum::http::header;
+    let profile: serde_json::Value = sqlx::query_scalar(
+        "SELECT row_to_json(u) FROM users u WHERE id = $1",
+    )
+    .bind(user.user_id)
+    .fetch_one(&state.pg)
+    .await?;
+    let posts: Vec<serde_json::Value> = sqlx::query_scalar(
+        r#"SELECT row_to_json(p) FROM posts p WHERE author_id = $1 ORDER BY created_at DESC"#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pg)
+    .await
+    .unwrap_or_default();
+    let follows: Vec<serde_json::Value> = sqlx::query_scalar(
+        r#"
+        SELECT json_build_object('followee', u.username, 'since', f.created_at)
+        FROM follows f JOIN users u ON u.id = f.followee_id
+        WHERE f.follower_id = $1
+        "#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pg)
+    .await
+    .unwrap_or_default();
+    let reactions: Vec<serde_json::Value> = sqlx::query_scalar(
+        r#"
+        SELECT json_build_object('post_id', post_id, 'emoji', emoji, 'at', created_at)
+        FROM reactions WHERE user_id = $1 ORDER BY created_at DESC
+        "#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pg)
+    .await
+    .unwrap_or_default();
+    let bookmarks: Vec<serde_json::Value> = sqlx::query_scalar(
+        r#"
+        SELECT json_build_object('post_id', post_id, 'at', created_at)
+        FROM bookmarks WHERE user_id = $1 ORDER BY created_at DESC
+        "#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pg)
+    .await
+    .unwrap_or_default();
+    let media_list: Vec<serde_json::Value> = sqlx::query_scalar(
+        r#"
+        SELECT json_build_object('url', '/media/' || filename, 'mime', mime_type, 'bytes', size_bytes, 'at', created_at)
+        FROM media WHERE owner_id = $1 ORDER BY created_at DESC
+        "#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pg)
+    .await
+    .unwrap_or_default();
+
+    let payload = serde_json::json!({
+        "exported_at": Utc::now(),
+        "profile": profile,
+        "posts": posts,
+        "follows": follows,
+        "reactions": reactions,
+        "bookmarks": bookmarks,
+        "media": media_list,
+    });
+    let json = serde_json::to_vec_pretty(&payload)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    let mut h = axum::http::HeaderMap::new();
+    h.insert(header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/json"));
+    h.insert(
+        header::CONTENT_DISPOSITION,
+        axum::http::HeaderValue::from_str(&format!(
+            "attachment; filename=\"burncpu-export-{}.json\"",
+            Utc::now().format("%Y-%m-%d")
+        ))
+        .unwrap(),
+    );
+    use axum::response::IntoResponse;
+    Ok((axum::http::StatusCode::OK, h, json).into_response())
 }
 
 /// DELETE /users/me — cascading account wipe.
@@ -113,6 +276,7 @@ pub struct Profile {
     role: String,
     created_at: DateTime<Utc>,
     last_seen_at: Option<DateTime<Utc>>,
+    pinned_post_id: Option<Uuid>,
     counts: ProfileCounts,
 }
 
@@ -127,10 +291,10 @@ async fn get_profile(
     State(state): State<AppState>,
     Path(username): Path<String>,
 ) -> Result<Json<Profile>, AppError> {
-    let row: Option<(Uuid, String, String, Option<String>, Option<String>, String, DateTime<Utc>, Option<DateTime<Utc>>)> =
+    let row: Option<(Uuid, String, String, Option<String>, Option<String>, String, DateTime<Utc>, Option<DateTime<Utc>>, Option<Uuid>)> =
         sqlx::query_as(
             r#"
-            SELECT id, username, display_name, bio, avatar_url, role, created_at, last_seen_at
+            SELECT id, username, display_name, bio, avatar_url, role, created_at, last_seen_at, pinned_post_id
             FROM users
             WHERE username = $1
             "#,
@@ -139,7 +303,7 @@ async fn get_profile(
         .fetch_optional(&state.pg)
         .await?;
 
-    let (id, username, display_name, bio, avatar_url, role, created_at, last_seen_at) =
+    let (id, username, display_name, bio, avatar_url, role, created_at, last_seen_at, pinned_post_id) =
         row.ok_or(AppError::NotFound)?;
 
     let posts: i64 = sqlx::query_scalar(
@@ -177,6 +341,7 @@ async fn get_profile(
         role,
         created_at,
         last_seen_at,
+        pinned_post_id,
         counts: ProfileCounts { posts, followers, following },
     }))
 }

@@ -2,6 +2,7 @@ import type { JSX } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
 import { Show, createEffect, onCleanup, onMount } from 'solid-js';
 import { me, unread, refetchUnread, probeSession, logout } from './auth';
+import { t } from './i18n';
 import ToastStack, { pushToast } from './components/Toast';
 import Lightbox from './components/Lightbox';
 
@@ -25,6 +26,8 @@ const eventText = (e: NotificationEvent): string => {
       return `@${who} seni takip etmeye başladı`;
     case 'mention':
       return `@${who} seni bahsetti`;
+    case 'dm':
+      return `@${who} mesaj attı`;
     default:
       return `@${who}: ${e.kind}`;
   }
@@ -32,7 +35,7 @@ const eventText = (e: NotificationEvent): string => {
 
 export default function Layout(props: { children?: JSX.Element }) {
   const loc = useLocation();
-  const isActive = (p: string) => (loc.pathname === p ? 'active' : '');
+  const isActive = (p: string) => (loc.pathname === p || loc.pathname.startsWith(p + '/') ? 'active' : '');
   let es: EventSource | undefined;
 
   onMount(async () => {
@@ -40,8 +43,6 @@ export default function Layout(props: { children?: JSX.Element }) {
     if (ok) refetchUnread();
   });
 
-  // Open the SSE stream whenever we transition into a logged-in state;
-  // close it on logout. createEffect re-runs when me() changes.
   createEffect(() => {
     if (me()) {
       if (!es) {
@@ -50,13 +51,18 @@ export default function Layout(props: { children?: JSX.Element }) {
           try {
             const ev = JSON.parse((msg as MessageEvent).data) as NotificationEvent;
             pushToast(eventText(ev));
-            refetchUnread();
+            if (ev.kind === 'dm') {
+              // future: trigger DM list refetch via a custom event
+              window.dispatchEvent(new CustomEvent('dm:new', { detail: ev }));
+            } else {
+              refetchUnread();
+            }
           } catch {
             // ignore malformed
           }
         });
         es.onerror = () => {
-          // Browser will auto-reconnect with the same connection — let it.
+          // Browser auto-reconnects
         };
       }
     } else {
@@ -74,17 +80,20 @@ export default function Layout(props: { children?: JSX.Element }) {
           burncpu
           <small>1 VPS yeter</small>
         </A>
-        <A href="/" class={isActive('/')}>
-          <span>📰</span> Public
+        <A href="/" class={loc.pathname === '/' ? 'active' : ''}>
+          <span>📰</span> {t('nav.public')}
         </A>
         <A href="/feed" class={isActive('/feed')}>
-          <span>🏠</span> Feed
+          <span>🏠</span> {t('nav.feed')}
+        </A>
+        <A href="/trending" class={isActive('/trending')}>
+          <span>🔥</span> Trend
         </A>
         <A href="/search" class={isActive('/search')}>
-          <span>🔎</span> Ara
+          <span>🔎</span> {t('nav.search')}
         </A>
         <A href="/notifications" class={isActive('/notifications')}>
-          <span>🔔</span> Bildirimler
+          <span>🔔</span> {t('nav.notifications')}
           <Show when={(unread() ?? 0) > 0}>
             <span class="tiny" style="color: var(--accent); margin-left: auto;">
               {unread()}
@@ -95,32 +104,35 @@ export default function Layout(props: { children?: JSX.Element }) {
           when={me()}
           fallback={
             <A href="/login" class={isActive('/login')}>
-              <span>🔑</span> Giriş
+              <span>🔑</span> {t('nav.login')}
             </A>
           }
         >
           {(u) => (
             <>
+              <A href="/dm" class={isActive('/dm')}>
+                <span>💬</span> {t('nav.dm')}
+              </A>
               <A href={`/u/${u().username}`} class={isActive(`/u/${u().username}`)}>
-                <span>👤</span> Profilim
+                <span>👤</span> {t('nav.profile')}
               </A>
               <A href="/bookmarks" class={isActive('/bookmarks')}>
-                <span>🔖</span> Kayıtlılar
+                <span>🔖</span> {t('nav.bookmarks')}
               </A>
               <A href="/settings" class={isActive('/settings')}>
-                <span>⚙️</span> Ayarlar
+                <span>⚙️</span> {t('nav.settings')}
               </A>
               <div class="me">
                 @{u().username}
                 <Show when={u().pending_2fa}>
                   {' '}
                   <span class="tiny" style="color: var(--warn);">
-                    (2FA bekleniyor)
+                    (2FA)
                   </span>
                 </Show>
                 <br />
                 <button class="ghost tiny" onClick={() => logout()}>
-                  Çıkış
+                  {t('nav.logout')}
                 </button>
               </div>
             </>

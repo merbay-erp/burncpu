@@ -100,7 +100,10 @@ pub fn verify_code(
                 continue;
             }
         }
-        let expected = totp.generate(step as u64);
+        // totp-rs generate() takes a unix timestamp in *seconds*, not the
+        // step counter. Convert: step * 30 = the start of that 30-second
+        // window.
+        let expected = totp.generate((step * 30) as u64);
         if constant_eq(expected.as_bytes(), code.trim().as_bytes()) {
             return Ok(step);
         }

@@ -8,6 +8,8 @@ pub mod federation;
 pub mod feed;
 pub mod health;
 pub mod index;
+pub mod relations;
+pub mod reports;
 pub mod invites;
 pub mod media;
 pub mod notifications;

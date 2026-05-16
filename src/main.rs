@@ -1,4 +1,4 @@
-#![recursion_limit = "256"]
+#![recursion_limit = "512"]
 // burncpu.com — kendi sosyal medyamız
 //
 // Bootstrap entrypoint. Reads .env, initializes tracing, builds the Axum

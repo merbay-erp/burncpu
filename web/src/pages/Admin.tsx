@@ -56,6 +56,18 @@ interface AuditRow {
   ts: string;
 }
 
+interface ReportRow {
+  id: string;
+  reporter_username: string;
+  target_kind: string;
+  target_id: string;
+  reason: string;
+  note: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolution: string | null;
+}
+
 const fmtBytes = (n: number) => {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -71,6 +83,17 @@ export default function Admin() {
   const [errors] = createResource<AuditRow[]>(() =>
     api.get<AuditRow[]>('/admin/audit?status_min=400&limit=15'),
   );
+  const [reports, { refetch: refetchReports }] = createResource<ReportRow[]>(() =>
+    api.get<ReportRow[]>('/admin/reports?open=1'),
+  );
+
+  const resolve = async (id: string) => {
+    const reso = prompt('Resolution (no_action / removed / suspended / other):', 'no_action');
+    if (!reso) return;
+    if (!['no_action', 'removed', 'suspended', 'other'].includes(reso)) return;
+    await api.patch(`/admin/reports/${id}`, { resolution: reso });
+    refetchReports();
+  };
 
   return (
     <>
@@ -113,7 +136,31 @@ export default function Admin() {
           )}
         </Show>
 
-        <h3>Son hatalar (status ≥ 400)</h3>
+        <h3>Açık raporlar</h3>
+        <Show when={reports()} fallback={<p class="muted">…</p>}>
+          {(rows) => (
+            <For each={rows()} fallback={<p class="muted tiny">Bekleyen rapor yok.</p>}>
+              {(r) => (
+                <div
+                  style="padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 8px; font-size: 13px;"
+                >
+                  <span class="muted tiny">{relTime(r.created_at)}</span>
+                  <strong>{r.reason}</strong>
+                  <span class="tiny muted">{r.target_kind} {r.target_id.slice(0, 8)}</span>
+                  <Show when={r.target_kind === 'post'}>
+                    <A href={`/posts/${r.target_id}`} class="tiny">aç</A>
+                  </Show>
+                  <span class="tiny muted" style="margin-left: auto;">
+                    by <A href={`/u/${r.reporter_username}`}>@{r.reporter_username}</A>
+                  </span>
+                  <button class="ghost tiny" onClick={() => resolve(r.id)}>çöz</button>
+                </div>
+              )}
+            </For>
+          )}
+        </Show>
+
+        <h3 style="margin-top: 22px;">Son hatalar (status ≥ 400)</h3>
         <Show when={errors()} fallback={<p class="muted">…</p>}>
           {(rows) => (
             <div style="font-size: 12px; font-family: var(--mono); margin-bottom: 22px;">

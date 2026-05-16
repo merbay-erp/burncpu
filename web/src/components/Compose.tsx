@@ -25,6 +25,7 @@ export default function Compose(props: {
   onPosted?: (p: PostView) => void;
 }) {
   const [body, setBody] = createSignal('');
+  const [cw, setCw] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [uploading, setUploading] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
@@ -42,8 +43,10 @@ export default function Compose(props: {
       const p = await api.post<PostView>('/posts', {
         body: text,
         reply_to_id: props.replyToId ?? null,
+        content_warning: cw().trim() || null,
       });
       setBody('');
+      setCw('');
       setMentions([]);
       props.onPosted?.(p);
     } catch (e) {
@@ -164,6 +167,16 @@ export default function Compose(props: {
 
   return (
     <div class="compose" style="position: relative;">
+      <Show when={!props.replyToId}>
+        <input
+          type="text"
+          placeholder="İçerik uyarısı (opsiyonel, ör: 'spoiler', 'NSFW')"
+          maxlength="140"
+          value={cw()}
+          onInput={(e) => setCw(e.currentTarget.value)}
+          style="margin-bottom: 6px; font-size: 13px;"
+        />
+      </Show>
       <textarea
         ref={textarea}
         placeholder={props.placeholder ?? 'Ne düşünüyorsun?'}

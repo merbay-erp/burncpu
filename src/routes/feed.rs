@@ -84,6 +84,13 @@ async fn home(
                   SELECT followee_id FROM follows WHERE follower_id = $1
               )
           )
+          AND p.author_id NOT IN (
+              SELECT blocked_id FROM user_blocks WHERE blocker_id = $1
+              UNION
+              SELECT blocker_id FROM user_blocks WHERE blocked_id = $1
+              UNION
+              SELECT muted_id FROM user_mutes WHERE muter_id = $1
+          )
         ORDER BY p.created_at DESC
         LIMIT $3
         "#,

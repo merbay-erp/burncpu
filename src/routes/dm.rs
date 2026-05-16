@@ -201,6 +201,18 @@ async fn send(
     if other.0 == user.user_id {
         return Err(AppError::BadRequest("cannot DM yourself".into()));
     }
+    // Block check
+    let blocked: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1))",
+    )
+    .bind(user.user_id)
+    .bind(other.0)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false);
+    if blocked {
+        return Err(AppError::Forbidden);
+    }
     if !mutual_follow(&state, user.user_id, other.0).await {
         return Err(AppError::Forbidden);
     }

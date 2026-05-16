@@ -103,6 +103,8 @@ pub struct PostView {
     reply_to_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     parent: Option<ParentExcerpt>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_warning: Option<String>,
     reactions_count: i32,
     replies_count: i32,
     created_at: DateTime<Utc>,
@@ -130,6 +132,8 @@ pub struct CreateBody {
     #[serde(default = "default_visibility")]
     visibility: String,
     reply_to_id: Option<Uuid>,
+    #[serde(default)]
+    content_warning: Option<String>,
 }
 
 fn default_visibility() -> String {
@@ -227,10 +231,16 @@ async fn create_post(
 
     let body_html = render_markdown(body);
 
+    let cw = input
+        .content_warning
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(140).collect::<String>());
     let id: Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO posts (author_id, body, body_html, visibility, reply_to_id)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO posts (author_id, body, body_html, visibility, reply_to_id, content_warning)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id
         "#,
     )
@@ -239,21 +249,27 @@ async fn create_post(
     .bind(&body_html)
     .bind(&input.visibility)
     .bind(input.reply_to_id)
+    .bind(cw)
     .fetch_one(&state.pg)
     .await?;
 
     // Bump parent reply count + notify parent author
     if let Some(reply_id) = input.reply_to_id {
-        let _ = sqlx::query("UPDATE posts SET replies_count = replies_count + 1 WHERE id = $1")
-            .bind(reply_id)
-            .execute(&state.pg)
-            .await;
         let parent_author: Option<Uuid> =
             sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")
                 .bind(reply_id)
                 .fetch_optional(&state.pg)
                 .await
                 .unwrap_or(None);
+        if let Some(parent_author) = parent_author {
+            if is_blocked(&state, user.user_id, parent_author).await {
+                return Err(AppError::Forbidden);
+            }
+        }
+        let _ = sqlx::query("UPDATE posts SET replies_count = replies_count + 1 WHERE id = $1")
+            .bind(reply_id)
+            .execute(&state.pg)
+            .await;
         if let Some(parent_author) = parent_author {
             notify(
                 &state,
@@ -330,7 +346,7 @@ async fn timeline(
         r#"
         SELECT
             p.id, p.author_id, u.username, u.display_name,
-            p.body, p.body_html, p.visibility, p.reply_to_id,
+            p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
             p.reactions_count, p.replies_count, p.created_at
         FROM posts p
         JOIN users u ON u.id = p.author_id
@@ -575,17 +591,18 @@ async fn react(
     if !VALID_EMOJI.iter().any(|e| *e == emoji) {
         return Err(AppError::BadRequest("invalid emoji".into()));
     }
-    let post_exists: Option<bool> = sqlx::query_scalar(
+    let post: Option<(Uuid,)> = sqlx::query_as(
         r#"
-        SELECT TRUE FROM posts
+        SELECT author_id FROM posts
         WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live'
         "#,
     )
     .bind(id)
     .fetch_optional(&state.pg)
     .await?;
-    if post_exists.is_none() {
-        return Err(AppError::NotFound);
+    let author_id = post.ok_or(AppError::NotFound)?.0;
+    if is_blocked(&state, user.user_id, author_id).await {
+        return Err(AppError::Forbidden);
     }
 
     // Upsert reaction. If user already had a reaction, replace it. Either
@@ -716,6 +733,7 @@ struct PostRow {
     body_html: String,
     visibility: String,
     reply_to_id: Option<Uuid>,
+    content_warning: Option<String>,
     reactions_count: i32,
     replies_count: i32,
     created_at: DateTime<Utc>,
@@ -735,6 +753,7 @@ impl PostRow {
             visibility: self.visibility,
             reply_to_id: self.reply_to_id,
             parent: None,
+            content_warning: self.content_warning,
             reactions_count: self.reactions_count,
             replies_count: self.replies_count,
             created_at: self.created_at,
@@ -763,6 +782,21 @@ async fn attach_parent(state: &AppState, view: &mut PostView) {
             excerpt: body.chars().take(140).collect(),
         });
     }
+}
+
+/// True if A→B or B→A blocked. Always reject the interaction.
+async fn is_blocked(state: &AppState, a: Uuid, b: Uuid) -> bool {
+    if a == b {
+        return false;
+    }
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1))",
+    )
+    .bind(a)
+    .bind(b)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false)
 }
 
 /// Best-effort: scan `body` for @-mentions, look up each username, fire
@@ -816,7 +850,7 @@ async fn fetch_post(
         r#"
         SELECT
             p.id, p.author_id, u.username, u.display_name,
-            p.body, p.body_html, p.visibility, p.reply_to_id,
+            p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
             p.reactions_count, p.replies_count, p.created_at
         FROM posts p
         JOIN users u ON u.id = p.author_id
@@ -848,7 +882,7 @@ async fn replies(
         r#"
         SELECT
             p.id, p.author_id, u.username, u.display_name,
-            p.body, p.body_html, p.visibility, p.reply_to_id,
+            p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
             p.reactions_count, p.replies_count, p.created_at
         FROM posts p
         JOIN users u ON u.id = p.author_id
@@ -921,7 +955,7 @@ async fn thread(
         )
         SELECT
             p.id, p.author_id, u.username, u.display_name,
-            p.body, p.body_html, p.visibility, p.reply_to_id,
+            p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
             p.reactions_count, p.replies_count, p.created_at
         FROM descendants d
         JOIN posts p ON p.id = d.id

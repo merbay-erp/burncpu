@@ -94,9 +94,28 @@ export default function ProfilePage() {
                 <span class="muted tiny">katıldı {relTime(p().created_at)}</span>
               </div>
               <Show when={me() && me()!.username !== p().username}>
-                <div style="margin-top: 12px;">
+                <div style="margin-top: 12px;" class="flex">
                   <button onClick={follow} disabled={busy()}>
                     {following() ? 'Takipten çık' : 'Takip et'}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`@${p().username} mute edilsin mi? (sessizce, kullanıcı bilmez)`)) return;
+                      await api.post(`/users/${p().username}/mute`);
+                      alert('Mute aktif');
+                    }}
+                  >
+                    🔇 Mute
+                  </button>
+                  <button
+                    style="color: var(--bad);"
+                    onClick={async () => {
+                      if (!confirm(`@${p().username} BLOK edilsin mi? Mevcut takipler de kalkacak.`)) return;
+                      await api.post(`/users/${p().username}/block`);
+                      alert('Blok aktif');
+                    }}
+                  >
+                    ⛔ Blok
                   </button>
                 </div>
               </Show>

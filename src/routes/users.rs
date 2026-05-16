@@ -627,6 +627,18 @@ async fn follow(
     if target == user.user_id {
         return Err(AppError::BadRequest("cannot follow yourself".into()));
     }
+    // Block check (either direction kills the follow attempt)
+    let blocked: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1))",
+    )
+    .bind(user.user_id)
+    .bind(target)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false);
+    if blocked {
+        return Err(AppError::Forbidden);
+    }
 
     let inserted = sqlx::query(
         r#"

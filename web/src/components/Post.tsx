@@ -22,6 +22,7 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
   const [bodyHtml, setBodyHtml] = createSignal(props.post.body_html);
   const [edited, setEdited] = createSignal(false);
   const [deleted, setDeleted] = createSignal(false);
+  const [cwOpen, setCwOpen] = createSignal(false);
 
   const isMine = () => me()?.username === props.post.author.username;
   const isAdmin = () => me()?.role === 'admin';
@@ -133,6 +134,27 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
     }
   };
 
+  const report = async () => {
+    const reason = prompt('Sebep (spam / harassment / illegal / other):', 'spam');
+    if (!reason) return;
+    if (!['spam', 'harassment', 'illegal', 'other'].includes(reason)) {
+      pushToast('Geçersiz sebep', 'warn');
+      return;
+    }
+    const note = prompt('Kısa not (opsiyonel):') ?? '';
+    try {
+      await api.post('/reports', {
+        target_kind: 'post',
+        target_id: props.post.id,
+        reason,
+        note: note || null,
+      });
+      pushToast("Rapor gönderildi — admin'e düştü", 'ok');
+    } catch (e) {
+      pushToast((e as Error).message, 'warn');
+    }
+  };
+
   if (deleted()) {
     return (
       <article class="post">
@@ -170,7 +192,22 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
       </div>
       <Show
         when={editing()}
-        fallback={<div class="post-body" innerHTML={bodyHtml() || body()} />}
+        fallback={
+          <Show
+            when={props.post.content_warning && !cwOpen()}
+            fallback={<div class="post-body" innerHTML={bodyHtml() || body()} />}
+          >
+            <div
+              style="padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--warn); border-radius: var(--radius); margin: 6px 0;"
+            >
+              <div class="tiny" style="color: var(--warn); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">
+                ⚠ İçerik uyarısı
+              </div>
+              <div style="margin: 4px 0 8px;">{props.post.content_warning}</div>
+              <button class="ghost tiny" onClick={() => setCwOpen(true)}>Yine de göster</button>
+            </div>
+          </Show>
+        }
       >
         <textarea
           value={editBody()}
@@ -210,6 +247,11 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
         >
           🔗
         </button>
+        <Show when={me() && !isMine()}>
+          <button onClick={report} disabled={busy()} title="Rapor et">
+            📛
+          </button>
+        </Show>
         <Show when={me()}>
           <button
             class={bookmarked() ? 'active' : ''}

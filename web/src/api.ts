@@ -58,6 +58,7 @@ export interface PostView {
   visibility: string;
   reply_to_id: string | null;
   parent?: ParentExcerpt;
+  content_warning?: string;
   reactions_count: number;
   replies_count: number;
   created_at: string;

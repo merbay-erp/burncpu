@@ -1,6 +1,6 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
-use super::{admin, auth, bookmarks, dm, feed, invites, media, notifications, posts, push, search, tokens, trending, users, webhooks};
+use super::{admin, auth, bookmarks, dm, feed, invites, media, notifications, posts, push, relations, reports, search, tokens, trending, users, webhooks};
 use crate::state::AppState;
 use axum::{routing::get, Router};
 use serde_json::json;
@@ -87,6 +87,15 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "PATCH  /api/v1/webhooks/{id}":        "toggle active / events",
                         "DELETE /api/v1/webhooks/{id}":        "remove webhook",
                         "AUTH":                                "Authorization: Bearer <token> works on every authenticated endpoint",
+                        "POST   /api/v1/users/{u}/block":      "block (drops mutual follow)",
+                        "DELETE /api/v1/users/{u}/block":      "unblock",
+                        "POST   /api/v1/users/{u}/mute":       "mute (silent on the other side)",
+                        "DELETE /api/v1/users/{u}/mute":       "unmute",
+                        "GET    /api/v1/users/me/blocks":      "your block list",
+                        "GET    /api/v1/users/me/mutes":       "your mute list",
+                        "POST   /api/v1/reports":              "report post / user / dm",
+                        "GET    /api/v1/admin/reports":        "report queue (admin, ?open=1)",
+                        "PATCH  /api/v1/admin/reports/{id}":   "resolve { resolution } (admin)",
                         "GET    /healthz":                     "liveness probe",
                     },
                 }))
@@ -108,4 +117,7 @@ pub fn router(_state: AppState) -> Router<AppState> {
         .nest("/tokens", tokens::router())
         .nest("/webhooks", webhooks::router())
         .nest("/push", push::router())
+        .nest("/users", relations::router())   // /users/{u}/block + /mute + /me/blocks etc
+        .nest("/reports", reports::router())
+        .nest("/admin/reports", reports::admin_router())
 }

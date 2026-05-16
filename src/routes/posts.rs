@@ -443,12 +443,12 @@ async fn repost(
         // (no-op self-check placeholder — repost of own post is allowed)
     }
 
-    let body = input.body.trim().chars().take(MAX_POST_LEN).collect::<String>();
-    let body_html = if body.is_empty() {
-        String::new()
-    } else {
-        render_markdown(&body)
-    };
+    let body_raw = input.body.trim().chars().take(MAX_POST_LEN).collect::<String>();
+    // posts.body CHECK forbids empty — pure repost (no quote) uses a single
+    // sentinel character so the row is valid; the UI ignores it and shows
+    // the embedded original.
+    let body = if body_raw.is_empty() { "↻".to_string() } else { body_raw };
+    let body_html = render_markdown(&body);
 
     let new_id: Uuid = sqlx::query_scalar(
         r#"

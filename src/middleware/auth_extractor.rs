@@ -12,6 +12,29 @@ use axum::{
 };
 use std::convert::Infallible;
 
+/// Wraps CurrentUser, but rejects with 403 if role != "admin". Routes under
+/// /api/v1/admin should take `_a: AdminUser` to enforce.
+#[derive(Clone)]
+pub struct AdminUser(pub CurrentUser);
+
+impl<S> FromRequestParts<S> for AdminUser
+where
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let u = parts
+            .extensions
+            .get::<CurrentUser>()
+            .cloned()
+            .ok_or(AppError::Unauthorized)?;
+        if u.role != "admin" {
+            return Err(AppError::Forbidden);
+        }
+        Ok(AdminUser(u))
+    }
+}
+
 impl<S> FromRequestParts<S> for CurrentUser
 where
     S: Send + Sync,

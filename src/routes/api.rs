@@ -1,6 +1,6 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
-use super::{auth, feed, invites, posts, users};
+use super::{admin, auth, feed, invites, posts, users};
 use crate::state::AppState;
 use axum::{routing::get, Router};
 use serde_json::json;
@@ -24,6 +24,8 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "POST   /api/v1/posts/{id}/react":     "react with emoji (auth)",
                         "DELETE /api/v1/posts/{id}/react":     "remove your reaction (auth)",
                         "GET    /api/v1/posts/{id}/reactions": "reaction tallies + your reaction",
+                        "GET    /api/v1/posts/{id}/replies":   "direct replies (paginated)",
+                        "GET    /api/v1/posts/{id}/thread":    "full conversation (root + descendants, max depth 6)",
                         "GET    /api/v1/feed":                 "personal home timeline (auth)",
                         "GET    /api/v1/users/{username}":     "profile",
                         "GET    /api/v1/users/{username}/posts":     "author posts",
@@ -36,6 +38,14 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "GET    /api/v1/invites":              "list your invites (auth)",
                         "GET    /api/v1/invites/{code}":       "check code validity",
                         "DELETE /api/v1/invites/{code}":       "revoke unredeemed invite (auth)",
+                        "GET    /api/v1/admin/posts":          "moderation queue (admin)",
+                        "PATCH  /api/v1/admin/posts/{id}":     "change moderation_state (admin)",
+                        "GET    /api/v1/admin/users":          "user list + counts (admin)",
+                        "PATCH  /api/v1/admin/users/{id}":     "suspend / unsuspend (admin)",
+                        "GET    /api/v1/admin/login_attempts": "recent attempts (admin)",
+                        "GET    /api/v1/admin/audit":          "request audit log (admin)",
+                        "GET    /api/v1/admin/sessions":       "active / flagged sessions (admin)",
+                        "GET    /api/v1/admin/moderation_log": "append-only mod history (admin)",
                         "GET    /healthz":                     "liveness probe",
                     },
                 }))
@@ -46,4 +56,5 @@ pub fn router(_state: AppState) -> Router<AppState> {
         .nest("/users", users::router())
         .nest("/feed", feed::router())
         .nest("/invites", invites::router())
+        .nest("/admin", admin::router())
 }

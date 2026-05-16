@@ -39,6 +39,8 @@ pub fn router() -> Router<AppState> {
         .route("/{id}", get(get_post).delete(delete_post))
         .route("/{id}/react", post(react).delete(unreact))
         .route("/{id}/reactions", get(reactions))
+        .route("/{id}/replies", get(replies))
+        .route("/{id}/thread", get(thread))
 }
 
 // ── Models ──────────────────────────────────────────────────────
@@ -51,9 +53,18 @@ pub struct PostView {
     body_html: String,
     visibility: String,
     reply_to_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: Option<ParentExcerpt>,
     reactions_count: i32,
     replies_count: i32,
     created_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+pub struct ParentExcerpt {
+    id: Uuid,
+    author_username: String,
+    excerpt: String,
 }
 
 #[derive(Serialize)]
@@ -448,10 +459,34 @@ impl PostRow {
             body_html: self.body_html,
             visibility: self.visibility,
             reply_to_id: self.reply_to_id,
+            parent: None,
             reactions_count: self.reactions_count,
             replies_count: self.replies_count,
             created_at: self.created_at,
         }
+    }
+}
+
+async fn attach_parent(state: &AppState, view: &mut PostView) {
+    let Some(parent_id) = view.reply_to_id else { return };
+    let row: Option<(Uuid, String, String)> = sqlx::query_as(
+        r#"
+        SELECT p.id, u.username, p.body
+        FROM posts p JOIN users u ON u.id = p.author_id
+        WHERE p.id = $1 AND p.deleted_at IS NULL AND p.moderation_state = 'live'
+        "#,
+    )
+    .bind(parent_id)
+    .fetch_optional(&state.pg)
+    .await
+    .ok()
+    .flatten();
+    if let Some((id, author_username, body)) = row {
+        view.parent = Some(ParentExcerpt {
+            id,
+            author_username,
+            excerpt: body.chars().take(140).collect(),
+        });
     }
 }
 
@@ -477,5 +512,112 @@ async fn fetch_post(
     .fetch_optional(&state.pg)
     .await?;
 
-    row.map(PostRow::into_view).ok_or(AppError::NotFound)
+    let mut view = row.map(PostRow::into_view).ok_or(AppError::NotFound)?;
+    attach_parent(state, &mut view).await;
+    Ok(view)
+}
+
+// ── GET /posts/{id}/replies ─────────────────────────────────────
+
+async fn replies(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(q): Query<TimelineQuery>,
+) -> Result<Json<TimelineResponse>, AppError> {
+    let limit = q.limit.clamp(1, 100);
+    let before = q.before.unwrap_or_else(Utc::now);
+
+    let rows: Vec<PostRow> = sqlx::query_as(
+        r#"
+        SELECT
+            p.id, p.author_id, u.username, u.display_name,
+            p.body, p.body_html, p.visibility, p.reply_to_id,
+            p.reactions_count, p.replies_count, p.created_at
+        FROM posts p
+        JOIN users u ON u.id = p.author_id
+        WHERE p.reply_to_id = $1
+          AND p.moderation_state = 'live'
+          AND p.deleted_at IS NULL
+          AND p.created_at < $2
+        ORDER BY p.created_at ASC
+        LIMIT $3
+        "#,
+    )
+    .bind(id)
+    .bind(before)
+    .bind(limit)
+    .fetch_all(&state.pg)
+    .await?;
+
+    let next_before = rows.last().map(|r| r.created_at);
+    let posts = rows.into_iter().map(PostRow::into_view).collect();
+    Ok(Json(TimelineResponse { posts, next_before }))
+}
+
+// ── GET /posts/{id}/thread ──────────────────────────────────────
+//
+// Returns: root post → its descendants depth-first (max depth 6), each
+// already enriched with parent excerpt + reactions count. Useful for the
+// single-page conversation view.
+//
+// Implementation: CTE walks the reply tree starting from the requested
+// post's ancestor chain root, then expands all descendants. Caps at 500
+// posts to avoid pathological threads exhausting memory.
+
+#[derive(Serialize)]
+pub struct ThreadResponse {
+    root: PostView,
+    descendants: Vec<PostView>,
+}
+
+async fn thread(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ThreadResponse>, AppError> {
+    // Walk up to find the root of the thread
+    let root_id: Uuid = sqlx::query_scalar(
+        r#"
+        WITH RECURSIVE ancestor(id, reply_to_id) AS (
+            SELECT id, reply_to_id FROM posts WHERE id = $1
+            UNION ALL
+            SELECT p.id, p.reply_to_id
+            FROM posts p JOIN ancestor a ON p.id = a.reply_to_id
+        )
+        SELECT id FROM ancestor WHERE reply_to_id IS NULL LIMIT 1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.pg)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    let root = fetch_post(&state, root_id, None).await?;
+
+    let descendants_rows: Vec<PostRow> = sqlx::query_as(
+        r#"
+        WITH RECURSIVE descendants(id, depth) AS (
+            SELECT id, 0 FROM posts WHERE reply_to_id = $1 AND deleted_at IS NULL
+            UNION ALL
+            SELECT p.id, d.depth + 1
+            FROM posts p JOIN descendants d ON p.reply_to_id = d.id
+            WHERE p.deleted_at IS NULL AND d.depth < 6
+        )
+        SELECT
+            p.id, p.author_id, u.username, u.display_name,
+            p.body, p.body_html, p.visibility, p.reply_to_id,
+            p.reactions_count, p.replies_count, p.created_at
+        FROM descendants d
+        JOIN posts p ON p.id = d.id
+        JOIN users u ON u.id = p.author_id
+        WHERE p.moderation_state = 'live'
+        ORDER BY p.created_at ASC
+        LIMIT 500
+        "#,
+    )
+    .bind(root_id)
+    .fetch_all(&state.pg)
+    .await?;
+
+    let descendants = descendants_rows.into_iter().map(PostRow::into_view).collect();
+    Ok(Json(ThreadResponse { root, descendants }))
 }

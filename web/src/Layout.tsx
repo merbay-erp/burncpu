@@ -3,6 +3,7 @@ import { A, useLocation } from '@solidjs/router';
 import { Show, createEffect, onCleanup, onMount } from 'solid-js';
 import { me, unread, refetchUnread, probeSession, logout } from './auth';
 import ToastStack, { pushToast } from './components/Toast';
+import Lightbox from './components/Lightbox';
 
 interface NotificationEvent {
   user_id: string;
@@ -128,6 +129,7 @@ export default function Layout(props: { children?: JSX.Element }) {
       </nav>
       <main class="main">{props.children}</main>
       <ToastStack />
+      <Lightbox />
     </div>
   );
 }

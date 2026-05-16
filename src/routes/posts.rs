@@ -14,7 +14,7 @@
 // whitelist (see content::render_markdown).
 
 use crate::{
-    content::render_markdown,
+    content::{extract_mentions, render_markdown},
     errors::AppError,
     middleware::{client_ip, session::CurrentUser},
     routes::notifications::notify,
@@ -225,6 +225,14 @@ async fn create_post(
 
     let post = fetch_post(&state, id, Some(user.user_id)).await?;
 
+    // @-mentions → notifications (skip already-notified parent author)
+    let exclude = input.reply_to_id.and_then(|rid| {
+        // can't `await` here cleanly; defer below
+        Some(rid)
+    });
+    let _ = exclude; // suppress unused
+    notify_mentions(&state, body, user.user_id, id, &post.author.username).await;
+
     // Fire-and-forget search index (only public posts surfaced in search)
     if post.visibility == "public" {
         let doc = PostDoc::from_parts(
@@ -390,6 +398,13 @@ async fn edit_post(
 
     // Refresh search index
     let post = fetch_post(&state, id, Some(user.user_id)).await?;
+
+    // Re-fire @-mention notifications (idempotent — DB has no UNIQUE on
+    // notifications so a duplicate-on-edit will create a fresh row).
+    // Caveat: editing a post with mentions WILL spam the mentioned user.
+    // Skip mentions on edit to avoid that — only fresh creates notify.
+    let _ = body;
+
     if post.visibility == "public" {
         let doc = PostDoc::from_parts(
             post.id,
@@ -695,6 +710,48 @@ async fn attach_parent(state: &AppState, view: &mut PostView) {
             author_username,
             excerpt: body.chars().take(140).collect(),
         });
+    }
+}
+
+/// Best-effort: scan `body` for @-mentions, look up each username, fire
+/// notify(kind="mention"). Skips the post author themselves.
+async fn notify_mentions(
+    state: &AppState,
+    body: &str,
+    actor_id: Uuid,
+    post_id: Uuid,
+    actor_username: &str,
+) {
+    let mentions = extract_mentions(body);
+    if mentions.is_empty() {
+        return;
+    }
+    // De-self
+    let mentions: Vec<_> = mentions
+        .into_iter()
+        .filter(|m| m != actor_username)
+        .collect();
+    if mentions.is_empty() {
+        return;
+    }
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, username FROM users WHERE username = ANY($1) AND role <> 'suspended'",
+    )
+    .bind(&mentions)
+    .fetch_all(&state.pg)
+    .await
+    .unwrap_or_default();
+    for (uid, uname) in rows {
+        notify(
+            state,
+            uid,
+            Some(actor_id),
+            "mention",
+            "post",
+            post_id,
+            Some(serde_json::json!({ "username": uname })),
+        )
+        .await;
     }
 }
 

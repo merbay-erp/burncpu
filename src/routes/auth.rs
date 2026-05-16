@@ -30,7 +30,7 @@ use std::net::SocketAddr;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/request", post(request_handler))
-        .route("/verify/:token", get(verify_handler))
+        .route("/verify/{token}", get(verify_handler))
         .route("/logout", post(logout_handler))
 }
 

@@ -3,5 +3,6 @@ pub mod auth;
 pub mod feed;
 pub mod health;
 pub mod index;
+pub mod invites;
 pub mod posts;
 pub mod users;

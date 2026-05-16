@@ -43,6 +43,8 @@ pub fn router() -> Router<AppState> {
 #[derive(Deserialize)]
 pub struct RequestBody {
     email: String,
+    #[serde(default)]
+    invite: Option<String>,
 }
 
 pub async fn request_handler(
@@ -74,7 +76,37 @@ pub async fn request_handler(
         return Err(AppError::RateLimited);
     }
 
-    // ── Generate token + persist hash
+    // ── Invite gating (only when INVITES_REQUIRED and email is new)
+    if state.config.invites_required {
+        let user_exists: Option<bool> =
+            sqlx::query_scalar("SELECT TRUE FROM users WHERE email = $1")
+                .bind(&email)
+                .fetch_optional(&state.pg)
+                .await?;
+        if user_exists.is_none() {
+            // New email → must present a valid, unredeemed, unexpired invite
+            let code = body.invite.as_deref().unwrap_or("").trim();
+            if code.is_empty() {
+                log_attempt(&state, Some(&email), "request", "invalid", &ip_str, &ua, None).await;
+                return Err(AppError::BadRequest("invite code required".into()));
+            }
+            let valid: Option<bool> = sqlx::query_scalar(
+                r#"
+                SELECT TRUE FROM invites
+                WHERE code = $1 AND redeemed_at IS NULL AND expires_at > NOW()
+                "#,
+            )
+            .bind(code)
+            .fetch_optional(&state.pg)
+            .await?;
+            if valid.is_none() {
+                log_attempt(&state, Some(&email), "request", "invalid", &ip_str, &ua, None).await;
+                return Err(AppError::BadRequest("invite invalid or expired".into()));
+            }
+        }
+    }
+
+    // ── Generate token + persist hash (carry invite for verify-time consume)
     let (raw, hash) = new_token().map_err(AppError::Internal)?;
 
     sqlx::query(
@@ -90,6 +122,14 @@ pub async fn request_handler(
     .bind(&ua)
     .execute(&state.pg)
     .await?;
+
+    // Stash invite code in Redis so verify_handler can mark it consumed.
+    // Keyed by token hash; TTL matches the magic link.
+    if let Some(code) = body.invite.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+        let mut r = state.redis.clone();
+        let key = format!("invite:pending:{}", hex(&hash));
+        let _: () = r.set_ex(&key, code, MAGIC_LINK_TTL.as_secs()).await?;
+    }
 
     // ── Build verify URL + send mail
     let url = format!("{}/api/v1/auth/verify/{}", state.config.site_origin, raw);
@@ -162,8 +202,19 @@ pub async fn verify_handler(
         .execute(&state.pg)
         .await?;
 
-    // ── Find or create user
-    let user_id = upsert_user(&state, &email).await?;
+    // ── Pull pending invite code (if any) from Redis and consume on signup
+    let pending_invite: Option<String> = {
+        let mut r = state.redis.clone();
+        let key = format!("invite:pending:{}", hex(&hash));
+        let v: Option<String> = r.get(&key).await.ok().flatten();
+        if v.is_some() {
+            let _: redis::RedisResult<()> = r.del(&key).await;
+        }
+        v
+    };
+
+    // ── Find or create user (invited_by from pending invite)
+    let user_id = upsert_user(&state, &email, pending_invite.as_deref(), &state.pg).await?;
 
     // ── Create session
     let (session_raw, session_hash) = new_token().map_err(AppError::Internal)?;
@@ -290,33 +341,53 @@ fn read_session_cookie(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-async fn upsert_user(state: &AppState, email: &str) -> Result<uuid::Uuid, AppError> {
+async fn upsert_user(
+    state: &AppState,
+    email: &str,
+    invite_code: Option<&str>,
+    pg: &sqlx::PgPool,
+) -> Result<uuid::Uuid, AppError> {
     let existing: Option<uuid::Uuid> =
         sqlx::query_scalar("SELECT id FROM users WHERE email = $1")
             .bind(email)
-            .fetch_optional(&state.pg)
+            .fetch_optional(pg)
             .await?;
     if let Some(id) = existing {
         sqlx::query("UPDATE users SET last_seen_at = NOW() WHERE id = $1")
             .bind(id)
-            .execute(&state.pg)
+            .execute(pg)
             .await?;
         return Ok(id);
     }
 
     let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(&state.pg)
+        .fetch_one(pg)
         .await
         .unwrap_or(0);
     let role = if total == 0 { "admin" } else { "member" };
 
+    // If signup carries a valid invite, resolve inviter and mark redeemed.
+    let inviter: Option<uuid::Uuid> = if let Some(code) = invite_code {
+        sqlx::query_scalar(
+            r#"
+            SELECT inviter_id FROM invites
+            WHERE code = $1 AND redeemed_at IS NULL AND expires_at > NOW()
+            "#,
+        )
+        .bind(code)
+        .fetch_optional(pg)
+        .await?
+    } else {
+        None
+    };
+
     let username_base = derive_username(email);
-    let username = unique_username(&state.pg, &username_base).await?;
+    let username = unique_username(pg, &username_base).await?;
 
     let id: uuid::Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO users (email, username, display_name, role, last_seen_at)
-        VALUES ($1, $2, $3, $4, NOW())
+        INSERT INTO users (email, username, display_name, role, invited_by, last_seen_at)
+        VALUES ($1, $2, $3, $4, $5, NOW())
         RETURNING id
         "#,
     )
@@ -324,11 +395,35 @@ async fn upsert_user(state: &AppState, email: &str) -> Result<uuid::Uuid, AppErr
     .bind(&username)
     .bind(&username)
     .bind(role)
-    .fetch_one(&state.pg)
+    .bind(inviter)
+    .fetch_one(pg)
     .await?;
 
-    tracing::info!(%email, %username, %role, "user created");
+    // Mark invite consumed
+    if let Some(code) = invite_code {
+        if inviter.is_some() {
+            let _ = sqlx::query(
+                "UPDATE invites SET redeemed_at = NOW(), redeemed_by = $1 WHERE code = $2",
+            )
+            .bind(id)
+            .bind(code)
+            .execute(pg)
+            .await;
+        }
+    }
+
+    tracing::info!(%email, %username, %role, ?inviter, "user created");
+    let _ = state; // unused after refactor; kept for symmetric call site
     Ok(id)
+}
+
+fn hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        use std::fmt::Write;
+        let _ = write!(s, "{:02x}", b);
+    }
+    s
 }
 
 fn derive_username(email: &str) -> String {

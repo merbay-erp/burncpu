@@ -13,6 +13,7 @@ pub struct Config {
     pub meilisearch_url: String,
     pub meilisearch_key: String,
     pub site_origin: String,
+    pub invites_required: bool,
 }
 
 impl Config {
@@ -25,6 +26,9 @@ impl Config {
                 .unwrap_or_else(|_| "http://127.0.0.1:7700".into()),
             meilisearch_key: env::var("MEILISEARCH_KEY").unwrap_or_default(),
             site_origin: env::var("SITE_ORIGIN").unwrap_or_else(|_| "https://burncpu.com".into()),
+            invites_required: env::var("INVITES_REQUIRED")
+                .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+                .unwrap_or(false),
         })
     }
 }

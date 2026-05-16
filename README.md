@@ -66,38 +66,57 @@ ssh vps3 'cd /opt/burncpu && docker compose up -d'
 
 | Method | Path | Açıklama |
 |--------|------|---------|
-| `GET`  | `/` | Landing |
-| `GET`  | `/healthz` | Liveness (Postgres + Redis ping) |
-| `GET`  | `/api/v1` | API index |
-| `POST` | `/api/v1/auth/request` | Magic-link iste (rate-limited per IP+email) |
-| `GET`  | `/api/v1/auth/verify/{token}` | Token doğrula → session başlat |
-| `POST` | `/api/v1/auth/logout` | Session iptal et |
+| `GET`    | `/` | Landing |
+| `GET`    | `/healthz` | Liveness (Postgres + Redis ping) |
+| `GET`    | `/api/v1` | API index |
+| `POST`   | `/api/v1/auth/request` | Magic-link iste (rate-limited per IP+email) |
+| `GET`    | `/api/v1/auth/verify/{token}` | Token doğrula → session başlat |
+| `POST`   | `/api/v1/auth/logout` | Session iptal et |
+| `POST`   | `/api/v1/posts` | Post oluştur (auth, markdown sanitize) |
+| `GET`    | `/api/v1/posts` | Public timeline (keyset pagination) |
+| `GET`    | `/api/v1/posts/{id}` | Tek post |
+| `DELETE` | `/api/v1/posts/{id}` | Soft delete (yazar veya admin) |
+| `POST`   | `/api/v1/posts/{id}/react` | Emoji ile reaksiyon (🔥🐢🤝🙏😂) |
+| `DELETE` | `/api/v1/posts/{id}/react` | Reaksiyonu kaldır |
+| `GET`    | `/api/v1/posts/{id}/reactions` | Tally + viewer'ın reaksiyonu |
+| `GET`    | `/api/v1/feed` | Personal home (own + followees, auth) |
+| `GET`    | `/api/v1/users/{username}` | Profile + counts |
+| `PATCH`  | `/api/v1/users/me` | display_name / bio / avatar_url |
+| `POST`   | `/api/v1/users/{username}/follow` | Follow |
+| `DELETE` | `/api/v1/users/{username}/follow` | Unfollow |
+| `GET`    | `/api/v1/users/{username}/followers` | Liste |
+| `GET`    | `/api/v1/users/{username}/following` | Liste |
+| `POST`   | `/api/v1/invites` | Davet kodu oluştur (auth, 5/gün, 14d TTL) |
+| `GET`    | `/api/v1/invites` | Kendi davetlerin |
+| `GET`    | `/api/v1/invites/{code}` | Kod geçerli mi (public) |
+| `DELETE` | `/api/v1/invites/{code}` | Kullanılmamış kodu iptal et |
 
 ## Yol haritası
 
 **Hafta 1** `[şu an buradayız]`
 - [x] Repo + DNS + DB + Docker
-- [x] Magic-link auth
-- [x] Audit log + login attempts + session hijack tespiti
-- [ ] Post CRUD (markdown + XSS sanitize)
-- [ ] Public timeline + RSS
+- [x] Magic-link auth + audit + session hijack flag
+- [x] Post CRUD (markdown + XSS sanitize) + public timeline
+- [x] Reactions (5-emoji set)
+- [x] Profiller, follow graph, personal feed
+- [x] Invite-only signup (env-flagged, dark-launched)
+- [ ] Frontend (SolidJS scaffold)
+- [ ] RSS feed
 
 **Hafta 2**
-- [ ] Invite-only signup
-- [ ] Profile sayfaları
-- [ ] Follow / personal timeline
+- [ ] TOTP 2FA (admin gate)
+- [ ] Reply threading
+- [ ] Notification system
 
 **Hafta 3**
-- [ ] Reactions + reply threading
 - [ ] Spam-resistant filtering engine (model-agnostik, çok katmanlı)
-
-**Hafta 4**
-- [ ] Search + hashtag + trending
 - [ ] Admin moderation paneli
 
-**Hafta 5+**
-- [ ] Notification system
+**Hafta 4**
+- [ ] Meilisearch + hashtag + trending
 - [ ] PWA
+
+**Hafta 5+**
 - [ ] Federation — sadece tek instance kültürü oturduktan sonra
 
 ## Katkı

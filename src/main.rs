@@ -65,6 +65,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(routes::index::handler))
         .route("/healthz", get(routes::health::handler))
+        .nest("/rss", routes::rss::router())
         .nest("/api/v1", routes::api::router(state.clone()))
         // Order on the request: audit (outer, sees user_id) → session
         // (loads CurrentUser) → csrf (rejects cookied cross-origin

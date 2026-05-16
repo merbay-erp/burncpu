@@ -18,20 +18,53 @@ use crate::{
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
+    response::sse::{Event, KeepAlive, Sse},
     routing::{get, patch},
     Json, Router,
 };
+use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::types::chrono::{DateTime, Utc};
+use std::{convert::Infallible, time::Duration};
+use tokio_stream::wrappers::BroadcastStream;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list))
         .route("/count", get(unread_count))
+        .route("/stream", get(stream))
         .route("/read", patch(mark_all_read))
         .route("/{id}/read", patch(mark_one_read))
+}
+
+// ── GET /notifications/stream (SSE) ─────────────────────────────
+
+async fn stream(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let rx = state.notif_tx.subscribe();
+    let stream = BroadcastStream::new(rx).filter_map(move |item| {
+        let uid = user.user_id;
+        async move {
+            match item {
+                Ok(ev) if ev.user_id == uid => Event::default()
+                    .event("notification")
+                    .json_data(&ev)
+                    .ok()
+                    .map(Ok),
+                Ok(_) => None,            // event for a different user
+                Err(_) => None,           // lagged — silently drop
+            }
+        }
+    });
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text(":ka"),
+    )
 }
 
 // ── GET /notifications ──────────────────────────────────────────
@@ -190,10 +223,33 @@ pub async fn notify(
     .bind(actor_id)
     .bind(target_kind)
     .bind(target_id)
-    .bind(metadata)
+    .bind(metadata.clone())
     .execute(&state.pg)
     .await;
     if let Err(e) = r {
         tracing::warn!(?e, kind, "notification insert failed");
+        return;
     }
+
+    // Live push to any open SSE connection for this user. Resolve the
+    // actor's username so the client doesn't have to look it up.
+    let actor_username = if let Some(aid) = actor_id {
+        sqlx::query_scalar::<_, String>("SELECT username FROM users WHERE id = $1")
+            .bind(aid)
+            .fetch_optional(&state.pg)
+            .await
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
+    let _ = state.notif_tx.send(crate::state::NotificationEvent {
+        user_id,
+        kind: kind.to_string(),
+        actor_id,
+        actor_username,
+        target_kind: target_kind.to_string(),
+        target_id,
+        created_at: sqlx::types::chrono::Utc::now().to_rfc3339(),
+    });
 }

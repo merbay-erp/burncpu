@@ -10,6 +10,8 @@ authors = ["Mustafa Erbay <mustafa@mustafaerbay.com.tr>"]
 # Web framework
 axum = { version = "0.8", features = ["macros", "tracing"] }
 tokio = { version = "1.42", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = "0.3"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "compression-gzip", "cors", "limit", "timeout"] }
 

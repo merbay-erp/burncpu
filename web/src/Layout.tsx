@@ -1,18 +1,70 @@
 import type { JSX } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
-import { Show, onMount } from 'solid-js';
+import { Show, createEffect, onCleanup, onMount } from 'solid-js';
 import { me, unread, refetchUnread, probeSession, logout } from './auth';
+import ToastStack, { pushToast } from './components/Toast';
+
+interface NotificationEvent {
+  user_id: string;
+  kind: string;
+  actor_username: string | null;
+  target_kind: string;
+  target_id: string;
+  created_at: string;
+}
+
+const eventText = (e: NotificationEvent): string => {
+  const who = e.actor_username ?? 'biri';
+  switch (e.kind) {
+    case 'reaction':
+      return `@${who} postuna tepki verdi`;
+    case 'reply':
+      return `@${who} postuna yanıt verdi`;
+    case 'follow':
+      return `@${who} seni takip etmeye başladı`;
+    case 'mention':
+      return `@${who} seni bahsetti`;
+    default:
+      return `@${who}: ${e.kind}`;
+  }
+};
 
 export default function Layout(props: { children?: JSX.Element }) {
   const loc = useLocation();
   const isActive = (p: string) => (loc.pathname === p ? 'active' : '');
+  let es: EventSource | undefined;
 
   onMount(async () => {
-    // Always probe — cookie may be present without cached identity (e.g.
-    // after clicking a magic-link email which redirects back to /).
     const ok = await probeSession();
     if (ok) refetchUnread();
   });
+
+  // Open the SSE stream whenever we transition into a logged-in state;
+  // close it on logout. createEffect re-runs when me() changes.
+  createEffect(() => {
+    if (me()) {
+      if (!es) {
+        es = new EventSource('/api/v1/notifications/stream', { withCredentials: true });
+        es.addEventListener('notification', (msg) => {
+          try {
+            const ev = JSON.parse((msg as MessageEvent).data) as NotificationEvent;
+            pushToast(eventText(ev));
+            refetchUnread();
+          } catch {
+            // ignore malformed
+          }
+        });
+        es.onerror = () => {
+          // Browser will auto-reconnect with the same connection — let it.
+        };
+      }
+    } else {
+      es?.close();
+      es = undefined;
+    }
+  });
+
+  onCleanup(() => es?.close());
 
   return (
     <div class="shell">
@@ -72,6 +124,7 @@ export default function Layout(props: { children?: JSX.Element }) {
         </Show>
       </nav>
       <main class="main">{props.children}</main>
+      <ToastStack />
     </div>
   );
 }

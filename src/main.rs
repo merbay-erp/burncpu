@@ -55,11 +55,18 @@ async fn main() -> Result<()> {
         tracing::info!("meilisearch index ready");
     }
 
+    // Broadcast channel for live notifications (SSE). Capacity 512 is
+    // enough to absorb a burst while subscribers catch up — slow
+    // consumers will get Lagged errors and the SSE handler will drop
+    // them, which is fine.
+    let (notif_tx, _) = tokio::sync::broadcast::channel(512);
+
     let state = AppState {
         pg: pg_pool,
         redis: redis_mgr,
         config: cfg.clone(),
         search,
+        notif_tx,
     };
 
     let app = Router::new()

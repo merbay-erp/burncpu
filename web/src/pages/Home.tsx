@@ -19,11 +19,8 @@ export default function Home() {
       const qs = cursor() ? `?limit=30&before=${encodeURIComponent(cursor()!)}` : '?limit=30';
       const page = await api.get<Timeline>(`/posts${qs}`);
       setPosts((cur) => [...cur, ...page.posts]);
-      if (page.next_before && page.posts.length > 0) {
-        setCursor(page.next_before);
-      } else {
-        setDone(true);
-      }
+      if (page.next_before && page.posts.length > 0) setCursor(page.next_before);
+      else setDone(true);
     } finally {
       setLoading(false);
       setInitialized(true);
@@ -32,32 +29,40 @@ export default function Home() {
 
   const prepend = (p: PostView) => setPosts((cur) => [p, ...cur]);
   const reload = async () => {
-    setPosts([]);
-    setCursor(null);
-    setDone(false);
-    setInitialized(false);
+    setPosts([]); setCursor(null); setDone(false); setInitialized(false);
     await loadMore();
   };
 
   return (
     <>
-      <h2 class="page-title">
-        Public timeline <small>herkesin paylaştığı</small>
-      </h2>
+      <header class="mb-8 border-b border-outline-variant pb-4">
+        <h1 class="font-headline-lg text-[28px] md:text-[32px] font-semibold tracking-tight text-on-background">
+          Public Timeline
+        </h1>
+        <p class="text-on-surface-variant font-mono text-[14px] mt-1">
+          Real-time processing from the high-performance grid.
+        </p>
+      </header>
+
       <Show when={me()}>
         <Compose onPosted={prepend} />
       </Show>
+
       <InfiniteList onLoadMore={loadMore} loading={loading()} done={done()}>
-        <For
-          each={posts()}
-          fallback={
-            initialized() ? (
-              <div class="muted">Henüz post yok. İlk paylaşan sen ol.</div>
-            ) : null
-          }
-        >
-          {(p) => <Post post={p} onChange={reload} />}
-        </For>
+        <div class="space-y-6">
+          <For
+            each={posts()}
+            fallback={
+              initialized() ? (
+                <div class="p-6 border border-dashed border-outline-variant rounded-xl text-on-surface-variant font-mono text-[14px] text-center">
+                  Signal silent. First transmission is yours.
+                </div>
+              ) : null
+            }
+          >
+            {(p) => <Post post={p} onChange={reload} />}
+          </For>
+        </div>
       </InfiniteList>
     </>
   );

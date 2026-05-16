@@ -1,4 +1,4 @@
-import { Show, createSignal, For } from 'solid-js';
+import { Show, createSignal } from 'solid-js';
 import { A } from '@solidjs/router';
 import type { PostView } from '../api';
 import { api } from '../api';
@@ -6,17 +6,18 @@ import { me } from '../auth';
 import { pushToast } from './Toast';
 import { relTime, visibleLength } from '../util';
 
-// Reactions intentionally trimmed to a single signal — the brand turtle.
-// 5-emoji set was scope-creep that nudges toward engagement-farming UX.
-// Backend still accepts the full set, so re-enable by widening this array.
-const EMOJI = ['\u{1F422}'];
+// "Yaşlı mühendis kulübü" pact: single-emoji react (the brand turtle).
+// Backend still accepts the full set — re-enable by widening this array.
+const REACT_EMOJI = '\u{1F422}'; // 🐢
 const MAX_LEN = 5000;
+
+const ACTION_BTN = 'flex items-center gap-1.5 text-on-surface-variant hover:text-primary transition-colors';
 
 export default function Post(props: { post: PostView; onChange?: () => void }) {
   if (!props.post || !props.post.author) return null;
 
   const [reactionsTotal, setReactionsTotal] = createSignal(props.post.reactions_count);
-  const [myReaction, setMyReaction] = createSignal<string | null>(null);
+  const [reacted, setReacted] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [bookmarked, setBookmarked] = createSignal(false);
   const [editing, setEditing] = createSignal(false);
@@ -26,72 +27,49 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
   const [edited, setEdited] = createSignal(false);
   const [deleted, setDeleted] = createSignal(false);
   const [cwOpen, setCwOpen] = createSignal(false);
+  const [menuOpen, setMenuOpen] = createSignal(false);
 
-  const isMine = () => me()?.username === props.post.author.username;
+  const isMine  = () => me()?.username === props.post.author.username;
   const isAdmin = () => me()?.role === 'admin';
+  const isRecent = () => {
+    const t = Date.parse(props.post.created_at);
+    return Number.isFinite(t) && (Date.now() - t) < 1000 * 60 * 30; // 30min
+  };
 
-  const reactOrSwap = async (emoji: string) => {
+  const toggleReact = async () => {
     if (!me() || busy()) return;
     setBusy(true);
     try {
-      if (myReaction() === emoji) {
+      if (reacted()) {
         await api.del(`/posts/${props.post.id}/react`);
-        setMyReaction(null);
+        setReacted(false);
         setReactionsTotal((n) => Math.max(0, n - 1));
       } else {
-        await api.post(`/posts/${props.post.id}/react`, { emoji });
-        if (!myReaction()) setReactionsTotal((n) => n + 1);
-        setMyReaction(emoji);
+        await api.post(`/posts/${props.post.id}/react`, { emoji: REACT_EMOJI });
+        setReacted(true);
+        setReactionsTotal((n) => n + 1);
       }
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const toggleBookmark = async () => {
     if (!me() || busy()) return;
     setBusy(true);
     try {
-      if (bookmarked()) {
-        await api.del(`/bookmarks/${props.post.id}`);
-        setBookmarked(false);
-      } else {
-        await api.post(`/bookmarks/${props.post.id}`);
-        setBookmarked(true);
-      }
-    } finally {
-      setBusy(false);
-    }
+      if (bookmarked()) { await api.del(`/bookmarks/${props.post.id}`); setBookmarked(false); }
+      else { await api.post(`/bookmarks/${props.post.id}`); setBookmarked(true); }
+    } finally { setBusy(false); }
   };
 
   const saveEdit = async () => {
     if (busy() || !editBody().trim()) return;
     setBusy(true);
     try {
-      const updated = await api.patch<PostView>(`/posts/${props.post.id}`, {
-        body: editBody().trim(),
-      });
-      setBody(updated.body);
-      setBodyHtml(updated.body_html);
-      setEdited(true);
-      setEditing(false);
-    } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+      const u = await api.patch<PostView>(`/posts/${props.post.id}`, { body: editBody().trim() });
+      setBody(u.body); setBodyHtml(u.body_html); setEdited(true); setEditing(false);
+    } catch (e) { alert((e as Error).message); }
+    finally { setBusy(false); }
   };
-
-  // Repost flow disabled at the UI layer during high-signal pact.
-  // Keep the implementation around — re-bind the button to re-enable.
-  // const repost = async () => {
-  //   if (!me() || busy()) return;
-  //   setBusy(true);
-  //   try {
-  //     await api.post(`/posts/${props.post.id}/repost`, {});
-  //     props.onChange?.();
-  //   } finally { setBusy(false); }
-  // };
 
   const deleteIt = async () => {
     if (!confirm('Postu sil?')) return;
@@ -102,24 +80,25 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
 
   const share = async () => {
     const url = `${window.location.origin}/posts/${props.post.id}`;
-    const sharable = navigator.share as unknown;
-    if (typeof sharable === 'function') {
-      try {
-        await (navigator.share as (d: ShareData) => Promise<void>)({
-          url,
-          title: `@${props.post.author.username} — burncpu`,
-        });
-        return;
-      } catch {
-        // user cancelled or unsupported — fall through to clipboard
-      }
+    if (typeof navigator.share === 'function') {
+      try { await navigator.share({ url, title: `@${props.post.author.username} — burncpu` }); return; }
+      catch { /* fall through */ }
     }
+    try { await navigator.clipboard.writeText(url); pushToast('Link kopyalandı', 'ok'); }
+    catch { pushToast('Link: ' + url); }
+  };
+
+  const report = async () => {
+    const reason = prompt('Sebep (spam / harassment / illegal / other):', 'spam');
+    if (!reason) return;
+    if (!['spam', 'harassment', 'illegal', 'other'].includes(reason)) {
+      pushToast('Geçersiz sebep', 'warn'); return;
+    }
+    const note = prompt('Kısa not (opsiyonel):') ?? '';
     try {
-      await navigator.clipboard.writeText(url);
-      pushToast('Link kopyalandı', 'ok');
-    } catch {
-      pushToast('Link: ' + url);
-    }
+      await api.post('/reports', { target_kind: 'post', target_id: props.post.id, reason, note: note || null });
+      pushToast("Rapor gönderildi — admin'e düştü", 'ok');
+    } catch (e) { pushToast((e as Error).message, 'warn'); }
   };
 
   const togglePin = async () => {
@@ -128,158 +107,179 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
     try {
       await api.post(`/users/me/pin/${props.post.id}`);
       pushToast('Profile sabitlendi', 'ok');
-    } catch (e) {
-      pushToast((e as Error).message, 'warn');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const report = async () => {
-    const reason = prompt('Sebep (spam / harassment / illegal / other):', 'spam');
-    if (!reason) return;
-    if (!['spam', 'harassment', 'illegal', 'other'].includes(reason)) {
-      pushToast('Geçersiz sebep', 'warn');
-      return;
-    }
-    const note = prompt('Kısa not (opsiyonel):') ?? '';
-    try {
-      await api.post('/reports', {
-        target_kind: 'post',
-        target_id: props.post.id,
-        reason,
-        note: note || null,
-      });
-      pushToast("Rapor gönderildi — admin'e düştü", 'ok');
-    } catch (e) {
-      pushToast((e as Error).message, 'warn');
-    }
+    } catch (e) { pushToast((e as Error).message, 'warn'); }
+    finally { setBusy(false); }
   };
 
   if (deleted()) {
     return (
-      <article class="post">
-        <div class="muted tiny">[silindi]</div>
+      <article class="p-6 bg-surface-container-low border border-outline-variant rounded-xl">
+        <div class="text-on-surface-variant text-[12px] font-mono">[transmission ceased]</div>
       </article>
     );
   }
 
   return (
-    <article class="post">
+    <article class="p-6 bg-surface-container-low border border-outline-variant rounded-xl hover:border-primary/50 transition-colors">
+      {/* parent quote (reply context) */}
       <Show when={props.post.parent}>
         {(p) => (
-          <A href={`/posts/${p().id}`} style="text-decoration: none; color: inherit;">
-            <div class="parent-quote">
-              <span class="handle">↳ @{p().author_username}</span>
-              <div class="excerpt">{p().excerpt}</div>
+          <A href={`/posts/${p().id}`} class="block mb-4">
+            <div class="bg-surface-container border-l-2 border-primary px-3 py-2 rounded-r text-[13px]">
+              <span class="text-on-surface-variant font-mono">↳ @{p().author_username}</span>
+              <div class="text-on-surface-variant mt-1 line-clamp-2">{p().excerpt}</div>
             </div>
           </A>
         )}
       </Show>
-      <div class="post-head">
-        <A href={`/u/${props.post.author.username}`} class="name" style="color: inherit;">
-          {props.post.author.display_name}
+
+      <div class="flex gap-4">
+        {/* Avatar */}
+        <A href={`/u/${props.post.author.username}`} class="flex-shrink-0">
+          <div class="w-10 h-10 bg-surface-container-highest rounded-lg flex items-center justify-center text-[18px] font-bold text-primary overflow-hidden">
+            🐢
+          </div>
         </A>
-        <A href={`/u/${props.post.author.username}`} class="handle" style="color: var(--fg-2);">
-          @{props.post.author.username}
-        </A>
-        <A href={`/posts/${props.post.id}`} class="time" style="color: var(--fg-3);">
-          {relTime(props.post.created_at)}
-          <Show when={edited()}>
-            {' '}
-            <span class="muted">· edit</span>
-          </Show>
-        </A>
-      </div>
-      <Show
-        when={editing()}
-        fallback={
+
+        <div class="flex-1 min-w-0">
+          {/* Head */}
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+              <A href={`/u/${props.post.author.username}`} class="font-bold text-primary truncate">
+                @{props.post.author.username}
+              </A>
+              <A href={`/posts/${props.post.id}`} class="text-on-surface-variant font-mono text-[12px] shrink-0">
+                · {relTime(props.post.created_at)}
+                <Show when={edited()}> · edit</Show>
+              </A>
+              <Show when={isRecent()}>
+                <span class="w-2 h-2 rounded-full bg-primary signal-pulse shrink-0"></span>
+              </Show>
+            </div>
+            <div class="relative">
+              <button
+                onClick={() => setMenuOpen((v) => !v)}
+                class="text-on-surface-variant hover:text-primary"
+              >
+                <span class="material-symbols-outlined">more_horiz</span>
+              </button>
+              <Show when={menuOpen()}>
+                <div
+                  onMouseLeave={() => setMenuOpen(false)}
+                  class="absolute right-0 top-full mt-1 w-44 bg-surface-container-high border border-outline-variant rounded-lg shadow-lg z-30 py-1 text-[13px]"
+                >
+                  <MenuItem icon="share" label="Paylaş" onClick={() => { setMenuOpen(false); share(); }} />
+                  <Show when={me()}>
+                    <MenuItem
+                      icon={bookmarked() ? 'bookmark' : 'bookmark_add'}
+                      label={bookmarked() ? 'Kayıttan çıkar' : 'Kaydet'}
+                      onClick={() => { setMenuOpen(false); toggleBookmark(); }}
+                    />
+                    <Show when={isMine()}>
+                      <MenuItem icon="push_pin" label="Profile sabitle" onClick={() => { setMenuOpen(false); togglePin(); }} />
+                      <MenuItem icon="edit"     label="Düzenle"          onClick={() => { setMenuOpen(false); setEditing(true); }} />
+                    </Show>
+                    <Show when={!isMine()}>
+                      <MenuItem icon="flag" label="Rapor et" onClick={() => { setMenuOpen(false); report(); }} />
+                    </Show>
+                    <Show when={isMine() || isAdmin()}>
+                      <MenuItem icon="delete" label="Sil" danger onClick={() => { setMenuOpen(false); deleteIt(); }} />
+                    </Show>
+                  </Show>
+                </div>
+              </Show>
+            </div>
+          </div>
+
+          {/* Body / CW fold / Editor */}
           <Show
-            when={props.post.content_warning && !cwOpen()}
-            fallback={<div class="post-body" innerHTML={bodyHtml() || body()} />}
+            when={editing()}
+            fallback={
+              <Show
+                when={props.post.content_warning && !cwOpen()}
+                fallback={
+                  <div class="post-body mt-2 text-on-surface text-body-md" innerHTML={bodyHtml() || body()} />
+                }
+              >
+                <div class="mt-3 p-3 bg-surface-container border border-outline-variant rounded-lg">
+                  <div class="text-[10px] font-mono uppercase tracking-widest text-primary">⚠ İçerik uyarısı</div>
+                  <div class="mt-1 text-on-surface">{props.post.content_warning}</div>
+                  <button
+                    onClick={() => setCwOpen(true)}
+                    class="mt-2 text-[12px] font-mono text-primary hover:underline"
+                  >
+                    göster ↓
+                  </button>
+                </div>
+              </Show>
+            }
           >
-            <div
-              style="padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--warn); border-radius: var(--radius); margin: 6px 0;"
-            >
-              <div class="tiny" style="color: var(--warn); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">
-                ⚠ İçerik uyarısı
-              </div>
-              <div style="margin: 4px 0 8px;">{props.post.content_warning}</div>
-              <button class="ghost tiny" onClick={() => setCwOpen(true)}>Yine de göster</button>
+            <textarea
+              value={editBody()}
+              onInput={(e) => setEditBody(e.currentTarget.value)}
+              maxlength={MAX_LEN}
+              rows={3}
+              class="mt-2"
+            />
+            <div class="flex justify-end gap-2 mt-2 text-[12px]">
+              <span class="char-count self-center mr-auto">{visibleLength(editBody())}/{MAX_LEN}</span>
+              <button onClick={() => { setEditing(false); setEditBody(body()); }} class="px-3 py-1 font-mono text-on-surface-variant hover:text-primary">
+                iptal
+              </button>
+              <button onClick={saveEdit} disabled={busy() || !editBody().trim()} class="px-3 py-1 bg-primary text-on-primary font-bold rounded font-mono">
+                Kaydet
+              </button>
             </div>
           </Show>
-        }
-      >
-        <textarea
-          value={editBody()}
-          onInput={(e) => setEditBody(e.currentTarget.value)}
-          maxlength={MAX_LEN}
-          rows="3"
-        />
-        <div class="flex" style="margin-top: 6px; justify-content: flex-end;">
-          <span class="char-count">{visibleLength(editBody())}/{MAX_LEN}</span>
-          <button class="ghost tiny" onClick={() => { setEditing(false); setEditBody(body()); }}>iptal</button>
-          <button class="primary tiny" onClick={saveEdit} disabled={busy() || !editBody().trim()}>
-            Kaydet
-          </button>
-        </div>
-      </Show>
-      <div class="post-foot">
-        <For each={EMOJI}>
-          {(emoji) => (
-            <button
-              class={myReaction() === emoji ? 'active' : ''}
-              onClick={() => reactOrSwap(emoji)}
-              disabled={!me() || busy()}
-              title={me() ? '' : 'tepki için giriş yap'}
+
+          {/* Footer actions */}
+          <div class="flex gap-6 mt-6 items-center">
+            <A
+              href={`/posts/${props.post.id}`}
+              class={ACTION_BTN}
+              title="Yanıt"
             >
-              {emoji}
+              <span class="material-symbols-outlined" style="font-size: 18px;">chat_bubble</span>
+              <Show when={props.post.replies_count > 0}>
+                <span class="font-mono text-[12px]">{props.post.replies_count}</span>
+              </Show>
+            </A>
+            <button
+              class={ACTION_BTN + (reacted() ? ' text-primary' : '')}
+              onClick={toggleReact}
+              disabled={!me() || busy()}
+              title={me() ? 'Katıldım' : 'tepki için giriş yap'}
+            >
+              <span
+                class="material-symbols-outlined"
+                style={reacted() ? "font-size: 18px; font-variation-settings: 'FILL' 1;" : 'font-size: 18px;'}
+              >
+                favorite
+              </span>
+              <Show when={reactionsTotal() > 0}>
+                <span class={`font-mono text-[12px] ${reacted() ? 'text-primary' : ''}`}>
+                  {reactionsTotal()}
+                </span>
+              </Show>
             </button>
-          )}
-        </For>
-        <span class="tiny muted">
-          {reactionsTotal()} · <A href={`/posts/${props.post.id}`}>{props.post.replies_count} reply</A>
-        </span>
-        <button
-          onClick={share}
-          disabled={busy()}
-          title="Paylaş"
-          style="margin-left: auto;"
-        >
-          🔗
-        </button>
-        <Show when={me() && !isMine()}>
-          <button onClick={report} disabled={busy()} title="Rapor et">
-            📛
-          </button>
-        </Show>
-        <Show when={me()}>
-          <button
-            class={bookmarked() ? 'active' : ''}
-            onClick={toggleBookmark}
-            disabled={busy()}
-            title="Kaydet"
-          >
-            🔖
-          </button>
-          {/* Repost hidden during high-signal pact — amplifier UX.
-              <button onClick={repost} disabled={busy()} title="Repost">🔁</button>
-          */}
-          <Show when={isMine()}>
-            <button onClick={togglePin} disabled={busy()} title="Profile sabitle">
-              📌
+            <button class={ACTION_BTN + ' ml-auto'} onClick={share} title="Paylaş">
+              <span class="material-symbols-outlined" style="font-size: 18px;">share</span>
             </button>
-            <button onClick={() => setEditing((v) => !v)} disabled={busy()} title="Düzenle">
-              ✏️
-            </button>
-          </Show>
-          <Show when={isMine() || isAdmin()}>
-            <button onClick={deleteIt} disabled={busy()} title="Sil">
-              🗑
-            </button>
-          </Show>
-        </Show>
+          </div>
+        </div>
       </div>
     </article>
+  );
+}
+
+function MenuItem(props: { icon: string; label: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      onClick={props.onClick}
+      class={`w-full flex items-center gap-2 px-3 py-2 hover:bg-surface-container-highest text-left ${props.danger ? 'text-error' : 'text-on-background'}`}
+    >
+      <span class="material-symbols-outlined" style="font-size: 18px;">{props.icon}</span>
+      <span class="font-mono text-[13px]">{props.label}</span>
+    </button>
   );
 }

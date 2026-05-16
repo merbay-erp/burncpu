@@ -1,8 +1,5 @@
 import { onCleanup, onMount, type JSX } from 'solid-js';
 
-/// Renders `children`, then a sentinel div. When the sentinel intersects
-/// the viewport, calls `onLoadMore`. Stops once `done` is true. Cheap —
-/// uses IntersectionObserver, no scroll-listener thrashing.
 export default function InfiniteList(props: {
   children: JSX.Element;
   onLoadMore: () => void;
@@ -17,9 +14,7 @@ export default function InfiniteList(props: {
     observer = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
-          if (e.isIntersecting && !props.loading && !props.done) {
-            props.onLoadMore();
-          }
+          if (e.isIntersecting && !props.loading && !props.done) props.onLoadMore();
         }
       },
       { rootMargin: '200px' },
@@ -34,14 +29,21 @@ export default function InfiniteList(props: {
       {props.children}
       <div ref={sentinel} style="height: 1px;" />
       {props.loading ? (
-        <div class="muted tiny" style="text-align: center; padding: 12px;">
-          <span class="spinner" /> daha yüklüyor…
+        <div class="w-full mt-12 py-4 text-on-surface-variant font-mono text-[14px] text-center">
+          <span class="spinner mr-2" />SCANNING…
         </div>
-      ) : props.done ? (
-        <div class="muted tiny" style="text-align: center; padding: 12px;">
-          son.
+      ) : !props.done ? (
+        <button
+          onClick={() => props.onLoadMore()}
+          class="w-full mt-12 py-4 border border-dashed border-outline-variant text-on-surface-variant font-mono text-[14px] tracking-wider rounded-xl hover:text-primary hover:border-primary transition-all"
+        >
+          SCROLL FOR MORE SIGNAL
+        </button>
+      ) : (
+        <div class="w-full mt-12 py-4 text-on-surface-variant font-mono text-[12px] text-center tracking-widest">
+          END OF TRANSMISSION
         </div>
-      ) : null}
+      )}
     </>
   );
 }

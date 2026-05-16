@@ -17,6 +17,7 @@ use crate::{
     content::render_markdown,
     errors::AppError,
     middleware::{client_ip, session::CurrentUser},
+    routes::notifications::notify,
     search::PostDoc,
     state::AppState,
 };
@@ -195,12 +196,30 @@ async fn create_post(
     .fetch_one(&state.pg)
     .await?;
 
-    // Bump parent reply count
+    // Bump parent reply count + notify parent author
     if let Some(reply_id) = input.reply_to_id {
         let _ = sqlx::query("UPDATE posts SET replies_count = replies_count + 1 WHERE id = $1")
             .bind(reply_id)
             .execute(&state.pg)
             .await;
+        let parent_author: Option<Uuid> =
+            sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")
+                .bind(reply_id)
+                .fetch_optional(&state.pg)
+                .await
+                .unwrap_or(None);
+        if let Some(parent_author) = parent_author {
+            notify(
+                &state,
+                parent_author,
+                Some(user.user_id),
+                "reply",
+                "post",
+                id,
+                Some(serde_json::json!({ "reply_to_id": reply_id })),
+            )
+            .await;
+        }
     }
 
     let post = fetch_post(&state, id, Some(user.user_id)).await?;
@@ -375,6 +394,27 @@ async fn react(
     let _ = inserted; // suppress unused-warn
 
     refresh_reactions_count(&state, id).await?;
+
+    // Notify the post author (skip if reacting to own post — handled by notify())
+    let author_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.pg)
+            .await
+            .unwrap_or(None);
+    if let Some(author_id) = author_id {
+        notify(
+            &state,
+            author_id,
+            Some(user.user_id),
+            "reaction",
+            "post",
+            id,
+            Some(serde_json::json!({ "emoji": emoji })),
+        )
+        .await;
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 

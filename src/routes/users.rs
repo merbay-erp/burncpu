@@ -11,6 +11,7 @@
 use crate::{
     errors::AppError,
     middleware::session::CurrentUser,
+    routes::notifications::notify,
     state::AppState,
 };
 use axum::{
@@ -247,7 +248,7 @@ async fn follow(
         return Err(AppError::BadRequest("cannot follow yourself".into()));
     }
 
-    sqlx::query(
+    let inserted = sqlx::query(
         r#"
         INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2)
         ON CONFLICT DO NOTHING
@@ -256,7 +257,13 @@ async fn follow(
     .bind(user.user_id)
     .bind(target)
     .execute(&state.pg)
-    .await?;
+    .await?
+    .rows_affected();
+
+    // Notify only on the first follow (idempotent — duplicate POST is a no-op)
+    if inserted > 0 {
+        notify(&state, target, Some(user.user_id), "follow", "user", target, None).await;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

@@ -5,6 +5,7 @@ pub mod feed;
 pub mod health;
 pub mod index;
 pub mod invites;
+pub mod notifications;
 pub mod posts;
 pub mod search;
 pub mod users;

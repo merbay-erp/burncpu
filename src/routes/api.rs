@@ -1,6 +1,6 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
-use super::{admin, auth, feed, invites, posts, search, users};
+use super::{admin, auth, feed, invites, notifications, posts, search, users};
 use crate::state::AppState;
 use axum::{routing::get, Router};
 use serde_json::json;
@@ -49,6 +49,10 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "GET    /api/v1/search ?q=&tag=":      "text + hashtag search (public live posts)",
                         "GET    /api/v1/hashtags/{tag}":       "posts tagged with #tag",
                         "POST   /api/v1/search/reindex":       "bulk re-index live public posts (admin)",
+                        "GET    /api/v1/notifications":        "inbox (auth, paginated, ?unread_only=1)",
+                        "GET    /api/v1/notifications/count":  "unread count for badge",
+                        "PATCH  /api/v1/notifications/read":   "bulk mark all read",
+                        "PATCH  /api/v1/notifications/{id}/read": "mark single read",
                         "GET    /healthz":                     "liveness probe",
                     },
                 }))
@@ -62,4 +66,5 @@ pub fn router(_state: AppState) -> Router<AppState> {
         .nest("/admin", admin::router())
         .nest("/search", search::router())
         .nest("/hashtags", search::hashtags_router())
+        .nest("/notifications", notifications::router())
 }

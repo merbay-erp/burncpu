@@ -115,6 +115,28 @@ pub fn hash_recovery(code: &str) -> Vec<u8> {
     Sha256::digest(code.trim().as_bytes()).to_vec()
 }
 
+/// Encrypt arbitrary bytes with the platform XChaCha20-Poly1305 key from
+/// BURNCPU_ENC_KEY. Returns (ciphertext_with_tag, nonce). Used for both
+/// TOTP secrets and federation actor private keys.
+pub fn encrypt_blob(plaintext: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+    let key = load_enc_key()?;
+    let cipher = XChaCha20Poly1305::new(&key.into());
+    let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
+    let ct = cipher
+        .encrypt(&nonce, plaintext)
+        .map_err(|e| anyhow!("encrypt: {e}"))?;
+    Ok((ct, nonce.to_vec()))
+}
+
+pub fn decrypt_blob(ciphertext: &[u8], nonce: &[u8]) -> Result<Vec<u8>> {
+    let key = load_enc_key()?;
+    let cipher = XChaCha20Poly1305::new(&key.into());
+    let nonce = XNonce::from_slice(nonce);
+    cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| anyhow!("decrypt: {e}"))
+}
+
 fn random_code(n: usize) -> String {
     const ALPHA: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let mut buf = vec![0u8; n];

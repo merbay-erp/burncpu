@@ -17,6 +17,7 @@ pub struct Config {
     pub bootstrap_admin_email: Option<String>,
     pub allowed_origins: Vec<String>,
     pub media_dir: String,
+    pub federation_enabled: bool,
 }
 
 impl Config {
@@ -45,6 +46,9 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .collect(),
             media_dir: env::var("MEDIA_DIR").unwrap_or_else(|_| "/data/media".into()),
+            federation_enabled: env::var("FEDERATION_ENABLED")
+                .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+                .unwrap_or(false),
         })
     }
 }

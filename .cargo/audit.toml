@@ -3,13 +3,13 @@
 
 [advisories]
 ignore = [
-    # RUSTSEC-2023-0071 — Marvin Attack on rsa crate via sqlx-mysql.
-    # We don't use MySQL (only Postgres); sqlx-mysql appears in Cargo.lock
-    # but is not actually compiled (verified with `cargo tree -i sqlx-mysql`
-    # which prints nothing). No code path in burncpu reaches the `rsa` crate.
-    # Upstream has no patch (timing-channel fix would require constant-time
-    # rewrite). Will lift this ignore the moment sqlx ships a fix that
-    # excludes sqlx-mysql from default workspace metadata, or rsa 0.10
-    # lands with the constant-time fix.
+    # RUSTSEC-2023-0071 — Marvin Attack on rsa crate.
+    # We now use the rsa crate directly (federation HTTP Signatures —
+    # ActivityPub spec requires RSA-SHA256). The Marvin Attack is a
+    # remote-timing side-channel on private-key decryption; HTTP Signature
+    # signing is constant-input (signed headers don't carry attacker-
+    # controlled values during sign), and our keys are 2048-bit fresh per
+    # user. Risk accepted vs the practical impossibility of federating
+    # without RSA. Lift when rsa 0.10 with constant-time primitives lands.
     "RUSTSEC-2023-0071",
 ]

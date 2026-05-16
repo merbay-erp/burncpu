@@ -4,6 +4,7 @@ pub mod auth;
 pub mod bookmarks;
 pub mod dm;
 pub mod embed;
+pub mod federation;
 pub mod feed;
 pub mod health;
 pub mod index;

@@ -17,6 +17,7 @@ mod config;
 mod content;
 mod db;
 mod errors;
+mod federation;
 mod middleware;
 mod routes;
 mod search;
@@ -82,6 +83,10 @@ async fn main() -> Result<()> {
         .route("/healthz", get(routes::health::handler))
         .route("/sitemap.xml", get(routes::sitemap::handler))
         .route("/embed/posts/{id}", get(routes::embed::post_embed))
+        .route("/.well-known/webfinger", get(routes::federation::webfinger))
+        .route("/.well-known/nodeinfo", get(routes::federation::nodeinfo_discovery))
+        .route("/nodeinfo/2.1", get(routes::federation::nodeinfo))
+        .nest("/ap", routes::federation::router())
         .nest("/rss", routes::rss::router())
         .nest("/api/v1", routes::api::router(state.clone()))
         // 6 MiB request body cap (5 MiB media + multipart overhead)

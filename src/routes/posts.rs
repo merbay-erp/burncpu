@@ -278,6 +278,13 @@ async fn create_post(
     let _ = exclude; // suppress unused
     notify_mentions(&state, body, user.user_id, id, &post.author.username).await;
 
+    // Federation fanout to remote followers (no-op if FEDERATION_ENABLED=false)
+    if post.visibility == "public" {
+        let s2 = state.clone();
+        let pid = post.id;
+        tokio::spawn(async move { crate::federation::fanout_post(&s2, pid).await; });
+    }
+
     // Fire-and-forget search index (only public posts surfaced in search)
     if post.visibility == "public" {
         let doc = PostDoc::from_parts(

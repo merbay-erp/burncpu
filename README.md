@@ -10,7 +10,7 @@ Kendi sosyal medyamız. Hızlı, güvenli, kontrolümüzde.
 
 ## Neden var
 
-> "Mastodon hesabım otomatik paylaşımları spam olarak değerlendirip askıya aldı. Başkasının kurallarına bağımlı kalmak istemiyorum."
+> "Başkasının kurallarına bağımlı kalmak istemiyorum."
 
 Bu repo o günün sabah projesi. 12 saatte sıfırdan:
 - Domain (Cloudflare)

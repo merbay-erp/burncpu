@@ -48,7 +48,7 @@ export default function Layout(props: { children?: JSX.Element }) {
         >
           {(u) => (
             <>
-              <A href={`/@${u().username}`} class={isActive(`/@${u().username}`)}>
+              <A href={`/u/${u().username}`} class={isActive(`/u/${u().username}`)}>
                 <span>👤</span> Profilim
               </A>
               <div class="me">

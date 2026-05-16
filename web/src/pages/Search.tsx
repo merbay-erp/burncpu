@@ -39,7 +39,7 @@ export default function Search() {
                 {(h: SearchHit) => (
                   <article class="post">
                     <div class="post-head">
-                      <A href={`/@${h.author_username}`} class="handle" style="color: var(--fg-2);">
+                      <A href={`/u/${h.author_username}`} class="handle" style="color: var(--fg-2);">
                         @{h.author_username}
                       </A>
                       <A

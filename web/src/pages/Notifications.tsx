@@ -51,7 +51,7 @@ function text(n: Notification) {
 
 const linkFor = (n: Notification): string => {
   if (n.target_kind === 'post') return `/posts/${n.target_id}`;
-  if (n.target_kind === 'user' && n.actor_username) return `/@${n.actor_username}`;
+  if (n.target_kind === 'user' && n.actor_username) return `/u/${n.actor_username}`;
   return '/';
 };
 

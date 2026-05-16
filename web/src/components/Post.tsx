@@ -8,6 +8,11 @@ import { relTime } from '../util';
 const EMOJI = ['\u{1F525}', '\u{1F422}', '\u{1F91D}', '\u{1F64F}', '\u{1F602}'];
 
 export default function Post(props: { post: PostView; onChange?: () => void }) {
+  // If a refetch transiently delivers a stripped post, bail out cleanly
+  // rather than throwing on `author.username` access.
+  if (!props.post || !props.post.author) {
+    return null;
+  }
   const [reactionsTotal, setReactionsTotal] = createSignal(props.post.reactions_count);
   const [myReaction, setMyReaction] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
@@ -44,10 +49,10 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
         )}
       </Show>
       <div class="post-head">
-        <A href={`/@${props.post.author.username}`} class="name" style="color: inherit;">
+        <A href={`/u/${props.post.author.username}`} class="name" style="color: inherit;">
           {props.post.author.display_name}
         </A>
-        <A href={`/@${props.post.author.username}`} class="handle" style="color: var(--fg-2);">
+        <A href={`/u/${props.post.author.username}`} class="handle" style="color: var(--fg-2);">
           @{props.post.author.username}
         </A>
         <A href={`/posts/${props.post.id}`} class="time" style="color: var(--fg-3);">

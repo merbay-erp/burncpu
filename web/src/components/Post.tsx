@@ -6,7 +6,10 @@ import { me } from '../auth';
 import { pushToast } from './Toast';
 import { relTime, visibleLength } from '../util';
 
-const EMOJI = ['\u{1F525}', '\u{1F422}', '\u{1F91D}', '\u{1F64F}', '\u{1F602}'];
+// Reactions intentionally trimmed to a single signal — the brand turtle.
+// 5-emoji set was scope-creep that nudges toward engagement-farming UX.
+// Backend still accepts the full set, so re-enable by widening this array.
+const EMOJI = ['\u{1F422}'];
 const MAX_LEN = 5000;
 
 export default function Post(props: { post: PostView; onChange?: () => void }) {
@@ -79,18 +82,16 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
     }
   };
 
-  const repost = async () => {
-    if (!me() || busy()) return;
-    setBusy(true);
-    try {
-      await api.post(`/posts/${props.post.id}/repost`, {});
-      props.onChange?.();
-    } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  // Repost flow disabled at the UI layer during high-signal pact.
+  // Keep the implementation around — re-bind the button to re-enable.
+  // const repost = async () => {
+  //   if (!me() || busy()) return;
+  //   setBusy(true);
+  //   try {
+  //     await api.post(`/posts/${props.post.id}/repost`, {});
+  //     props.onChange?.();
+  //   } finally { setBusy(false); }
+  // };
 
   const deleteIt = async () => {
     if (!confirm('Postu sil?')) return;
@@ -261,9 +262,9 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
           >
             🔖
           </button>
-          <button onClick={repost} disabled={busy()} title="Repost">
-            🔁
-          </button>
+          {/* Repost hidden during high-signal pact — amplifier UX.
+              <button onClick={repost} disabled={busy()} title="Repost">🔁</button>
+          */}
           <Show when={isMine()}>
             <button onClick={togglePin} disabled={busy()} title="Profile sabitle">
               📌

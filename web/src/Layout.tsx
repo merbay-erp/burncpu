@@ -88,9 +88,6 @@ export default function Layout(props: { children?: JSX.Element }) {
         <A href="/feed" class={isActive('/feed')}>
           <span>🏠</span> {t('nav.feed')}
         </A>
-        <A href="/trending" class={isActive('/trending')}>
-          <span>🔥</span> Trend
-        </A>
         <A href="/search" class={isActive('/search')}>
           <span>🔎</span> {t('nav.search')}
         </A>
@@ -120,9 +117,6 @@ export default function Layout(props: { children?: JSX.Element }) {
               </A>
               <A href="/bookmarks" class={isActive('/bookmarks')}>
                 <span>🔖</span> {t('nav.bookmarks')}
-              </A>
-              <A href="/activity" class={isActive('/activity')}>
-                <span>📈</span> Aktivite
               </A>
               <A href="/trash" class={isActive('/trash')}>
                 <span>🗑</span> Çöp

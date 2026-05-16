@@ -418,11 +418,15 @@ function PrefsBlock() {
           English
         </button>
       </div>
-      <PushBlock />
+      {/* PushBlock hidden during high-signal pact — dopamine-pull UX.
+          sw.js handler stays dormant; render <PushBlock /> to bring back. */}
     </div>
   );
 }
 
+// @ts-expect-error — preserved for high-signal pact unwind; render <PushBlock/>
+// inside PrefsBlock to bring back the Web Push subscribe toggle.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PushBlock() {
   const supported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   const [perm, setPerm] = createSignal<NotificationPermission>(supported ? Notification.permission : 'default');

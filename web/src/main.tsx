@@ -16,13 +16,12 @@ const Search = lazy(() => import('./pages/Search'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Bookmarks = lazy(() => import('./pages/Bookmarks'));
-const Trending = lazy(() => import('./pages/Trending'));
 const DMs = lazy(() => import('./pages/DMs'));
 const DMThread = lazy(() => import('./pages/DMThread'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Trash = lazy(() => import('./pages/Trash'));
-const Activity = lazy(() => import('./pages/Activity'));
 const NotFound = lazy(() => import('./pages/NotFound'));
+// hidden during pact: Trending, Activity
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root missing');
@@ -57,13 +56,15 @@ render(
       <Route path="/2fa" component={TwoFA} />
       <Route path="/notifications" component={Notifications} />
       <Route path="/bookmarks" component={Bookmarks} />
-      <Route path="/trending" component={Trending} />
       <Route path="/dm" component={DMs} />
       <Route path="/dm/:username" component={DMThread} />
       <Route path="/admin" component={Admin} />
       <Route path="/trash" component={Trash} />
-      <Route path="/activity" component={Activity} />
       <Route path="/settings" component={Settings} />
+      {/* hidden during the high-signal pact; uncomment to re-enable
+      <Route path="/trending" component={Trending} />
+      <Route path="/activity" component={Activity} />
+      */}
       <Route path="/search" component={Search} />
       {/* `@` gets URL-encoded to %40 by browsers, which then doesn't match
           a literal `@` in the route. Use /u/:username and redirect @links. */}

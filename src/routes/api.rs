@@ -1,6 +1,6 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
-use super::{auth, posts};
+use super::{auth, feed, posts, users};
 use crate::state::AppState;
 use axum::{routing::get, Router};
 use serde_json::json;
@@ -21,6 +21,14 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "GET    /api/v1/posts":                "public timeline (paginated)",
                         "GET    /api/v1/posts/{id}":           "single post",
                         "DELETE /api/v1/posts/{id}":           "soft-delete (author or admin)",
+                        "GET    /api/v1/feed":                 "personal home timeline (auth)",
+                        "GET    /api/v1/users/{username}":     "profile",
+                        "GET    /api/v1/users/{username}/posts":     "author posts",
+                        "GET    /api/v1/users/{username}/followers": "followers list",
+                        "GET    /api/v1/users/{username}/following": "following list",
+                        "POST   /api/v1/users/{username}/follow":    "follow (auth)",
+                        "DELETE /api/v1/users/{username}/follow":    "unfollow (auth)",
+                        "PATCH  /api/v1/users/me":             "edit profile (auth)",
                         "GET    /healthz":                     "liveness probe",
                     },
                 }))
@@ -28,4 +36,6 @@ pub fn router(_state: AppState) -> Router<AppState> {
         )
         .nest("/auth", auth::router())
         .nest("/posts", posts::router())
+        .nest("/users", users::router())
+        .nest("/feed", feed::router())
 }

@@ -30,6 +30,7 @@ pub struct CurrentUser {
     pub role: String,
     pub session_id: Uuid,
     pub session_flagged: bool,
+    pub pending_2fa: bool,
 }
 
 pub async fn layer(
@@ -55,13 +56,14 @@ pub async fn layer(
             .map(|i| i.to_string())
             .unwrap_or_default();
 
-        let row: Option<(Uuid, Uuid, String, Option<String>, Option<String>, Option<chrono::DateTime<chrono::Utc>>)> =
+        let row: Option<(Uuid, Uuid, String, Option<String>, Option<String>, Option<chrono::DateTime<chrono::Utc>>, bool)> =
             sqlx::query_as(
                 r#"
                 SELECT s.id, s.user_id, u.role,
                        host(s.last_seen_ip)::text AS last_seen_ip,
                        s.last_seen_ua,
-                       s.flagged_at
+                       s.flagged_at,
+                       s.pending_2fa
                 FROM sessions s
                 JOIN users u ON u.id = s.user_id
                 WHERE s.token_hash = $1
@@ -75,7 +77,7 @@ pub async fn layer(
             .ok()
             .flatten();
 
-        if let Some((session_id, user_id, role, last_ip, last_ua, flagged)) = row {
+        if let Some((session_id, user_id, role, last_ip, last_ua, flagged, pending_2fa)) = row {
             let ip_drift = last_ip.as_deref().unwrap_or("") != ip;
             let ua_drift = last_ua.as_deref().unwrap_or("") != ua.as_str();
             let was_flagged = flagged.is_some();
@@ -113,6 +115,7 @@ pub async fn layer(
                 role,
                 session_id,
                 session_flagged: was_flagged || should_flag,
+                pending_2fa,
             });
         }
     }

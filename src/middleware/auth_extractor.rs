@@ -31,6 +31,11 @@ where
         if u.role != "admin" {
             return Err(AppError::Forbidden);
         }
+        if u.pending_2fa {
+            // Authenticated, admin, but second factor not yet satisfied
+            // → reject. Client should POST /auth/2fa/challenge.
+            return Err(AppError::Forbidden);
+        }
         Ok(AdminUser(u))
     }
 }

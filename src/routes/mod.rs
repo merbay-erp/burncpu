@@ -9,4 +9,5 @@ pub mod notifications;
 pub mod posts;
 pub mod rss;
 pub mod search;
+pub mod twofa;
 pub mod users;

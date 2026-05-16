@@ -11,6 +11,7 @@
 
 pub mod email;
 pub mod token;
+pub mod totp;
 
 use anyhow::Result;
 use rand::RngCore;

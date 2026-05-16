@@ -34,6 +34,7 @@ pub fn router() -> Router<AppState> {
         .route("/request", post(request_handler))
         .route("/verify/{token}", get(verify_handler))
         .route("/logout", post(logout_handler))
+        .nest("/2fa", super::twofa::router())
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -219,10 +220,21 @@ pub async fn verify_handler(
     // ── Create session
     let (session_raw, session_hash) = new_token().map_err(AppError::Internal)?;
 
+    // If the user has confirmed TOTP, the new session starts in
+    // pending_2fa state and admin endpoints refuse to serve it until
+    // /auth/2fa/challenge clears the flag.
+    let has_totp: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM user_totp WHERE user_id = $1 AND confirmed_at IS NOT NULL)",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false);
+
     sqlx::query(
         r#"
-        INSERT INTO sessions (user_id, token_hash, ip, user_agent, expires_at, last_seen_at, last_seen_ip, last_seen_ua)
-        VALUES ($1, $2, $3::inet, $4, NOW() + ($5 || ' seconds')::interval, NOW(), $3::inet, $4)
+        INSERT INTO sessions (user_id, token_hash, ip, user_agent, expires_at, last_seen_at, last_seen_ip, last_seen_ua, pending_2fa)
+        VALUES ($1, $2, $3::inet, $4, NOW() + ($5 || ' seconds')::interval, NOW(), $3::inet, $4, $6)
         "#,
     )
     .bind(user_id)
@@ -230,6 +242,7 @@ pub async fn verify_handler(
     .bind(&ip_str)
     .bind(&ua)
     .bind(SESSION_TTL.as_secs().to_string())
+    .bind(has_totp)
     .execute(&state.pg)
     .await?;
 

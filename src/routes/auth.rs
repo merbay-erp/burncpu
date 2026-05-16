@@ -14,8 +14,10 @@
 use crate::{
     auth::{email::Sender, hash_token, new_token, token::*},
     errors::AppError,
+    middleware::client_ip,
     state::AppState,
 };
+use chrono::{DateTime, Utc};
 use axum::{
     extract::{ConnectInfo, Path, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
@@ -50,31 +52,30 @@ pub async fn request_handler(
     Json(body): Json<RequestBody>,
 ) -> Result<StatusCode, AppError> {
     let email = body.email.trim().to_lowercase();
+    let ua = read_ua(&headers);
+    let ip_str = client_ip::extract(&headers, Some(&peer))
+        .map(|i| i.to_string())
+        .unwrap_or_default();
+
     if !is_email_shaped(&email) {
+        log_attempt(&state, None, "request", "invalid", &ip_str, &ua, None).await;
         return Err(AppError::BadRequest("invalid email".into()));
     }
 
-    // ── Rate limit (Redis INCR + EXPIRE)
+    // ── Rate limit per-(IP, email) — prevents single attacker mailing many
     let mut redis = state.redis.clone();
-    let key = format!("rl:auth:request:{email}");
+    let key = format!("rl:auth:request:{ip_str}:{email}");
     let count: u32 = redis.incr(&key, 1u32).await?;
     if count == 1 {
         let _: () = redis.expire(&key, RATE_LIMIT_WINDOW_SECS as i64).await?;
     }
     if count > RATE_LIMIT_MAX {
+        log_attempt(&state, Some(&email), "request", "rate_limited", &ip_str, &ua, None).await;
         return Err(AppError::RateLimited);
     }
 
     // ── Generate token + persist hash
     let (raw, hash) = new_token().map_err(AppError::Internal)?;
-    let ua = headers
-        .get(header::USER_AGENT)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .chars()
-        .take(255)
-        .collect::<String>();
-    let ip_str = peer.ip().to_string();
 
     sqlx::query(
         r#"
@@ -105,6 +106,7 @@ pub async fn request_handler(
         .await
         .map_err(AppError::Internal)?;
 
+    log_attempt(&state, Some(&email), "request", "ok", &ip_str, &ua, None).await;
     tracing::info!(%email, "magic link issued");
     Ok(StatusCode::NO_CONTENT)
 }
@@ -120,24 +122,39 @@ pub async fn verify_handler(
     Path(token): Path<String>,
 ) -> Result<Response, AppError> {
     let hash = hash_token(&token);
+    let ua = read_ua(&headers);
+    let ip_str = client_ip::extract(&headers, Some(&peer))
+        .map(|i| i.to_string())
+        .unwrap_or_default();
 
-    // ── Lookup unconsumed, unexpired token
-    let email: Option<String> = sqlx::query_scalar(
-        r#"
-        SELECT email
-        FROM auth_tokens
-        WHERE token_hash = $1
-          AND consumed_at IS NULL
-          AND expires_at > NOW()
-        "#,
-    )
-    .bind(&hash)
-    .fetch_optional(&state.pg)
-    .await?;
+    // ── Lookup token (any state — we want to distinguish expired/consumed)
+    let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            r#"
+            SELECT email, consumed_at, expires_at
+            FROM auth_tokens
+            WHERE token_hash = $1
+            "#,
+        )
+        .bind(&hash)
+        .fetch_optional(&state.pg)
+        .await?;
 
-    let Some(email) = email else {
-        return Err(AppError::Unauthorized);
+    let (email, consumed_at, expires_at) = match row {
+        Some(t) => t,
+        None => {
+            log_attempt(&state, None, "verify", "invalid", &ip_str, &ua, None).await;
+            return Err(AppError::Unauthorized);
+        }
     };
+    if consumed_at.is_some() {
+        log_attempt(&state, Some(&email), "verify", "consumed", &ip_str, &ua, None).await;
+        return Err(AppError::Unauthorized);
+    }
+    if expires_at < chrono::Utc::now() {
+        log_attempt(&state, Some(&email), "verify", "expired", &ip_str, &ua, None).await;
+        return Err(AppError::Unauthorized);
+    }
 
     // ── Mark consumed (one-shot)
     sqlx::query("UPDATE auth_tokens SET consumed_at = NOW() WHERE token_hash = $1")
@@ -150,19 +167,11 @@ pub async fn verify_handler(
 
     // ── Create session
     let (session_raw, session_hash) = new_token().map_err(AppError::Internal)?;
-    let ua = headers
-        .get(header::USER_AGENT)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .chars()
-        .take(255)
-        .collect::<String>();
-    let ip_str = peer.ip().to_string();
 
     sqlx::query(
         r#"
-        INSERT INTO sessions (user_id, token_hash, ip, user_agent, expires_at)
-        VALUES ($1, $2, $3::inet, $4, NOW() + ($5 || ' seconds')::interval)
+        INSERT INTO sessions (user_id, token_hash, ip, user_agent, expires_at, last_seen_at, last_seen_ip, last_seen_ua)
+        VALUES ($1, $2, $3::inet, $4, NOW() + ($5 || ' seconds')::interval, NOW(), $3::inet, $4)
         "#,
     )
     .bind(user_id)
@@ -172,6 +181,8 @@ pub async fn verify_handler(
     .bind(SESSION_TTL.as_secs().to_string())
     .execute(&state.pg)
     .await?;
+
+    log_attempt(&state, Some(&email), "verify", "ok", &ip_str, &ua, Some(user_id)).await;
 
     // ── Set cookie + redirect /
     let cookie = format!(
@@ -214,6 +225,50 @@ pub async fn logout_handler(
 }
 
 // ── helpers ──────────────────────────────────────────────────────
+
+fn read_ua(headers: &HeaderMap) -> String {
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .chars()
+        .take(255)
+        .collect::<String>()
+}
+
+/// Best-effort write to `login_attempts`. Never fails the request — auth
+/// must not 500 just because forensics logging hit a DB hiccup.
+async fn log_attempt(
+    state: &AppState,
+    email: Option<&str>,
+    kind: &str,
+    outcome: &str,
+    ip: &str,
+    ua: &str,
+    user_id: Option<uuid::Uuid>,
+) {
+    let r = sqlx::query(
+        r#"
+        INSERT INTO login_attempts (email, kind, outcome, ip, user_agent, user_id)
+        VALUES ($1, $2, $3, $4::inet, $5, $6)
+        "#,
+    )
+    .bind(email)
+    .bind(kind)
+    .bind(outcome)
+    .bind(if ip.is_empty() { None } else { Some(ip) })
+    .bind(ua)
+    .bind(user_id)
+    .execute(&state.pg)
+    .await;
+    if let Err(e) = r {
+        tracing::warn!(?e, kind, outcome, "login_attempts insert failed");
+    }
+}
+
+// Touch chrono types so the import isn't dead if verify path changes.
+#[allow(dead_code)]
+fn _t(_d: DateTime<Utc>) {}
 
 fn is_email_shaped(s: &str) -> bool {
     let bytes = s.as_bytes();

@@ -14,6 +14,7 @@ mod auth;
 mod config;
 mod db;
 mod errors;
+mod middleware;
 mod routes;
 mod state;
 
@@ -54,6 +55,16 @@ async fn main() -> Result<()> {
         .route("/", get(routes::index::handler))
         .route("/healthz", get(routes::health::handler))
         .nest("/api/v1", routes::api::router(state.clone()))
+        // Order: audit (outermost — sees user_id set by session) →
+        // session (loads CurrentUser) → trace → compression → handler
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::audit::layer,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::session::layer,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         .with_state(state);

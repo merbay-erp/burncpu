@@ -1,13 +1,16 @@
 pub mod admin;
 pub mod api;
 pub mod auth;
+pub mod bookmarks;
 pub mod feed;
 pub mod health;
 pub mod index;
 pub mod invites;
+pub mod media;
 pub mod notifications;
 pub mod posts;
 pub mod rss;
 pub mod search;
+pub mod sitemap;
 pub mod twofa;
 pub mod users;

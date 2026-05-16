@@ -15,6 +15,7 @@ const Hashtag = lazy(() => import('./pages/Hashtag'));
 const Search = lazy(() => import('./pages/Search'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const Settings = lazy(() => import('./pages/Settings'));
+const Bookmarks = lazy(() => import('./pages/Bookmarks'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const root = document.getElementById('root');
@@ -31,6 +32,16 @@ window.addEventListener('unhandledrejection', (e) => {
   }
 });
 
+// Register service worker for offline shell + install prompt support.
+// Skip in dev (vite serves modules on demand).
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch(() => {
+      // not fatal — site still works without SW
+    });
+  });
+}
+
 render(
   () => (
     <Router root={Layout}>
@@ -39,6 +50,7 @@ render(
       <Route path="/login" component={Login} />
       <Route path="/2fa" component={TwoFA} />
       <Route path="/notifications" component={Notifications} />
+      <Route path="/bookmarks" component={Bookmarks} />
       <Route path="/settings" component={Settings} />
       <Route path="/search" component={Search} />
       {/* `@` gets URL-encoded to %40 by browsers, which then doesn't match

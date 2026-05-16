@@ -38,11 +38,12 @@ use uuid::Uuid;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", post(create_post).get(timeline))
-        .route("/{id}", get(get_post).delete(delete_post))
+        .route("/{id}", get(get_post).patch(edit_post).delete(delete_post))
         .route("/{id}/react", post(react).delete(unreact))
         .route("/{id}/reactions", get(reactions))
         .route("/{id}/replies", get(replies))
         .route("/{id}/thread", get(thread))
+        .route("/{id}/repost", post(repost))
 }
 
 // ── Models ──────────────────────────────────────────────────────
@@ -340,6 +341,151 @@ async fn delete_post(
 
     tracing::info!(user_id = %user.user_id, post_id = %id, "post deleted");
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ── PATCH /posts/{id} (edit) ────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct EditBody {
+    body: String,
+}
+
+async fn edit_post(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(input): Json<EditBody>,
+) -> Result<Json<PostView>, AppError> {
+    let body = input.body.trim();
+    if body.is_empty() {
+        return Err(AppError::BadRequest("body required".into()));
+    }
+    if body.chars().count() > MAX_POST_LEN {
+        return Err(AppError::BadRequest(format!(
+            "body too long (max {MAX_POST_LEN} chars)"
+        )));
+    }
+    let author_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT author_id FROM posts WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .fetch_optional(&state.pg)
+    .await?;
+    let author_id = author_id.ok_or(AppError::NotFound)?;
+    if author_id != user.user_id {
+        return Err(AppError::Forbidden);
+    }
+    let body_html = render_markdown(body);
+    sqlx::query(
+        r#"
+        UPDATE posts SET body = $1, body_html = $2, edited_at = NOW(), updated_at = NOW()
+        WHERE id = $3
+        "#,
+    )
+    .bind(body)
+    .bind(&body_html)
+    .bind(id)
+    .execute(&state.pg)
+    .await?;
+
+    // Refresh search index
+    let post = fetch_post(&state, id, Some(user.user_id)).await?;
+    if post.visibility == "public" {
+        let doc = PostDoc::from_parts(
+            post.id,
+            post.author.id,
+            &post.author.username,
+            &post.body,
+            &post.visibility,
+            "live",
+            post.reactions_count,
+            post.replies_count,
+            post.created_at,
+        );
+        let search = state.search.clone();
+        tokio::spawn(async move { search.index_post(&doc).await });
+    }
+    Ok(Json(post))
+}
+
+// ── POST /posts/{id}/repost ─────────────────────────────────────
+//
+// Creates a NEW post that references the original via repost_of_id. The
+// new post's body is empty (or carries the user's own quote text if
+// supplied), but it surfaces in feeds as the reposter's content.
+
+#[derive(Deserialize)]
+pub struct RepostBody {
+    #[serde(default)]
+    body: String, // optional quote text
+}
+
+async fn repost(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(input): Json<RepostBody>,
+) -> Result<(StatusCode, Json<PostView>), AppError> {
+    let target: Option<(Uuid, String)> = sqlx::query_as(
+        r#"
+        SELECT id, visibility FROM posts
+        WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live'
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.pg)
+    .await?;
+    let (target_id, target_vis) = target.ok_or(AppError::NotFound)?;
+    if target_vis != "public" {
+        return Err(AppError::Forbidden);
+    }
+    if target_id == id && Some(target_id) == Some(id) {
+        // (no-op self-check placeholder — repost of own post is allowed)
+    }
+
+    let body = input.body.trim().chars().take(MAX_POST_LEN).collect::<String>();
+    let body_html = if body.is_empty() {
+        String::new()
+    } else {
+        render_markdown(&body)
+    };
+
+    let new_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO posts (author_id, body, body_html, visibility, repost_of_id)
+        VALUES ($1, $2, $3, 'public', $4)
+        RETURNING id
+        "#,
+    )
+    .bind(user.user_id)
+    .bind(&body)
+    .bind(&body_html)
+    .bind(target_id)
+    .fetch_one(&state.pg)
+    .await?;
+
+    // Notify original author
+    let orig_author: Option<Uuid> =
+        sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")
+            .bind(target_id)
+            .fetch_optional(&state.pg)
+            .await
+            .unwrap_or(None);
+    if let Some(orig_author) = orig_author {
+        notify(
+            &state,
+            orig_author,
+            Some(user.user_id),
+            "reply",
+            "post",
+            new_id,
+            Some(serde_json::json!({ "repost_of": target_id })),
+        )
+        .await;
+    }
+
+    let post = fetch_post(&state, new_id, Some(user.user_id)).await?;
+    Ok((StatusCode::CREATED, Json(post)))
 }
 
 // ── Reactions ───────────────────────────────────────────────────

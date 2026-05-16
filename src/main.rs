@@ -69,11 +69,17 @@ async fn main() -> Result<()> {
         notif_tx,
     };
 
+    // Make sure media dir exists on first boot (idempotent).
+    let _ = tokio::fs::create_dir_all(&cfg.media_dir).await;
+
     let app = Router::new()
         .route("/", get(routes::index::handler))
         .route("/healthz", get(routes::health::handler))
+        .route("/sitemap.xml", get(routes::sitemap::handler))
         .nest("/rss", routes::rss::router())
         .nest("/api/v1", routes::api::router(state.clone()))
+        // 6 MiB request body cap (5 MiB media + multipart overhead)
+        .layer(axum::extract::DefaultBodyLimit::max(6 * 1024 * 1024))
         // Order on the request: audit (outer, sees user_id) → session
         // (loads CurrentUser) → csrf (rejects cookied cross-origin
         // state-changes) → trace → compression → handler.

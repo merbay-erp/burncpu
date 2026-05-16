@@ -16,6 +16,7 @@ pub struct Config {
     pub invites_required: bool,
     pub bootstrap_admin_email: Option<String>,
     pub allowed_origins: Vec<String>,
+    pub media_dir: String,
 }
 
 impl Config {
@@ -43,6 +44,7 @@ impl Config {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
+            media_dir: env::var("MEDIA_DIR").unwrap_or_else(|_| "/data/media".into()),
         })
     }
 }

@@ -52,7 +52,37 @@ function ProfileTab() {
   const [bio, setBio] = createSignal('');
   const [avatarUrl, setAvatarUrl] = createSignal('');
   const [busy, setBusy] = createSignal(false);
+  const [uploading, setUploading] = createSignal(false);
   const [msg, setMsg] = createSignal<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  let fileInput: HTMLInputElement | undefined;
+
+  const pickAvatar = () => fileInput?.click();
+  const onAvatarFile = async (e: Event) => {
+    const f = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (!f) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const r = await fetch('/api/v1/media', {
+        method: 'POST',
+        body: fd,
+        credentials: 'include',
+        headers: { Origin: window.location.origin },
+      });
+      if (!r.ok) {
+        const j = (await r.json().catch(() => ({}))) as { message?: string };
+        throw new Error(j.message ?? `HTTP ${r.status}`);
+      }
+      const m = (await r.json()) as { url: string };
+      setAvatarUrl(`${window.location.origin}${m.url}`);
+    } catch (err) {
+      setMsg({ kind: 'err', text: (err as Error).message });
+    } finally {
+      setUploading(false);
+      if (fileInput) fileInput.value = '';
+    }
+  };
 
   onMount(async () => {
     try {
@@ -102,15 +132,33 @@ function ProfileTab() {
         onInput={(e) => setBio(e.currentTarget.value)}
         rows="3"
       />
-      <label class="muted tiny" style="margin-top: 12px; display:block;">
-        Avatar URL <span class="muted tiny">(https://… olmalı, boşsa kaldırma yok)</span>
-      </label>
-      <input
-        type="url"
-        placeholder="https://..."
-        value={avatarUrl()}
-        onInput={(e) => setAvatarUrl(e.currentTarget.value)}
-      />
+      <label class="muted tiny" style="margin-top: 12px; display:block;">Avatar</label>
+      <Show when={avatarUrl()}>
+        <img
+          src={avatarUrl()}
+          alt=""
+          style="width: 64px; height: 64px; border-radius: 50%; object-fit: cover; margin-bottom: 8px; background: var(--bg-3);"
+        />
+      </Show>
+      <div class="flex">
+        <input
+          type="url"
+          placeholder="https://..."
+          value={avatarUrl()}
+          onInput={(e) => setAvatarUrl(e.currentTarget.value)}
+          style="flex: 1;"
+        />
+        <button type="button" class="ghost tiny" onClick={pickAvatar} disabled={uploading()}>
+          {uploading() ? 'Yükleniyor…' : '📷 Yükle'}
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          style="display: none;"
+          onChange={onAvatarFile}
+        />
+      </div>
       <Show when={msg()}>
         {(m) => <div class={m().kind === 'ok' ? 'success' : 'error'}>{m().text}</div>}
       </Show>
@@ -119,7 +167,86 @@ function ProfileTab() {
           {busy() ? 'Kaydediliyor…' : 'Kaydet'}
         </button>
       </div>
+      <DangerZone />
     </form>
+  );
+}
+
+function DangerZone() {
+  const u = me()!;
+  const [open, setOpen] = createSignal(false);
+  const [confirm, setConfirm] = createSignal('');
+  const [busy, setBusy] = createSignal(false);
+  const [err, setErr] = createSignal<string | null>(null);
+
+  const wipe = async () => {
+    if (confirm() !== u.username) {
+      setErr(`Onay için '${u.username}' yaz`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch('/api/v1/users/me', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          Origin: window.location.origin,
+          'X-Confirm-Username': u.username,
+        },
+      });
+      if (!r.ok) {
+        const j = (await r.json().catch(() => ({}))) as { message?: string };
+        throw new Error(j.message ?? `HTTP ${r.status}`);
+      }
+      localStorage.clear();
+      window.location.assign('/');
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      style="margin-top: 40px; padding: 14px; border: 1px solid rgba(255, 92, 92, 0.4); border-radius: var(--radius); background: rgba(255, 92, 92, 0.04);"
+    >
+      <h3 style="margin: 0 0 6px; color: var(--bad);">Tehlikeli bölge</h3>
+      <p class="muted tiny" style="margin-top: 0;">
+        Hesabı silmek; postların, mesajların, oturumların, davetlerin — her şeyin geri
+        dönüşsüz silinmesi demek. Admin hesabı silinemez.
+      </p>
+      <Show when={!open()} fallback={
+        <div style="margin-top: 8px;">
+          <p class="tiny">Onaylamak için kullanıcı adını yaz: <code>{u.username}</code></p>
+          <input
+            type="text"
+            value={confirm()}
+            onInput={(e) => setConfirm(e.currentTarget.value)}
+            placeholder={u.username}
+          />
+          <Show when={err()}>
+            <div class="error">{err()}</div>
+          </Show>
+          <div class="flex" style="margin-top: 8px; gap: 8px;">
+            <button onClick={() => { setOpen(false); setConfirm(''); setErr(null); }} disabled={busy()}>
+              Vazgeç
+            </button>
+            <button
+              onClick={wipe}
+              disabled={busy() || confirm() !== u.username}
+              style="background: var(--bad); color: white; border-color: var(--bad);"
+            >
+              {busy() ? 'Siliniyor…' : 'Hesabımı geri dönüşsüz sil'}
+            </button>
+          </div>
+        </div>
+      }>
+        <button onClick={() => setOpen(true)} style="color: var(--bad);">
+          Hesabımı sil…
+        </button>
+      </Show>
+    </div>
   );
 }
 

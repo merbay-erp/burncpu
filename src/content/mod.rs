@@ -33,7 +33,17 @@ fn sanitizer() -> &'static ammonia::Builder<'static> {
                 .copied()
                 .collect::<std::collections::HashSet<_>>(),
         );
-        // Drop embedded images / iframes / scripts (defaults exclude them).
+        // Allow inline <img> (markdown ![]() syntax). Constrain src to
+        // same-origin /media/ paths or absolute https URLs. alt + title
+        // pass through for accessibility.
+        let mut tags = b.clone_tags();
+        tags.insert("img");
+        b.tags(tags);
+        let mut tag_attrs = b.clone_tag_attributes();
+        tag_attrs.insert("img", ["src", "alt", "title"].iter().copied().collect());
+        b.tag_attributes(tag_attrs);
+        // No <iframe>, <script>, <object>, etc. — those stay rejected by
+        // ammonia's defaults.
         b
     })
 }

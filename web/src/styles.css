@@ -249,6 +249,13 @@ hr {
 .post-body p:last-child {
   margin-bottom: 0;
 }
+.post-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  margin: 6px 0;
+  background: var(--bg-3);
+}
 .post-foot {
   margin-top: 8px;
   display: flex;

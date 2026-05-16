@@ -1,6 +1,6 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
-use super::{admin, auth, feed, invites, notifications, posts, search, users};
+use super::{admin, auth, bookmarks, feed, invites, media, notifications, posts, search, users};
 use crate::state::AppState;
 use axum::{routing::get, Router};
 use serde_json::json;
@@ -57,6 +57,16 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "GET    /api/v1/notifications/count":  "unread count for badge",
                         "PATCH  /api/v1/notifications/read":   "bulk mark all read",
                         "PATCH  /api/v1/notifications/{id}/read": "mark single read",
+                        "GET    /api/v1/notifications/stream": "SSE live notifications",
+                        "POST   /api/v1/media":                "upload image (multipart, max 5 MiB)",
+                        "GET    /api/v1/media":                "list your uploads",
+                        "DELETE /api/v1/media/{id}":           "delete own upload",
+                        "GET    /api/v1/bookmarks":            "your bookmarked posts",
+                        "POST   /api/v1/bookmarks/{post_id}":  "bookmark",
+                        "DELETE /api/v1/bookmarks/{post_id}":  "unbookmark",
+                        "PATCH  /api/v1/posts/{id}":           "edit (author only) — sets edited_at",
+                        "POST   /api/v1/posts/{id}/repost":    "repost (optional quote body)",
+                        "DELETE /api/v1/users/me":             "delete own account (X-Confirm-Username header)",
                         "GET    /healthz":                     "liveness probe",
                     },
                 }))
@@ -71,4 +81,6 @@ pub fn router(_state: AppState) -> Router<AppState> {
         .nest("/search", search::router())
         .nest("/hashtags", search::hashtags_router())
         .nest("/notifications", notifications::router())
+        .nest("/media", media::router())
+        .nest("/bookmarks", bookmarks::router())
 }

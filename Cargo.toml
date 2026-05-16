@@ -8,7 +8,7 @@ authors = ["Mustafa Erbay <mustafa@mustafaerbay.com.tr>"]
 
 [dependencies]
 # Web framework
-axum = { version = "0.8", features = ["macros", "tracing"] }
+axum = { version = "0.8", features = ["macros", "tracing", "multipart"] }
 tokio = { version = "1.42", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 futures = "0.3"
@@ -51,6 +51,10 @@ pulldown-cmark = "0.12"
 
 # HTML sanitization (XSS protection)
 ammonia = "4.0"
+
+# Image processing (EXIF strip + re-encode)
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+infer = "0.16"
 
 # Email (SMTP, async)
 lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "builder", "hostname"] }

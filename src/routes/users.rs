@@ -26,12 +26,50 @@ use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/me", get(get_me).patch(patch_me))
+        .route("/me", get(get_me).patch(patch_me).delete(delete_me))
         .route("/{username}", get(get_profile))
         .route("/{username}/posts", get(user_posts))
         .route("/{username}/followers", get(followers))
         .route("/{username}/following", get(following))
         .route("/{username}/follow", post(follow).delete(unfollow))
+}
+
+/// DELETE /users/me — cascading account wipe.
+///
+/// Requires a confirmation header `X-Confirm-Username` matching the
+/// caller's username so a stray DELETE can't nuke an account. All
+/// owned rows (posts, sessions, follows, reactions, bookmarks, invites,
+/// media, totp, notifications) cascade-delete via FK ON DELETE CASCADE.
+async fn delete_me(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::http::StatusCode, AppError> {
+    let username: String =
+        sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+            .bind(user.user_id)
+            .fetch_one(&state.pg)
+            .await?;
+    let confirm = headers
+        .get("x-confirm-username")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .trim();
+    if confirm != username {
+        return Err(AppError::BadRequest(
+            "X-Confirm-Username header must equal your username".into(),
+        ));
+    }
+    if user.role == "admin" {
+        // Admin self-deletion would leave the platform headless. Block it.
+        return Err(AppError::Forbidden);
+    }
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user.user_id)
+        .execute(&state.pg)
+        .await?;
+    tracing::warn!(user_id = %user.user_id, %username, "account deleted by owner");
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 #[derive(Serialize)]

@@ -5,6 +5,8 @@ import { me, unread, refetchUnread, probeSession, logout } from './auth';
 import { t } from './i18n';
 import ToastStack, { pushToast } from './components/Toast';
 import Lightbox from './components/Lightbox';
+import HoverCard from './components/HoverCard';
+import Shortcuts from './components/Shortcuts';
 
 interface NotificationEvent {
   user_id: string;
@@ -122,6 +124,11 @@ export default function Layout(props: { children?: JSX.Element }) {
               <A href="/settings" class={isActive('/settings')}>
                 <span>⚙️</span> {t('nav.settings')}
               </A>
+              <Show when={u().role === 'admin'}>
+                <A href="/admin" class={isActive('/admin')}>
+                  <span>🛠</span> Admin
+                </A>
+              </Show>
               <div class="me">
                 @{u().username}
                 <Show when={u().pending_2fa}>
@@ -142,6 +149,8 @@ export default function Layout(props: { children?: JSX.Element }) {
       <main class="main">{props.children}</main>
       <ToastStack />
       <Lightbox />
+      <HoverCard />
+      <Shortcuts />
     </div>
   );
 }

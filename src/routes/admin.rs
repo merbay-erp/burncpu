@@ -32,6 +32,7 @@ use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/stats", get(stats))
         .route("/posts", get(list_posts))
         .route("/posts/{id}", patch(patch_post))
         .route("/users", get(list_users))
@@ -40,6 +41,87 @@ pub fn router() -> Router<AppState> {
         .route("/audit", get(audit))
         .route("/sessions", get(sessions))
         .route("/moderation_log", get(mod_log))
+}
+
+#[derive(Serialize)]
+pub struct Stats {
+    total_users: i64,
+    new_users_24h: i64,
+    dau_24h: i64,           // distinct users with a session row updated in 24h
+    total_posts: i64,
+    posts_24h: i64,
+    reactions_24h: i64,
+    follows_24h: i64,
+    requests_24h: i64,      // audit_log rows in 24h
+    errors_24h: i64,        // audit_log with status >= 500 in 24h
+    flagged_sessions: i64,
+    pending_mod_posts: i64, // moderation_state = 'quarantine'
+    dm_messages_24h: i64,
+    media_total: i64,
+    media_bytes: i64,
+}
+
+async fn stats(
+    State(state): State<AppState>,
+    _a: AdminUser,
+) -> Result<Json<Stats>, AppError> {
+    macro_rules! scalar {
+        ($pg:expr, $sql:expr) => {{
+            let r: i64 = sqlx::query_scalar($sql).fetch_one($pg).await.unwrap_or(0);
+            r
+        }};
+    }
+    let pg = &state.pg;
+    let s = Stats {
+        total_users: scalar!(pg, "SELECT COUNT(*) FROM users"),
+        new_users_24h: scalar!(
+            pg,
+            "SELECT COUNT(*) FROM users WHERE created_at > NOW() - interval '24 hours'"
+        ),
+        dau_24h: scalar!(
+            pg,
+            "SELECT COUNT(DISTINCT user_id) FROM sessions WHERE last_seen_at > NOW() - interval '24 hours'"
+        ),
+        total_posts: scalar!(
+            pg,
+            "SELECT COUNT(*) FROM posts WHERE deleted_at IS NULL"
+        ),
+        posts_24h: scalar!(
+            pg,
+            "SELECT COUNT(*) FROM posts WHERE deleted_at IS NULL AND created_at > NOW() - interval '24 hours'"
+        ),
+        reactions_24h: scalar!(
+            pg,
+            "SELECT COUNT(*) FROM reactions WHERE created_at > NOW() - interval '24 hours'"
+        ),
+        follows_24h: scalar!(
+            pg,
+            "SELECT COUNT(*) FROM follows WHERE created_at > NOW() - interval '24 hours'"
+        ),
+        requests_24h: scalar!(
+            pg,
+            "SELECT COUNT(*) FROM audit_log WHERE ts > NOW() - interval '24 hours'"
+        ),
+        errors_24h: scalar!(
+            pg,
+            "SELECT COUNT(*) FROM audit_log WHERE status >= 500 AND ts > NOW() - interval '24 hours'"
+        ),
+        flagged_sessions: scalar!(
+            pg,
+            "SELECT COUNT(*) FROM sessions WHERE flagged_at IS NOT NULL AND revoked_at IS NULL"
+        ),
+        pending_mod_posts: scalar!(
+            pg,
+            "SELECT COUNT(*) FROM posts WHERE moderation_state = 'quarantine' AND deleted_at IS NULL"
+        ),
+        dm_messages_24h: scalar!(
+            pg,
+            "SELECT COUNT(*) FROM dm_messages WHERE created_at > NOW() - interval '24 hours'"
+        ),
+        media_total: scalar!(pg, "SELECT COUNT(*) FROM media"),
+        media_bytes: scalar!(pg, "SELECT COALESCE(SUM(size_bytes), 0) FROM media"),
+    };
+    Ok(Json(s))
 }
 
 // ── List posts ──────────────────────────────────────────────────

@@ -12,6 +12,7 @@ use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod auth;
+mod cleanup;
 mod config;
 mod content;
 mod db;
@@ -60,6 +61,10 @@ async fn main() -> Result<()> {
     // consumers will get Lagged errors and the SSE handler will drop
     // them, which is fine.
     let (notif_tx, _) = tokio::sync::broadcast::channel(512);
+
+    // Background cleanup of expired rows (hourly).
+    cleanup::spawn(pg_pool.clone());
+    tracing::info!("cleanup task scheduled");
 
     let state = AppState {
         pg: pg_pool,

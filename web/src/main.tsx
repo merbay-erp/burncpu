@@ -19,6 +19,7 @@ const Bookmarks = lazy(() => import('./pages/Bookmarks'));
 const Trending = lazy(() => import('./pages/Trending'));
 const DMs = lazy(() => import('./pages/DMs'));
 const DMThread = lazy(() => import('./pages/DMThread'));
+const Admin = lazy(() => import('./pages/Admin'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const root = document.getElementById('root');
@@ -57,6 +58,7 @@ render(
       <Route path="/trending" component={Trending} />
       <Route path="/dm" component={DMs} />
       <Route path="/dm/:username" component={DMThread} />
+      <Route path="/admin" component={Admin} />
       <Route path="/settings" component={Settings} />
       <Route path="/search" component={Search} />
       {/* `@` gets URL-encoded to %40 by browsers, which then doesn't match

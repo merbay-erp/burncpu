@@ -6,7 +6,11 @@
 // authenticated routes — no per-handler boilerplate.
 
 use crate::{errors::AppError, middleware::session::CurrentUser};
-use axum::{extract::FromRequestParts, http::request::Parts};
+use axum::{
+    extract::{FromRequestParts, OptionalFromRequestParts},
+    http::request::Parts,
+};
+use std::convert::Infallible;
 
 impl<S> FromRequestParts<S> for CurrentUser
 where
@@ -20,5 +24,21 @@ where
             .get::<CurrentUser>()
             .cloned()
             .ok_or(AppError::Unauthorized)
+    }
+}
+
+// Lets handlers use `viewer: Option<CurrentUser>` for endpoints that
+// expose extra fields to logged-in users but stay publicly accessible.
+impl<S> OptionalFromRequestParts<S> for CurrentUser
+where
+    S: Send + Sync,
+{
+    type Rejection = Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> Result<Option<Self>, Self::Rejection> {
+        Ok(parts.extensions.get::<CurrentUser>().cloned())
     }
 }

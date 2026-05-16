@@ -35,6 +35,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", post(create_post).get(timeline))
         .route("/{id}", get(get_post).delete(delete_post))
+        .route("/{id}/react", post(react).delete(unreact))
+        .route("/{id}/reactions", get(reactions))
 }
 
 // ── Models ──────────────────────────────────────────────────────
@@ -246,6 +248,134 @@ async fn delete_post(
 
     tracing::info!(user_id = %user.user_id, post_id = %id, "post deleted");
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ── Reactions ───────────────────────────────────────────────────
+
+const VALID_EMOJI: &[&str] = &["\u{1F525}", "\u{1F422}", "\u{1F91D}", "\u{1F64F}", "\u{1F602}"];
+// fire / turtle / handshake / pray / joy
+
+#[derive(Deserialize)]
+pub struct ReactBody {
+    emoji: String,
+}
+
+async fn react(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ReactBody>,
+) -> Result<StatusCode, AppError> {
+    let emoji = body.emoji.trim();
+    if !VALID_EMOJI.iter().any(|e| *e == emoji) {
+        return Err(AppError::BadRequest("invalid emoji".into()));
+    }
+    let post_exists: Option<bool> = sqlx::query_scalar(
+        r#"
+        SELECT TRUE FROM posts
+        WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live'
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.pg)
+    .await?;
+    if post_exists.is_none() {
+        return Err(AppError::NotFound);
+    }
+
+    // Upsert reaction. If user already had a reaction, replace it. Either
+    // way reactions_count increments by 0 or 1; do a final recount to stay
+    // consistent.
+    let inserted: u64 = sqlx::query(
+        r#"
+        INSERT INTO reactions (post_id, user_id, emoji)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (post_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji
+        "#,
+    )
+    .bind(id)
+    .bind(user.user_id)
+    .bind(emoji)
+    .execute(&state.pg)
+    .await?
+    .rows_affected();
+    let _ = inserted; // suppress unused-warn
+
+    refresh_reactions_count(&state, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn unreact(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    sqlx::query("DELETE FROM reactions WHERE post_id = $1 AND user_id = $2")
+        .bind(id)
+        .bind(user.user_id)
+        .execute(&state.pg)
+        .await?;
+    refresh_reactions_count(&state, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+pub struct ReactionsView {
+    total: i64,
+    by_emoji: std::collections::HashMap<String, i64>,
+    viewer: Option<String>,
+}
+
+async fn reactions(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    // Viewer is optional — if cookie missing, returned viewer = null.
+    viewer_opt: Option<CurrentUser>,
+) -> Result<Json<ReactionsView>, AppError> {
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT emoji, COUNT(*)::bigint FROM reactions WHERE post_id = $1 GROUP BY emoji",
+    )
+    .bind(id)
+    .fetch_all(&state.pg)
+    .await?;
+    let mut by_emoji = std::collections::HashMap::new();
+    let mut total = 0i64;
+    for (e, c) in rows {
+        total += c;
+        by_emoji.insert(e, c);
+    }
+
+    let viewer = if let Some(u) = viewer_opt {
+        sqlx::query_scalar(
+            "SELECT emoji FROM reactions WHERE post_id = $1 AND user_id = $2",
+        )
+        .bind(id)
+        .bind(u.user_id)
+        .fetch_optional(&state.pg)
+        .await?
+    } else {
+        None
+    };
+
+    Ok(Json(ReactionsView {
+        total,
+        by_emoji,
+        viewer,
+    }))
+}
+
+async fn refresh_reactions_count(state: &AppState, post_id: Uuid) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        UPDATE posts SET reactions_count = (
+            SELECT COUNT(*) FROM reactions WHERE post_id = $1
+        ) WHERE id = $1
+        "#,
+    )
+    .bind(post_id)
+    .execute(&state.pg)
+    .await?;
+    Ok(())
 }
 
 // ── helpers ─────────────────────────────────────────────────────

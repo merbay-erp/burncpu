@@ -14,6 +14,7 @@ const PostDetail = lazy(() => import('./pages/PostDetail'));
 const Hashtag = lazy(() => import('./pages/Hashtag'));
 const Search = lazy(() => import('./pages/Search'));
 const Notifications = lazy(() => import('./pages/Notifications'));
+const Settings = lazy(() => import('./pages/Settings'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const root = document.getElementById('root');
@@ -38,6 +39,7 @@ render(
       <Route path="/login" component={Login} />
       <Route path="/2fa" component={TwoFA} />
       <Route path="/notifications" component={Notifications} />
+      <Route path="/settings" component={Settings} />
       <Route path="/search" component={Search} />
       {/* `@` gets URL-encoded to %40 by browsers, which then doesn't match
           a literal `@` in the route. Use /u/:username and redirect @links. */}

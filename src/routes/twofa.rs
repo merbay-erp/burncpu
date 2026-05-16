@@ -26,10 +26,41 @@ use serde::{Deserialize, Serialize};
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/status", axum::routing::get(status))
         .route("/enroll", post(enroll))
         .route("/confirm", post(confirm))
         .route("/challenge", post(challenge))
         .route("/disable", post(disable))
+}
+
+#[derive(Serialize)]
+pub struct Status {
+    enrolled: bool,
+    confirmed: bool,
+    recovery_codes_remaining: i32,
+}
+
+async fn status(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> Result<Json<Status>, AppError> {
+    let row: Option<(Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, i32)> =
+        sqlx::query_as(
+            "SELECT confirmed_at, COALESCE(array_length(recovery_codes, 1), 0)::int FROM user_totp WHERE user_id = $1",
+        )
+        .bind(user.user_id)
+        .fetch_optional(&state.pg)
+        .await?;
+    let (enrolled, confirmed, recovery_codes_remaining) = match row {
+        Some((Some(_), n)) => (true, true, n),
+        Some((None, n)) => (true, false, n),
+        None => (false, false, 0),
+    };
+    Ok(Json(Status {
+        enrolled,
+        confirmed,
+        recovery_codes_remaining,
+    }))
 }
 
 // ── POST /enroll ────────────────────────────────────────────────

@@ -51,6 +51,9 @@ export default function Layout(props: { children?: JSX.Element }) {
               <A href={`/u/${u().username}`} class={isActive(`/u/${u().username}`)}>
                 <span>👤</span> Profilim
               </A>
+              <A href="/settings" class={isActive('/settings')}>
+                <span>⚙️</span> Ayarlar
+              </A>
               <div class="me">
                 @{u().username}
                 <Show when={u().pending_2fa}>

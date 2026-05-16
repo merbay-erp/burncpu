@@ -25,7 +25,8 @@ allow = [
     "Zlib",
     "MPL-2.0",
     "CC0-1.0",
-    "OpenSSL",          # ring/aws-lc legacy attribution
+    "CDLA-Permissive-2.0",  # webpki-roots data files
+    "OpenSSL",              # ring/aws-lc legacy attribution
 ]
 # Crates that don't expose a SPDX license but ship clear OSS terms.
 # Keep this small — every entry is a manual review.

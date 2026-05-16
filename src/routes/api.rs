@@ -1,6 +1,6 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
-use super::{admin, auth, bookmarks, dm, feed, invites, media, notifications, posts, search, tokens, trending, users, webhooks};
+use super::{admin, auth, bookmarks, dm, feed, invites, media, notifications, posts, push, search, tokens, trending, users, webhooks};
 use crate::state::AppState;
 use axum::{routing::get, Router};
 use serde_json::json;
@@ -107,4 +107,5 @@ pub fn router(_state: AppState) -> Router<AppState> {
         .nest("/trending", trending::router())
         .nest("/tokens", tokens::router())
         .nest("/webhooks", webhooks::router())
+        .nest("/push", push::router())
 }

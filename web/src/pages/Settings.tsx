@@ -418,6 +418,123 @@ function PrefsBlock() {
           English
         </button>
       </div>
+      <PushBlock />
+    </div>
+  );
+}
+
+function PushBlock() {
+  const supported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const [perm, setPerm] = createSignal<NotificationPermission>(supported ? Notification.permission : 'default');
+  const [enabled, setEnabled] = createSignal(false);
+  const [busy, setBusy] = createSignal(false);
+  const [err, setErr] = createSignal<string | null>(null);
+
+  onMount(async () => {
+    if (!supported) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      setEnabled(!!sub);
+    } catch (_) { /* ignore */ }
+  });
+
+  const urlB64ToUint8Array = (s: string): Uint8Array => {
+    const padding = '='.repeat((4 - (s.length % 4)) % 4);
+    const base64 = (s + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(base64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  };
+
+  const enable = async () => {
+    if (!supported) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const p = await Notification.requestPermission();
+      setPerm(p);
+      if (p !== 'granted') {
+        setErr('izin verilmedi');
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const r = await fetch('/api/v1/push/vapid-public-key');
+      const pubKey = (await r.text()).trim();
+      if (!pubKey) {
+        setErr('Sunucu VAPID anahtarı ayarlanmamış — yöneticiyle konuş.');
+        return;
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8Array(pubKey),
+      });
+      const json = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
+      await fetch('/api/v1/push/subscribe', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Origin: window.location.origin },
+        body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
+      });
+      setEnabled(true);
+    } catch (e) {
+      setErr((e as Error).message || 'push abone hatası');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disable = async () => {
+    if (!supported) return;
+    setBusy(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await fetch('/api/v1/push/unsubscribe', {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', Origin: window.location.origin },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        });
+        await sub.unsubscribe();
+      }
+      setEnabled(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style="margin-top: 22px;">
+      <h3 style="margin: 0 0 6px;">Tarayıcı bildirimleri</h3>
+      <Show
+        when={supported}
+        fallback={<p class="muted tiny">Tarayıcın Web Push desteklemiyor.</p>}
+      >
+        <Show when={perm() === 'denied'}>
+          <div class="error">İzin reddedildi. Tarayıcı ayarlarından site iznini açman gerek.</div>
+        </Show>
+        <Show when={err()}>
+          <div class="error">{err()}</div>
+        </Show>
+        <div class="flex">
+          <Show
+            when={enabled()}
+            fallback={
+              <button class="primary" onClick={enable} disabled={busy() || perm() === 'denied'}>
+                {busy() ? 'Bağlanıyor…' : 'Açık'}
+              </button>
+            }
+          >
+            <button onClick={disable} disabled={busy()}>
+              {busy() ? 'Kapatılıyor…' : 'Kapat'}
+            </button>
+            <span class="tiny muted">Aktif</span>
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 }

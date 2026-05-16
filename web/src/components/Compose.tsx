@@ -1,6 +1,7 @@
 import { createSignal, Show, For } from 'solid-js';
 import { api, type PostView } from '../api';
 import { visibleLength } from '../util';
+import EmojiPicker from './EmojiPicker';
 
 const MAX = 5000;
 
@@ -203,6 +204,23 @@ export default function Compose(props: {
         <button class="ghost tiny" onClick={pickFile} disabled={uploading() || busy()}>
           {uploading() ? 'Yükleniyor…' : '📎 Görsel ekle'}
         </button>
+        <EmojiPicker
+          onPick={(c) => {
+            if (!textarea) {
+              setBody((cur) => cur + c);
+              return;
+            }
+            const pos = textarea.selectionStart ?? body().length;
+            const next = body().slice(0, pos) + c + body().slice(pos);
+            setBody(next);
+            setTimeout(() => {
+              if (!textarea) return;
+              const newPos = pos + c.length;
+              textarea.focus();
+              textarea.setSelectionRange(newPos, newPos);
+            }, 0);
+          }}
+        />
         <span
           class={`char-count ${
             visibleLength(body()) > MAX ? 'bad' : visibleLength(body()) > MAX * 0.9 ? 'warn' : ''

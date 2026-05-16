@@ -22,6 +22,32 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Web Push: show the notification from the encrypted payload.
+self.addEventListener('push', (event) => {
+  let data = { title: 'burncpu', body: '', url: '/' };
+  try { if (event.data) data = { ...data, ...event.data.json() }; } catch (_) {}
+  const opts = {
+    body: data.body,
+    icon: '/icon-192.png',
+    badge: '/favicon.svg',
+    data: { url: data.url },
+    tag: data.kind || 'burncpu',
+    renotify: false,
+  };
+  event.waitUntil(self.registration.showNotification(data.title, opts));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(clients.matchAll({ type: 'window' }).then((all) => {
+    for (const c of all) {
+      if (c.url.includes(url) && 'focus' in c) return c.focus();
+    }
+    return clients.openWindow(url);
+  }));
+});
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;

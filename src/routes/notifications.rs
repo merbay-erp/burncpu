@@ -253,6 +253,7 @@ pub async fn notify(
         "metadata": metadata,
     });
 
+    let actor_username_clone = actor_username.clone();
     let _ = state.notif_tx.send(crate::state::NotificationEvent {
         user_id,
         kind: kind.to_string(),
@@ -264,4 +265,5 @@ pub async fn notify(
     });
 
     crate::routes::webhooks::dispatch_event(state, user_id, kind, &payload).await;
+    crate::routes::push::send_to_user(state, user_id, kind, actor_username_clone.as_deref(), target_kind, target_id).await;
 }

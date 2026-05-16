@@ -11,6 +11,7 @@ pub mod invites;
 pub mod media;
 pub mod notifications;
 pub mod posts;
+pub mod push;
 pub mod rss;
 pub mod search;
 pub mod sitemap;

@@ -29,7 +29,6 @@ const eventText = (e: NotificationEvent): string => {
   }
 };
 
-// SideNav item — controlled active styling per design ref
 function SideLink(props: { href: string; icon: string; label: string; active: boolean }) {
   return (
     <A
@@ -48,10 +47,7 @@ function SideLink(props: { href: string; icon: string; label: string; active: bo
 
 function BottomLink(props: { href: string; icon: string; active: boolean }) {
   return (
-    <A
-      href={props.href}
-      class={`p-2 ${props.active ? 'text-primary' : 'text-on-surface-variant'}`}
-    >
+    <A href={props.href} class={`p-2 ${props.active ? 'text-primary' : 'text-on-surface-variant'}`}>
       <span
         class="material-symbols-outlined"
         style={props.active ? "font-variation-settings: 'FILL' 1;" : ''}
@@ -95,148 +91,166 @@ export default function Layout(props: { children?: JSX.Element }) {
 
   return (
     <div class="min-h-screen bg-background text-on-background">
-      {/* ─── Top Nav (glassmorphic, fixed) ─────────────── */}
-      <nav class="fixed top-0 inset-x-0 z-50 flex justify-between items-center px-margin-mobile md:px-gutter h-16 bg-background/80 backdrop-blur-md border-b border-outline-variant">
-        <A href="/" class="flex items-center gap-2">
-          <span class="font-headline-lg text-[20px] md:text-[24px] font-bold tracking-tighter text-primary">🐢 BURNCPU</span>
-        </A>
-
-        <div class="hidden md:flex flex-1 max-w-md mx-8">
-          <form
-            class="relative w-full"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const v = (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.value?.trim();
-              if (v) window.location.assign(`/search?q=${encodeURIComponent(v)}`);
-            }}
-          >
-            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" style="font-size: 20px;">search</span>
-            <input
-              type="text"
-              placeholder="Search the signal..."
-              class="w-full bg-surface-container border border-outline-variant pl-10 pr-3 py-2 rounded-lg font-mono text-[14px] focus:outline-none focus:border-primary transition-colors"
-            />
-          </form>
-        </div>
-
-        <div class="flex items-center gap-base">
-          <Show when={me()}>
-            <button
-              onClick={() => {
-                const ta = document.querySelector<HTMLTextAreaElement>('.composer textarea');
-                if (ta) ta.focus(); else window.location.assign('/');
-              }}
-              class="p-2 text-on-surface-variant hover:text-primary transition-colors active:scale-95 duration-150"
-              title="Yeni post"
-            >
-              <span class="material-symbols-outlined">add_box</span>
-            </button>
-          </Show>
-          <A
-            href="/notifications"
-            class="p-2 text-on-surface-variant hover:text-primary transition-colors active:scale-95 duration-150 relative"
-            title="Bildirimler"
-          >
-            <span class="material-symbols-outlined">notifications</span>
-            <Show when={(unread() ?? 0) > 0}>
-              <span class="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full"></span>
-            </Show>
+      {/* ─── Top Nav (full viewport, glassmorphic) ─────── */}
+      <nav class="fixed top-0 inset-x-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-outline-variant">
+        <div class="max-w-[1300px] mx-auto h-full px-4 md:px-6 flex justify-between items-center">
+          <A href="/" class="flex items-center gap-3 group" title="burncpu — 1 vps yeter">
+            <span class="relative flex items-center justify-center w-2.5 h-2.5 shrink-0">
+              <span class="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping"></span>
+              <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary"></span>
+            </span>
+            <span class="font-bold text-[20px] md:text-[22px] tracking-tight leading-none text-on-background">
+              burncpu
+            </span>
           </A>
-          <Show
-            when={me()}
-            fallback={
-              <A href="/login" class="p-2 text-on-surface-variant hover:text-primary">
-                <span class="material-symbols-outlined">login</span>
-              </A>
-            }
-          >
-            {(u) => (
-              <A
-                href={`/u/${u().username}`}
-                class="p-2 text-on-surface-variant hover:text-primary transition-colors active:scale-95 duration-150"
-                title={`@${u().username}`}
-              >
-                <span class="material-symbols-outlined">account_circle</span>
-              </A>
-            )}
-          </Show>
-        </div>
-      </nav>
 
-      {/* ─── Side Nav (desktop only) ───────────────────── */}
-      <aside class="hidden lg:flex fixed left-0 top-16 h-[calc(100vh-64px)] w-64 flex-col py-8 px-4 gap-base border-r border-outline-variant bg-background">
-        <div class="mb-6 px-4">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-lg bg-surface-container-highest flex items-center justify-center text-[24px]">🐢</div>
-            <div>
-              <div class="font-mono text-[14px] text-primary font-bold">BurnCPU</div>
-              <div class="text-[10px] text-on-surface-variant font-mono">1 VPS IS ENOUGH</div>
-            </div>
+          <div class="hidden md:flex flex-1 max-w-md mx-8">
+            <form
+              class="relative w-full"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const v = (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.value?.trim();
+                if (v) window.location.assign(`/search?q=${encodeURIComponent(v)}`);
+              }}
+            >
+              <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" style="font-size: 20px;">search</span>
+              <input
+                type="text"
+                placeholder="Search the signal..."
+                class="w-full bg-surface-container border border-outline-variant pl-10 pr-3 py-2 rounded-lg font-mono text-[14px] focus:outline-none focus:border-primary transition-colors"
+              />
+            </form>
           </div>
-        </div>
-        <nav class="flex flex-col gap-1">
-          <SideLink href="/"             icon="timeline"     label="Timeline"      active={loc.pathname === '/'} />
-          <SideLink href="/feed"         icon="rss_feed"     label="Feed"          active={is('/feed')} />
-          <SideLink href="/search"       icon="search"       label="Search"        active={is('/search')} />
-          <SideLink href="/notifications" icon="notifications" label="Notifications" active={is('/notifications')} />
-          <Show when={me()}>
-            {(u) => (
-              <>
-                <SideLink href="/dm"        icon="mail"      label="DM"        active={is('/dm')} />
-                <SideLink href={`/u/${u().username}`} icon="person" label="Profile" active={is(`/u/${u().username}`)} />
-                <SideLink href="/bookmarks" icon="bookmark"  label="Saved"     active={is('/bookmarks')} />
-                <SideLink href="/trash"     icon="delete"    label="Trash"     active={is('/trash')} />
-                <SideLink href="/settings"  icon="settings"  label="Settings"  active={is('/settings')} />
-                <Show when={u().role === 'admin'}>
-                  <SideLink href="/admin" icon="shield" label="Admin" active={is('/admin')} />
-                </Show>
-              </>
-            )}
-          </Show>
-        </nav>
 
-        <Show when={me()}>
-          {(u) => (
-            <>
-              <div class="mt-auto pt-6 border-t border-outline-variant/30 px-4">
-                <div class="font-mono text-[12px] text-on-surface-variant truncate">@{u().username}</div>
-                <button
-                  onClick={() => logout()}
-                  class="font-mono text-[11px] text-on-surface-variant hover:text-primary mt-1"
-                >
-                  Çıkış
-                </button>
-              </div>
+          <div class="flex items-center gap-2">
+            <Show when={me()}>
               <button
                 onClick={() => {
                   const ta = document.querySelector<HTMLTextAreaElement>('.composer textarea');
                   if (ta) ta.focus(); else window.location.assign('/');
                 }}
-                class="w-full bg-primary text-on-primary font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all"
+                class="p-2 text-on-surface-variant hover:text-primary transition-colors"
+                title="Yeni post"
               >
-                <span class="material-symbols-outlined">add</span>
-                Post Signal
+                <span class="material-symbols-outlined">add_box</span>
               </button>
-            </>
-          )}
-        </Show>
-      </aside>
-
-      {/* ─── Main + Right Rail ──────────────────────────── */}
-      <main class="pt-20 pb-20 lg:pl-64 xl:pr-[320px] min-h-screen">
-        <div class="max-w-content-width mx-auto px-margin-mobile md:px-0">
-          {props.children}
+            </Show>
+            <A
+              href="/notifications"
+              class="p-2 text-on-surface-variant hover:text-primary transition-colors relative"
+              title="Bildirimler"
+            >
+              <span class="material-symbols-outlined">notifications</span>
+              <Show when={(unread() ?? 0) > 0}>
+                <span class="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full"></span>
+              </Show>
+            </A>
+            <Show
+              when={me()}
+              fallback={
+                <A href="/login" class="p-2 text-on-surface-variant hover:text-primary">
+                  <span class="material-symbols-outlined">login</span>
+                </A>
+              }
+            >
+              {(u) => (
+                <A
+                  href={`/u/${u().username}`}
+                  class="p-2 text-on-surface-variant hover:text-primary transition-colors"
+                  title={`@${u().username}`}
+                >
+                  <span class="material-symbols-outlined">account_circle</span>
+                </A>
+              )}
+            </Show>
+          </div>
         </div>
-      </main>
+      </nav>
 
-      <RightRail />
+      {/* ─── Centered shell: sidebar | main | right rail ── */}
+      <div class="max-w-[1300px] mx-auto pt-16 min-h-screen">
+        <div class="grid grid-cols-1 lg:grid-cols-[256px_minmax(0,1fr)] xl:grid-cols-[256px_minmax(0,1fr)_320px]">
+          {/* Left side nav — sticky inside shell */}
+          <aside class="hidden lg:flex sticky top-16 h-[calc(100vh-4rem)] flex-col py-8 px-4 gap-base border-r border-outline-variant">
+            <div class="mb-6 px-4">
+              <div class="flex items-center gap-3">
+                <span class="relative flex items-center justify-center w-3 h-3 shrink-0">
+                  <span class="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping"></span>
+                  <span class="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
+                </span>
+                <div class="leading-tight">
+                  <div class="font-bold text-[16px] tracking-tight text-on-background">burncpu</div>
+                  <div class="text-[10px] text-on-surface-variant font-mono tracking-wider">1 vps yeter</div>
+                </div>
+              </div>
+            </div>
+            <nav class="flex flex-col gap-1">
+              <SideLink href="/"              icon="timeline"      label="Timeline"      active={loc.pathname === '/'} />
+              <SideLink href="/feed"          icon="rss_feed"      label="Feed"          active={is('/feed')} />
+              <SideLink href="/search"        icon="search"        label="Search"        active={is('/search')} />
+              <SideLink href="/notifications" icon="notifications" label="Notifications" active={is('/notifications')} />
+              <Show when={me()}>
+                {(u) => (
+                  <>
+                    <SideLink href="/dm"                       icon="mail"     label="DM"       active={is('/dm')} />
+                    <SideLink href={`/u/${u().username}`}      icon="person"   label="Profile"  active={is(`/u/${u().username}`)} />
+                    <SideLink href="/bookmarks"                icon="bookmark" label="Saved"    active={is('/bookmarks')} />
+                    <SideLink href="/trash"                    icon="delete"   label="Trash"    active={is('/trash')} />
+                    <SideLink href="/settings"                 icon="settings" label="Settings" active={is('/settings')} />
+                    <Show when={u().role === 'admin'}>
+                      <SideLink href="/admin" icon="shield" label="Admin" active={is('/admin')} />
+                    </Show>
+                  </>
+                )}
+              </Show>
+            </nav>
+            <Show when={me()}>
+              {(u) => (
+                <>
+                  <div class="mt-auto pt-6 border-t border-outline-variant/30 px-4">
+                    <div class="font-mono text-[12px] text-on-surface-variant truncate">@{u().username}</div>
+                    <button
+                      onClick={() => logout()}
+                      class="font-mono text-[11px] text-on-surface-variant hover:text-primary mt-1"
+                    >
+                      Çıkış
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const ta = document.querySelector<HTMLTextAreaElement>('.composer textarea');
+                      if (ta) ta.focus(); else window.location.assign('/');
+                    }}
+                    class="w-full bg-primary text-on-primary font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all"
+                  >
+                    <span class="material-symbols-outlined">add</span>
+                    Post Signal
+                  </button>
+                </>
+              )}
+            </Show>
+          </aside>
 
-      {/* ─── Mobile bottom nav ────────────────────────── */}
+          {/* Main column — bordered both sides where rails exist */}
+          <main class="min-h-[calc(100vh-4rem)] py-8 px-4 md:px-8 lg:px-10 xl:px-6 lg:border-r xl:border-r border-outline-variant">
+            <div class="max-w-[680px] mx-auto">
+              {props.children}
+            </div>
+          </main>
+
+          {/* Right rail — sticky inside shell */}
+          <div class="hidden xl:block">
+            <RightRail />
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile bottom nav */}
       <footer class="lg:hidden fixed bottom-0 inset-x-0 bg-background/90 backdrop-blur-md border-t border-outline-variant z-50">
         <div class="flex justify-around items-center h-16">
-          <BottomLink href="/"             icon="home"          active={loc.pathname === '/'} />
-          <BottomLink href="/search"       icon="search"        active={is('/search')} />
-          <BottomLink href="/feed"         icon="rss_feed"      active={is('/feed')} />
+          <BottomLink href="/"              icon="home"          active={loc.pathname === '/'} />
+          <BottomLink href="/search"        icon="search"        active={is('/search')} />
+          <BottomLink href="/feed"          icon="rss_feed"      active={is('/feed')} />
           <BottomLink href="/notifications" icon="notifications" active={is('/notifications')} />
           <Show when={me()} fallback={<BottomLink href="/login" icon="login" active={is('/login')} />}>
             {(u) => <BottomLink href={`/u/${u().username}`} icon="person" active={is(`/u/${u().username}`)} />}

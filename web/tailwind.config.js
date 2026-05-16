@@ -19,22 +19,22 @@ export default {
         'surface-container-highest': '#353535',
         'on-background': '#e5e2e1',
         'on-surface': '#e5e2e1',
-        'on-surface-variant': '#e0c0af',
+        'on-surface-variant': '#c5d4b3',   // greenish-grey (was warm peach)
         'inverse-surface': '#e5e2e1',
         'inverse-on-surface': '#303030',
-        'outline': '#a78b7c',
-        'outline-variant': '#584235',
-        'surface-tint': '#ffb68b',
+        'outline': '#7a8b6b',              // greenish-grey
+        'outline-variant': '#3a4e2e',      // dark forest
+        'surface-tint': '#9ce16d',         // turtle moss
 
-        primary: '#ffb68b',                // electric amber
-        'on-primary': '#522300',
-        'primary-container': '#ff7a00',
-        'on-primary-container': '#5c2800',
-        'inverse-primary': '#994700',
-        'primary-fixed': '#ffdbc8',
-        'primary-fixed-dim': '#ffb68b',
-        'on-primary-fixed': '#321200',
-        'on-primary-fixed-variant': '#753400',
+        primary: '#9ce16d',                // turtle moss — slow + alive
+        'on-primary': '#0f1f08',
+        'primary-container': '#76c14c',
+        'on-primary-container': '#0a1804',
+        'inverse-primary': '#5a8a3a',
+        'primary-fixed': '#c5f09a',
+        'primary-fixed-dim': '#9ce16d',
+        'on-primary-fixed': '#0a1804',
+        'on-primary-fixed-variant': '#2d5018',
 
         secondary: '#c9c6c5',
         'on-secondary': '#313030',
@@ -75,6 +75,10 @@ export default {
         gutter: '24px',
         'margin-mobile': '16px',
         base: '8px',
+      },
+      maxWidth: {
+        'content-width': '680px',
+        'container-max': '1200px',
       },
       fontFamily: {
         sans: ['Geist', 'ui-sans-serif', 'system-ui'],

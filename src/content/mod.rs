@@ -29,15 +29,31 @@ pub fn render_markdown(src: &str) -> String {
 ///
 /// Skips matches inside fenced code blocks and inline code so people can
 /// say `like @foo` in code without it becoming a link.
+///
+/// IMPORTANT: copies whole UTF-8 chars, not individual bytes. Casting
+/// `bytes[i] as char` mojibakes any multibyte sequence (İ → Ä°, ş → Å,
+/// etc.) by treating UTF-8 bytes as Latin-1 codepoints.
 fn linkify_mentions(src: &str) -> String {
-    // Single-pass scanner. Tracks: inside-backticks, inside-fenced-code.
     let bytes = src.as_bytes();
     let mut out = String::with_capacity(src.len() + 32);
     let mut i = 0;
     let mut in_fence = false;
     let mut in_inline = false;
+
+    // Advance i past one full UTF-8 char and push that slice to out.
+    let push_char = |out: &mut String, src: &str, bytes: &[u8], i: &mut usize| {
+        let start = *i;
+        let mut end = start + 1;
+        // Continuation bytes have top bits 10xxxxxx
+        while end < bytes.len() && (bytes[end] & 0xC0) == 0x80 {
+            end += 1;
+        }
+        out.push_str(&src[start..end]);
+        *i = end;
+    };
+
     while i < bytes.len() {
-        // Detect fence boundary on a fresh line
+        // Detect ``` fence on a fresh line
         if (i == 0 || bytes[i - 1] == b'\n')
             && bytes.len() >= i + 3
             && &bytes[i..i + 3] == b"```"
@@ -48,8 +64,7 @@ fn linkify_mentions(src: &str) -> String {
             continue;
         }
         if in_fence {
-            out.push(bytes[i] as char);
-            i += 1;
+            push_char(&mut out, src, bytes, &mut i);
             continue;
         }
         if bytes[i] == b'`' {
@@ -59,7 +74,6 @@ fn linkify_mentions(src: &str) -> String {
             continue;
         }
         if !in_inline && bytes[i] == b'@' {
-            // Must be at start or preceded by ws / punctuation
             let prev_ok = i == 0
                 || matches!(
                     bytes[i - 1],
@@ -74,7 +88,6 @@ fn linkify_mentions(src: &str) -> String {
                     end += 1;
                 }
                 let name = &src[start..end];
-                // Username schema: 3..=32, [a-z0-9_]
                 if name.len() >= 3
                     && name.len() <= 32
                     && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
@@ -85,8 +98,7 @@ fn linkify_mentions(src: &str) -> String {
                 }
             }
         }
-        out.push(bytes[i] as char);
-        i += 1;
+        push_char(&mut out, src, bytes, &mut i);
     }
     out
 }

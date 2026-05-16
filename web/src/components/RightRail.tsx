@@ -27,7 +27,7 @@ export default function RightRail() {
   });
 
   return (
-    <aside class="hidden xl:flex fixed right-0 top-16 h-[calc(100vh-64px)] w-[320px] flex-col py-8 px-6 gap-8 border-l border-outline-variant bg-background overflow-y-auto">
+    <aside class="sticky top-16 h-[calc(100vh-4rem)] flex flex-col py-8 px-6 gap-8 border-l border-outline-variant bg-background overflow-y-auto">
       <Show when={profile()}>
         {(p) => (
           <section class="bg-surface-container-high border border-outline-variant rounded-xl p-5">

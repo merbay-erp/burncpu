@@ -86,10 +86,28 @@ ssh vps3 'cd /opt/burncpu && docker compose up -d'
 | `DELETE` | `/api/v1/users/{username}/follow` | Unfollow |
 | `GET`    | `/api/v1/users/{username}/followers` | Liste |
 | `GET`    | `/api/v1/users/{username}/following` | Liste |
+| `POST`   | `/api/v1/posts/{id}/replies` | Direct replies (yeni endpoint) |
+| `GET`    | `/api/v1/posts/{id}/thread` | Tam konuşma (root + descendants, max depth 6) |
+| `POST`   | `/api/v1/users/{username}/follow` | Follow |
+| `DELETE` | `/api/v1/users/{username}/follow` | Unfollow |
+| `GET`    | `/api/v1/users/{username}/followers` | Liste |
+| `GET`    | `/api/v1/users/{username}/following` | Liste |
 | `POST`   | `/api/v1/invites` | Davet kodu oluştur (auth, 5/gün, 14d TTL) |
 | `GET`    | `/api/v1/invites` | Kendi davetlerin |
 | `GET`    | `/api/v1/invites/{code}` | Kod geçerli mi (public) |
 | `DELETE` | `/api/v1/invites/{code}` | Kullanılmamış kodu iptal et |
+| `POST`   | `/api/v1/auth/2fa/enroll` | TOTP enrollment (auth) |
+| `POST`   | `/api/v1/auth/2fa/confirm` | İlk kod doğrulama → aktivasyon |
+| `POST`   | `/api/v1/auth/2fa/challenge` | Pending session 2FA tamamlama |
+| `POST`   | `/api/v1/auth/2fa/disable` | TOTP kapat (kod ister) |
+| `GET`    | `/api/v1/admin/*` | Moderation paneli (admin role + 2FA gate) |
+| `GET`    | `/api/v1/search ?q=&tag=` | Arama (Meilisearch, public/live filter) |
+| `GET`    | `/api/v1/hashtags/{tag}` | Tag bazlı arama |
+| `GET`    | `/api/v1/notifications` | Bildirim kutusu (auth) |
+| `GET`    | `/api/v1/notifications/count` | Okunmamış sayı |
+| `GET`    | `/rss/all` | Public timeline Atom feed |
+| `GET`    | `/rss/user/{username}` | Kullanıcı feed'i |
+| `GET`    | `/rss/hashtag/{tag}` | Hashtag feed'i |
 
 ## Yol haritası
 
@@ -100,23 +118,26 @@ ssh vps3 'cd /opt/burncpu && docker compose up -d'
 - [x] Reactions (5-emoji set)
 - [x] Profiller, follow graph, personal feed
 - [x] Invite-only signup (env-flagged, dark-launched)
+- [x] Reply threading + parent excerpt
+- [x] Admin moderation paneli (post/user/audit/sessions/mod_log)
+- [x] Notification system (react/reply/follow)
+- [x] Meilisearch + hashtag arama
+- [x] RSS / Atom feeds
+- [x] TOTP 2FA admin gate (HMAC-SHA1, XChaCha20-Poly1305 stored secret, recovery codes)
+- [x] Postgres nightly backups + 7-day rotation
+- [ ] SMTP gerçek gönderim (sağlayıcı seçimi bekleniyor)
 - [ ] Frontend (SolidJS scaffold)
-- [ ] RSS feed
 
 **Hafta 2**
-- [ ] TOTP 2FA (admin gate)
-- [ ] Reply threading
-- [ ] Notification system
+- [ ] Frontend MVP: auth + feed + post + react
+- [ ] PWA shell
 
 **Hafta 3**
 - [ ] Spam-resistant filtering engine (model-agnostik, çok katmanlı)
-- [ ] Admin moderation paneli
+- [ ] User direct messages
 
-**Hafta 4**
-- [ ] Meilisearch + hashtag + trending
-- [ ] PWA
-
-**Hafta 5+**
+**Hafta 4+**
+- [ ] Trending / discovery
 - [ ] Federation — sadece tek instance kültürü oturduktan sonra
 
 ## Katkı

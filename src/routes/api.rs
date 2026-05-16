@@ -1,6 +1,6 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
-use super::{admin, auth, bookmarks, dm, feed, invites, media, notifications, posts, search, trending, users};
+use super::{admin, auth, bookmarks, dm, feed, invites, media, notifications, posts, search, tokens, trending, users, webhooks};
 use crate::state::AppState;
 use axum::{routing::get, Router};
 use serde_json::json;
@@ -79,6 +79,14 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "GET    /api/v1/trending/hashtags":    "hashtag counts (window=24h)",
                         "GET    /api/v1/trending/posts":       "most-reacted public posts",
                         "GET    /embed/posts/{id}":            "minimal HTML with per-post OG meta (used by share crawlers)",
+                        "GET    /api/v1/tokens":               "list API tokens",
+                        "POST   /api/v1/tokens":               "create bearer token (shown ONCE)",
+                        "DELETE /api/v1/tokens/{id}":          "revoke token",
+                        "GET    /api/v1/webhooks":             "list outgoing webhooks",
+                        "POST   /api/v1/webhooks":             "create webhook (secret shown ONCE)",
+                        "PATCH  /api/v1/webhooks/{id}":        "toggle active / events",
+                        "DELETE /api/v1/webhooks/{id}":        "remove webhook",
+                        "AUTH":                                "Authorization: Bearer <token> works on every authenticated endpoint",
                         "GET    /healthz":                     "liveness probe",
                     },
                 }))
@@ -97,4 +105,6 @@ pub fn router(_state: AppState) -> Router<AppState> {
         .nest("/bookmarks", bookmarks::router())
         .nest("/dm", dm::router())
         .nest("/trending", trending::router())
+        .nest("/tokens", tokens::router())
+        .nest("/webhooks", webhooks::router())
 }

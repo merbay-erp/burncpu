@@ -243,6 +243,16 @@ pub async fn notify(
     } else {
         None
     };
+    let payload = serde_json::json!({
+        "user_id": user_id,
+        "kind": kind,
+        "actor_id": actor_id,
+        "actor_username": actor_username,
+        "target_kind": target_kind,
+        "target_id": target_id,
+        "metadata": metadata,
+    });
+
     let _ = state.notif_tx.send(crate::state::NotificationEvent {
         user_id,
         kind: kind.to_string(),
@@ -252,4 +262,6 @@ pub async fn notify(
         target_id,
         created_at: sqlx::types::chrono::Utc::now().to_rfc3339(),
     });
+
+    crate::routes::webhooks::dispatch_event(state, user_id, kind, &payload).await;
 }

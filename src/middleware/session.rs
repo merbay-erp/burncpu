@@ -38,6 +38,48 @@ pub async fn layer(
     mut req: Request<Body>,
     next: Next,
 ) -> Response {
+    // Prefer bearer token (API client); fall back to session cookie (browser).
+    let bearer = read_bearer(req.headers());
+    if let Some(token) = bearer {
+        let hash = hash_token(&token);
+        let row: Option<(uuid::Uuid, String, String, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>)> =
+            sqlx::query_as(
+                r#"
+                SELECT t.id, t.user_id::text, u.role, t.expires_at, t.revoked_at
+                FROM api_tokens t JOIN users u ON u.id = t.user_id
+                WHERE t.token_hash = $1
+                "#,
+            )
+            .bind(&hash)
+            .fetch_optional(&state.pg)
+            .await
+            .ok()
+            .flatten();
+        if let Some((_tid, user_id_text, role, expires_at, revoked_at)) = row {
+            let alive = revoked_at.is_none()
+                && expires_at.map(|e| e > chrono::Utc::now()).unwrap_or(true);
+            if alive {
+                if let Ok(user_id) = uuid::Uuid::parse_str(&user_id_text) {
+                    // Bump last_used_at best-effort
+                    let _ = sqlx::query(
+                        "UPDATE api_tokens SET last_used_at = NOW() WHERE token_hash = $1",
+                    )
+                    .bind(&hash)
+                    .execute(&state.pg)
+                    .await;
+                    req.extensions_mut().insert(CurrentUser {
+                        user_id,
+                        role,
+                        session_id: Uuid::nil(),
+                        session_flagged: false,
+                        pending_2fa: false,
+                    });
+                    return next.run(req).await;
+                }
+            }
+        }
+        // Fall through: bad bearer doesn't 401 here — handler decides.
+    }
     if let Some(raw) = read_cookie(req.headers()) {
         let hash = hash_token(&raw);
         let ua = req
@@ -133,4 +175,9 @@ fn read_cookie(headers: &axum::http::HeaderMap) -> Option<String> {
         }
     }
     None
+}
+
+fn read_bearer(headers: &axum::http::HeaderMap) -> Option<String> {
+    let v = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    v.strip_prefix("Bearer ").map(|s| s.trim().to_string())
 }

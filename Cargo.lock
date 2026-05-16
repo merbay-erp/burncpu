@@ -265,6 +265,7 @@ dependencies = [
  "dotenvy",
  "futures",
  "hex",
+ "hmac",
  "image",
  "infer",
  "lettre",

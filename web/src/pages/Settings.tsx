@@ -4,7 +4,7 @@ import { api, type Profile } from '../api';
 import { me, setCachedMe } from '../auth';
 import { locale, setLocale } from '../i18n';
 
-type Tab = 'profile' | 'security' | 'invites';
+type Tab = 'profile' | 'security' | 'invites' | 'dev';
 
 export default function Settings() {
   const [tab, setTab] = createSignal<Tab>('profile');
@@ -17,6 +17,7 @@ export default function Settings() {
           <TabBtn label="Profil" active={tab() === 'profile'} onClick={() => setTab('profile')} />
           <TabBtn label="Güvenlik" active={tab() === 'security'} onClick={() => setTab('security')} />
           <TabBtn label="Davetler" active={tab() === 'invites'} onClick={() => setTab('invites')} />
+          <TabBtn label="Geliştirici" active={tab() === 'dev'} onClick={() => setTab('dev')} />
         </div>
         <Show when={tab() === 'profile'}>
           <ProfileTab />
@@ -27,7 +28,229 @@ export default function Settings() {
         <Show when={tab() === 'invites'}>
           <InvitesTab />
         </Show>
+        <Show when={tab() === 'dev'}>
+          <DevTab />
+        </Show>
       </Show>
+    </>
+  );
+}
+
+// ─── Developer (API tokens + webhooks) tab ──────────────────────
+
+interface TokenRow {
+  id: string; name: string; scope: string;
+  last_used_at: string | null; expires_at: string | null;
+  revoked_at: string | null; created_at: string;
+}
+interface CreatedToken { id: string; name: string; scope: string; token: string; expires_at: string | null; }
+interface WebhookRow {
+  id: string; url: string; events: string[]; active: boolean;
+  last_called_at: string | null; last_status: number | null;
+  failure_streak: number; created_at: string;
+}
+interface CreatedWebhook { id: string; url: string; events: string[]; secret: string; }
+
+function DevTab() {
+  const [tokens, { refetch: refetchTokens }] = createResource<TokenRow[]>(() =>
+    api.get<TokenRow[]>('/tokens'),
+  );
+  const [hooks, { refetch: refetchHooks }] = createResource<WebhookRow[]>(() =>
+    api.get<WebhookRow[]>('/webhooks'),
+  );
+
+  const [tName, setTName] = createSignal('');
+  const [tScope, setTScope] = createSignal('all');
+  const [lastToken, setLastToken] = createSignal<CreatedToken | null>(null);
+
+  const [hUrl, setHUrl] = createSignal('');
+  const [hEvents, setHEvents] = createSignal<string[]>([]);
+  const [lastHook, setLastHook] = createSignal<CreatedWebhook | null>(null);
+
+  const createToken = async (e: Event) => {
+    e.preventDefault();
+    if (!tName().trim()) return;
+    const r = await api.post<CreatedToken>('/tokens', { name: tName().trim(), scope: tScope() });
+    setLastToken(r);
+    setTName('');
+    refetchTokens();
+  };
+  const revokeToken = async (id: string) => {
+    if (!confirm('Token iptal edilsin mi?')) return;
+    await api.del(`/tokens/${id}`);
+    refetchTokens();
+  };
+
+  const toggleEvent = (ev: string) => {
+    setHEvents((cur) => cur.includes(ev) ? cur.filter((x) => x !== ev) : [...cur, ev]);
+  };
+  const createHook = async (e: Event) => {
+    e.preventDefault();
+    if (!hUrl().trim() || hEvents().length === 0) return;
+    try {
+      const r = await api.post<CreatedWebhook>('/webhooks', {
+        url: hUrl().trim(),
+        events: hEvents(),
+      });
+      setLastHook(r);
+      setHUrl('');
+      setHEvents([]);
+      refetchHooks();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  };
+  const toggleHookActive = async (h: WebhookRow) => {
+    await api.patch(`/webhooks/${h.id}`, { active: !h.active });
+    refetchHooks();
+  };
+  const removeHook = async (id: string) => {
+    if (!confirm('Webhook silinsin mi?')) return;
+    await api.del(`/webhooks/${id}`);
+    refetchHooks();
+  };
+
+  const copy = (s: string) => void navigator.clipboard.writeText(s);
+
+  return (
+    <>
+      <h3 style="margin-top: 0;">API Tokens</h3>
+      <p class="muted tiny" style="margin-top: 0;">
+        Bot ve script'lerden API'yi çağırmak için. <code>Authorization: Bearer &lt;token&gt;</code>
+        header'ı her endpoint'te çalışır.
+      </p>
+      <form onSubmit={createToken} class="flex" style="gap: 8px; flex-wrap: wrap;">
+        <input
+          type="text"
+          maxlength="64"
+          placeholder="token adı (örn: macbook-cli)"
+          value={tName()}
+          onInput={(e) => setTName(e.currentTarget.value)}
+          style="flex: 1; min-width: 200px;"
+        />
+        <select
+          value={tScope()}
+          onChange={(e) => setTScope(e.currentTarget.value)}
+          style="background: var(--bg-2); border: 1px solid var(--border); padding: 8px; color: var(--fg); border-radius: var(--radius);"
+        >
+          <option value="all">all (yazma+okuma)</option>
+          <option value="read">read (okuma)</option>
+        </select>
+        <button type="submit" class="primary" disabled={!tName().trim()}>Oluştur</button>
+      </form>
+
+      <Show when={lastToken()}>
+        {(t) => (
+          <div class="success" style="margin-top: 10px;">
+            <p style="margin-top: 0;"><strong>{t().name}</strong> oluşturuldu. Bu token sadece bir kez gösterilir, kaydet:</p>
+            <code style="display: block; padding: 8px; background: var(--bg); border-radius: var(--radius); word-break: break-all; font-size: 12px;">
+              {t().token}
+            </code>
+            <button class="ghost tiny" onClick={() => copy(t().token)} style="margin-top: 6px;">Kopyala</button>
+          </div>
+        )}
+      </Show>
+
+      <div style="margin-top: 16px;">
+        <Show when={tokens()} fallback={<p class="muted">…</p>}>
+          {(rows) => (
+            <For each={rows()} fallback={<p class="muted tiny">Henüz token yok.</p>}>
+              {(t) => (
+                <div
+                  style={`display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); gap: 10px; font-size: 13px; opacity: ${t.revoked_at ? '0.45' : '1'};`}
+                >
+                  <strong>{t.name}</strong>
+                  <span class="muted tiny">{t.scope}</span>
+                  <span class="muted tiny" style="margin-left: auto;">
+                    {t.revoked_at ? 'iptal edildi' :
+                      t.last_used_at ? `son: ${new Date(t.last_used_at).toLocaleString('tr-TR')}` :
+                      'hiç kullanılmadı'}
+                  </span>
+                  <Show when={!t.revoked_at}>
+                    <button class="ghost tiny" onClick={() => revokeToken(t.id)}>iptal</button>
+                  </Show>
+                </div>
+              )}
+            </For>
+          )}
+        </Show>
+      </div>
+
+      <h3 style="margin-top: 26px;">Webhook'lar</h3>
+      <p class="muted tiny" style="margin-top: 0;">
+        Olay olduğunda burncpu sana POST atar. HMAC-SHA256 imzası <code>X-Burncpu-Signature: sha256=&lt;hex&gt;</code> header'ında.
+      </p>
+      <form onSubmit={createHook}>
+        <input
+          type="url"
+          placeholder="https://example.com/burncpu-hook"
+          value={hUrl()}
+          onInput={(e) => setHUrl(e.currentTarget.value)}
+        />
+        <div class="flex" style="margin-top: 8px; gap: 8px; flex-wrap: wrap;">
+          <For each={['reaction', 'reply', 'follow', 'mention', 'dm']}>
+            {(ev) => (
+              <label
+                class="flex tiny"
+                style={`gap: 4px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: ${hEvents().includes(ev) ? 'var(--bg-3)' : 'transparent'}; color: ${hEvents().includes(ev) ? 'var(--accent)' : 'var(--fg)'}; cursor: pointer;`}
+              >
+                <input
+                  type="checkbox"
+                  checked={hEvents().includes(ev)}
+                  onChange={() => toggleEvent(ev)}
+                  style="margin: 0;"
+                />
+                {ev}
+              </label>
+            )}
+          </For>
+        </div>
+        <div style="margin-top: 10px;">
+          <button type="submit" class="primary" disabled={!hUrl().trim() || hEvents().length === 0}>
+            Webhook oluştur
+          </button>
+        </div>
+      </form>
+
+      <Show when={lastHook()}>
+        {(h) => (
+          <div class="success" style="margin-top: 10px;">
+            <p style="margin-top: 0;">
+              <strong>{h().url}</strong> kaydedildi. İmza secret'in <em>sadece bir kez</em> gösterilir:
+            </p>
+            <code style="display: block; padding: 8px; background: var(--bg); border-radius: var(--radius); word-break: break-all; font-size: 12px;">
+              {h().secret}
+            </code>
+            <button class="ghost tiny" onClick={() => copy(h().secret)} style="margin-top: 6px;">Kopyala</button>
+          </div>
+        )}
+      </Show>
+
+      <div style="margin-top: 16px;">
+        <Show when={hooks()} fallback={<p class="muted">…</p>}>
+          {(rows) => (
+            <For each={rows()} fallback={<p class="muted tiny">Henüz webhook yok.</p>}>
+              {(h) => (
+                <div
+                  style={`padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; opacity: ${h.active ? '1' : '0.55'};`}
+                >
+                  <div class="flex" style="gap: 8px; flex-wrap: wrap; align-items: baseline;">
+                    <code style="font-size: 12px;">{h.url}</code>
+                    <span class="muted tiny">{h.events.join(', ')}</span>
+                    <span style="margin-left: auto;" class="tiny muted">
+                      {h.last_status ? `→ ${h.last_status}` : 'çağrılmadı'}{h.failure_streak > 0 ? ` (${h.failure_streak} hata)` : ''}
+                    </span>
+                    <button class="ghost tiny" onClick={() => toggleHookActive(h)}>
+                      {h.active ? 'durdur' : 'aktive et'}
+                    </button>
+                    <button class="ghost tiny" onClick={() => removeHook(h.id)}>sil</button>
+                  </div>
+                </div>
+              )}
+            </For>
+          )}
+        </Show>
+      </div>
     </>
   );
 }

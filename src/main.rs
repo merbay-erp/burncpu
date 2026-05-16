@@ -17,6 +17,7 @@ mod db;
 mod errors;
 mod middleware;
 mod routes;
+mod search;
 mod state;
 
 use state::AppState;
@@ -46,10 +47,18 @@ async fn main() -> Result<()> {
     let redis_mgr = redis::aio::ConnectionManager::new(redis).await?;
     tracing::info!("redis connected");
 
+    let search = search::Search::new(&cfg.meilisearch_url, &cfg.meilisearch_key);
+    if let Err(e) = search.ensure_ready().await {
+        tracing::warn!(?e, "meilisearch ensure_ready failed; continuing — search will be degraded");
+    } else {
+        tracing::info!("meilisearch index ready");
+    }
+
     let state = AppState {
         pg: pg_pool,
         redis: redis_mgr,
         config: cfg.clone(),
+        search,
     };
 
     let app = Router::new()

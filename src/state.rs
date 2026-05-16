@@ -1,6 +1,6 @@
 // Shared application state cloned into every handler via `with_state`.
 
-use crate::config::Config;
+use crate::{config::Config, search::Search};
 use redis::aio::ConnectionManager;
 use sqlx::PgPool;
 
@@ -9,4 +9,5 @@ pub struct AppState {
     pub pg: PgPool,
     pub redis: ConnectionManager,
     pub config: Config,
+    pub search: Search,
 }

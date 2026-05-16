@@ -26,7 +26,9 @@ impl Config {
             redis_url: env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6380".into()),
             meilisearch_url: env::var("MEILISEARCH_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:7700".into()),
-            meilisearch_key: env::var("MEILISEARCH_KEY").unwrap_or_default(),
+            meilisearch_key: env::var("MEILI_MASTER_KEY")
+                .or_else(|_| env::var("MEILISEARCH_KEY"))
+                .unwrap_or_default(),
             site_origin: env::var("SITE_ORIGIN").unwrap_or_else(|_| "https://burncpu.com".into()),
             invites_required: env::var("INVITES_REQUIRED")
                 .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))

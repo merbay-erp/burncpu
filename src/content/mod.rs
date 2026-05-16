@@ -42,3 +42,49 @@ fn sanitizer() -> &'static ammonia::Builder<'static> {
 pub fn excerpt(body: &str, max: usize) -> String {
     body.chars().take(max).collect::<String>()
 }
+
+/// Pull #hashtags out of post body. Returns lowercased, deduped, no leading
+/// '#'. Lazy regex-free scanner so we don't drag in regex crate. Allows
+/// alphanumerics + underscore in tag bodies; tag ends at first non-allowed
+/// character. Min length 2, max 32. Caps at 16 tags per post.
+pub fn extract_hashtags(body: &str) -> Vec<String> {
+    let mut out = Vec::<String>::new();
+    let bytes = body.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'#' {
+            // Must be at start or preceded by whitespace / punctuation
+            let is_boundary = i == 0
+                || matches!(
+                    bytes[i - 1],
+                    b' ' | b'\n' | b'\r' | b'\t' | b'.' | b',' | b'!' | b'?' | b'(' | b'['
+                );
+            if is_boundary {
+                let start = i + 1;
+                let mut end = start;
+                while end < bytes.len() {
+                    let c = bytes[end];
+                    if c.is_ascii_alphanumeric() || c == b'_' {
+                        end += 1;
+                    } else {
+                        break;
+                    }
+                }
+                let tag = &body[start..end];
+                if tag.len() >= 2 && tag.len() <= 32 {
+                    let t = tag.to_lowercase();
+                    if !out.contains(&t) {
+                        out.push(t);
+                        if out.len() >= 16 {
+                            return out;
+                        }
+                    }
+                }
+                i = end.max(i + 1);
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}

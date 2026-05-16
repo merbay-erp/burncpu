@@ -17,6 +17,7 @@ use crate::{
     content::render_markdown,
     errors::AppError,
     middleware::{client_ip, session::CurrentUser},
+    search::PostDoc,
     state::AppState,
 };
 use axum::{
@@ -203,6 +204,24 @@ async fn create_post(
     }
 
     let post = fetch_post(&state, id, Some(user.user_id)).await?;
+
+    // Fire-and-forget search index (only public posts surfaced in search)
+    if post.visibility == "public" {
+        let doc = PostDoc::from_parts(
+            post.id,
+            post.author.id,
+            &post.author.username,
+            &post.body,
+            &post.visibility,
+            "live",
+            post.reactions_count,
+            post.replies_count,
+            post.created_at,
+        );
+        let search = state.search.clone();
+        tokio::spawn(async move { search.index_post(&doc).await });
+    }
+
     tracing::info!(user_id = %user.user_id, post_id = %id, "post created");
     Ok((StatusCode::CREATED, Json(post)))
 }
@@ -296,6 +315,9 @@ async fn delete_post(
         .bind(id)
         .execute(&state.pg)
         .await?;
+
+    let search = state.search.clone();
+    tokio::spawn(async move { search.delete_post(id).await });
 
     tracing::info!(user_id = %user.user_id, post_id = %id, "post deleted");
     Ok(StatusCode::NO_CONTENT)

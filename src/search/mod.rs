@@ -102,7 +102,7 @@ impl Search {
         // Searchable attributes (ranked left → right)
         let _ = self
             .http
-            .patch(format!("{}/indexes/{INDEX}/settings/searchable-attributes", self.base))
+            .put(format!("{}/indexes/{INDEX}/settings/searchable-attributes", self.base))
             .bearer_auth(&self.key)
             .json(&json!(["body", "tags", "author_username"]))
             .send()
@@ -111,7 +111,7 @@ impl Search {
         // Filterable: tags + visibility + moderation_state
         let _ = self
             .http
-            .patch(format!("{}/indexes/{INDEX}/settings/filterable-attributes", self.base))
+            .put(format!("{}/indexes/{INDEX}/settings/filterable-attributes", self.base))
             .bearer_auth(&self.key)
             .json(&json!(["tags", "visibility", "moderation_state", "author_id"]))
             .send()
@@ -120,7 +120,7 @@ impl Search {
         // Sortable: created_at (timeline-style results)
         let _ = self
             .http
-            .patch(format!("{}/indexes/{INDEX}/settings/sortable-attributes", self.base))
+            .put(format!("{}/indexes/{INDEX}/settings/sortable-attributes", self.base))
             .bearer_auth(&self.key)
             .json(&json!(["created_at", "reactions_count"]))
             .send()

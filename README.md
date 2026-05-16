@@ -1,61 +1,113 @@
 # burncpu.com
 
+> ⚠️ **alpha** — şu an aktif geliştirme aşamasındadır. Breaking changes haftalık olur. Production'da kullanmayın, fork edip kendinizinkini kurmak isterseniz Hafta 4'ten sonra deneyin.
+
 Kendi sosyal medyamız. Hızlı, güvenli, kontrolümüzde.
+
+🌐 Canlı: **https://burncpu.com**
+🐢 Yazar: [Mustafa Erbay](https://mustafaerbay.com.tr)
+📜 Lisans: MIT (kod) — brand & ME mascot hariç
+
+## Neden var
+
+> "Mastodon hesabım otomatik paylaşımları spam olarak değerlendirip askıya aldı. Başkasının kurallarına bağımlı kalmak istemiyorum."
+
+Bu repo o günün sabah projesi. 12 saatte sıfırdan:
+- Domain (Cloudflare)
+- VPS3 infrastructure (Postgres + Redis + Meilisearch)
+- Rust + Axum backend (multi-stage Docker, ~30MB image)
+- Magic-link auth (no passwords, no third party)
+- DB schema (users, sessions, posts, follows, reactions, moderation)
+- HTTPS + Let's Encrypt + Cloudflare proxy
 
 ## Stack
 
-- **Rust + Axum + tokio** — yüksek performans backend
-- **PostgreSQL 16** — birincil veri
-- **Redis 7** — cache, rate limit, session
-- **Meilisearch** — full-text + typo-tolerant arama
-- **SolidJS** (gelecek) — modern reactive frontend
-- **AI moderation** — Gemini → Groq → Cerebras fallback chain
+- **Rust + Axum + tokio** — yüksek performans, az kaynak
+- **PostgreSQL 16** — birincil veri (UUID PK, JSONB, indexed)
+- **Redis 7** — rate limit, cache, session lookup
+- **Meilisearch v1.10** — typo-tolerant search (hashtag + content)
+- **SolidJS** (yakında) — modern reactive frontend
+- **AI moderation** (yakında) — Gemini → Groq → Cerebras fallback
 
 ## Mimari prensipler
 
-- Self-hosted, 1 VPS (vps3, mustafaerbay.com.tr ile aynı)
-- Az kaynak + yüksek throughput
-- AI-destekli güçlü spam/moderation
-- Invite-only signup (early days)
-- Federation hazır mimari (ActivityPub gelecekte)
+1. **1 VPS yeter** — k8s yok, microservice yok, doğru ölçü
+2. **Tek dil per katman** — backend: Rust, frontend: TypeScript
+3. **Federation-ready** — şimdilik stand-alone ama ActivityPub için açık
+4. **AI-destekli moderation** — spam'a karşı 3-katmanlı savunma
+5. **Self-hosted** — tüm dependency'ler VPS3'te, no external SaaS
 
-## Yerel geliştirme
+## Çalıştırma
+
+### Lokal geliştirme
 
 ```bash
-# 1. Postgres + Redis + Meilisearch container'larını başlat
-cd ../mustafaerbay && ssh vps3 "cd /opt/burncpu && docker compose up -d"
-# veya lokal Docker:  (TODO)
-
-# 2. .env
+git clone https://github.com/merbay-erp/burncpu.git
+cd burncpu
 cp .env.example .env
-# DATABASE_URL içine VPS3'teki burncpu-pg şifresini yaz
+# .env'i düzenleyip Postgres URL, Redis URL set et
 
-# 3. Build + run
+cargo build --release
 cargo run --release
-
-# 4. Smoke test
-curl http://127.0.0.1:3050/healthz
+# http://127.0.0.1:3050/healthz
 ```
 
-## Endpoints
+### Production (Docker)
+
+```bash
+ssh vps3 'cd /opt/burncpu && docker compose up -d'
+# https://burncpu.com/healthz
+```
+
+## API
 
 | Method | Path | Açıklama |
 |--------|------|---------|
 | `GET`  | `/` | Landing |
 | `GET`  | `/healthz` | Liveness (Postgres + Redis ping) |
-| `GET`  | `/api/v1/` | API index |
+| `GET`  | `/api/v1` | API index |
+| `POST` | `/api/v1/auth/request` | Magic-link iste (rate limited) |
+| `GET`  | `/api/v1/auth/verify/{token}` | Token doğrula → session başlat |
+| `POST` | `/api/v1/auth/logout` | Session iptal et |
 
-Daha fazlası: bkz. roadmap.
+Daha fazlası: bkz. [yol haritası](#yol-haritası).
 
 ## Yol haritası
 
-1. **Hafta 1** — Auth (magic link), post CRUD, public timeline, RSS
-2. **Hafta 2** — Invite-only signup, profile, follow/unfollow
-3. **Hafta 3** — Reactions, replies, AI moderation pipeline
-4. **Hafta 4** — Search (Meilisearch), hashtag, trending
-5. **Hafta 5+** — Admin panel, notifications, PWA, federation
+**Hafta 1** — `[şu an buradayız]`
+- [x] Repo + DNS + DB + Docker
+- [x] Magic-link auth
+- [ ] Session middleware (auth extractor)
+- [ ] Post CRUD (markdown + XSS)
+- [ ] Public timeline + RSS
+
+**Hafta 2**
+- [ ] Invite-only signup
+- [ ] Profile sayfaları
+- [ ] Follow/unfollow + personal timeline
+
+**Hafta 3**
+- [ ] Reactions + reply
+- [ ] AI moderation engine (Gemini→Groq→Cerebras)
+
+**Hafta 4**
+- [ ] Meilisearch + hashtag + trending
+- [ ] Admin moderation paneli
+
+**Hafta 5+**
+- [ ] Notification system
+- [ ] PWA
+- [ ] Federation (ActivityPub)
+
+## Katkı
+
+Şu an alpha — PR almıyoruz ama issue açabilirsiniz. Hafta 4'ten sonra
+katkı kılavuzu yayınlanır.
+
+**Güvenlik bildirimi:** lütfen issue açmayın → [SECURITY.md](SECURITY.md)
 
 ## Lisans
 
-MIT — kişisel kullanım, fork serbest. Bazı bileşenler (logo, ME mascot
-sanat eseri, içerik) ayrı haklara tabidir.
+[MIT](LICENSE) — fork edin, ticari kullanın, türetip kendi platformunuzu
+kurun. Tek kısıt: brand assets (logo, ME mascot, "burncpu" adı, içerikler)
+ayrı haklara tabi.

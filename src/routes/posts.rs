@@ -44,6 +44,51 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/replies", get(replies))
         .route("/{id}/thread", get(thread))
         .route("/{id}/repost", post(repost))
+        .route("/{id}/restore", post(restore))
+}
+
+// ── POST /posts/{id}/restore — undelete your own post within 30 days ──
+
+async fn restore(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<PostView>, AppError> {
+    let n = sqlx::query(
+        r#"
+        UPDATE posts SET deleted_at = NULL
+        WHERE id = $1 AND author_id = $2
+          AND deleted_at IS NOT NULL
+          AND deleted_at > NOW() - interval '30 days'
+        "#,
+    )
+    .bind(id)
+    .bind(user.user_id)
+    .execute(&state.pg)
+    .await?
+    .rows_affected();
+    if n == 0 {
+        return Err(AppError::NotFound);
+    }
+    let post = fetch_post(&state, id, Some(user.user_id)).await?;
+
+    // Re-add to search if public+live
+    if post.visibility == "public" {
+        let doc = PostDoc::from_parts(
+            post.id,
+            post.author.id,
+            &post.author.username,
+            &post.body,
+            &post.visibility,
+            "live",
+            post.reactions_count,
+            post.replies_count,
+            post.created_at,
+        );
+        let search = state.search.clone();
+        tokio::spawn(async move { search.index_post(&doc).await });
+    }
+    Ok(Json(post))
 }
 
 // ── Models ──────────────────────────────────────────────────────

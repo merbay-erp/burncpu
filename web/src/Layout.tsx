@@ -121,6 +121,12 @@ export default function Layout(props: { children?: JSX.Element }) {
               <A href="/bookmarks" class={isActive('/bookmarks')}>
                 <span>🔖</span> {t('nav.bookmarks')}
               </A>
+              <A href="/activity" class={isActive('/activity')}>
+                <span>📈</span> Aktivite
+              </A>
+              <A href="/trash" class={isActive('/trash')}>
+                <span>🗑</span> Çöp
+              </A>
               <A href="/settings" class={isActive('/settings')}>
                 <span>⚙️</span> {t('nav.settings')}
               </A>

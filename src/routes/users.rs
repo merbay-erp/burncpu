@@ -28,6 +28,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/me", get(get_me).patch(patch_me).delete(delete_me))
         .route("/me/export", get(export_me))
+        .route("/me/trash", get(trash))
+        .route("/me/activity", get(activity))
         .route("/me/pin/{post_id}", post(pin_post).delete(unpin_post))
         .route("/{username}", get(get_profile))
         .route("/{username}/posts", get(user_posts))
@@ -35,6 +37,152 @@ pub fn router() -> Router<AppState> {
         .route("/{username}/following", get(following))
         .route("/{username}/follow", post(follow).delete(unfollow))
         .route("/lookup", get(lookup_prefix))
+}
+
+// ─── GET /users/me/trash — soft-deleted posts within 30d ───────
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct TrashedPost {
+    id: Uuid,
+    body: String,
+    deleted_at: DateTime<Utc>,
+    created_at: DateTime<Utc>,
+}
+
+async fn trash(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> Result<Json<Vec<TrashedPost>>, AppError> {
+    let rows: Vec<TrashedPost> = sqlx::query_as(
+        r#"
+        SELECT id, body, deleted_at, created_at FROM posts
+        WHERE author_id = $1
+          AND deleted_at IS NOT NULL
+          AND deleted_at > NOW() - interval '30 days'
+        ORDER BY deleted_at DESC
+        "#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pg)
+    .await?;
+    Ok(Json(rows))
+}
+
+// ─── GET /users/me/activity ?window=7d → per-day bucket counts ─
+
+#[derive(Deserialize)]
+pub struct ActivityQuery {
+    #[serde(default = "default_activity_window")]
+    window: String,
+}
+fn default_activity_window() -> String { "30d".to_string() }
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct ActivityBucket {
+    day: DateTime<Utc>,
+    posts: i64,
+    reactions_received: i64,
+    replies_received: i64,
+    followers_gained: i64,
+}
+
+#[derive(Serialize)]
+pub struct ActivityResponse {
+    window: String,
+    totals: ActivityTotals,
+    daily: Vec<ActivityBucket>,
+}
+
+#[derive(Serialize)]
+pub struct ActivityTotals {
+    posts: i64,
+    reactions_received: i64,
+    replies_received: i64,
+    followers_gained: i64,
+}
+
+async fn activity(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Query(q): Query<ActivityQuery>,
+) -> Result<Json<ActivityResponse>, AppError> {
+    let days: i64 = match q.window.as_str() {
+        "7d" => 7,
+        "30d" => 30,
+        "90d" => 90,
+        _ => 30,
+    };
+    let rows: Vec<ActivityBucket> = sqlx::query_as(
+        r#"
+        WITH days AS (
+            SELECT generate_series(
+                date_trunc('day', NOW() - ($1 || ' days')::interval),
+                date_trunc('day', NOW()),
+                interval '1 day'
+            ) AS day
+        ),
+        posts_per AS (
+            SELECT date_trunc('day', created_at) AS day, COUNT(*)::bigint AS n
+            FROM posts WHERE author_id = $2 AND deleted_at IS NULL
+              AND created_at > NOW() - ($1 || ' days')::interval
+            GROUP BY 1
+        ),
+        reactions_per AS (
+            SELECT date_trunc('day', r.created_at) AS day, COUNT(*)::bigint AS n
+            FROM reactions r JOIN posts p ON p.id = r.post_id
+            WHERE p.author_id = $2
+              AND r.created_at > NOW() - ($1 || ' days')::interval
+            GROUP BY 1
+        ),
+        replies_per AS (
+            SELECT date_trunc('day', child.created_at) AS day, COUNT(*)::bigint AS n
+            FROM posts child JOIN posts parent ON parent.id = child.reply_to_id
+            WHERE parent.author_id = $2
+              AND child.author_id <> $2
+              AND child.created_at > NOW() - ($1 || ' days')::interval
+            GROUP BY 1
+        ),
+        follows_per AS (
+            SELECT date_trunc('day', created_at) AS day, COUNT(*)::bigint AS n
+            FROM follows
+            WHERE followee_id = $2
+              AND created_at > NOW() - ($1 || ' days')::interval
+            GROUP BY 1
+        )
+        SELECT
+            d.day,
+            COALESCE(p.n, 0)  AS posts,
+            COALESCE(rx.n, 0) AS reactions_received,
+            COALESCE(rp.n, 0) AS replies_received,
+            COALESCE(f.n, 0)  AS followers_gained
+        FROM days d
+        LEFT JOIN posts_per p ON p.day = d.day
+        LEFT JOIN reactions_per rx ON rx.day = d.day
+        LEFT JOIN replies_per rp ON rp.day = d.day
+        LEFT JOIN follows_per f ON f.day = d.day
+        ORDER BY d.day ASC
+        "#,
+    )
+    .bind(days.to_string())
+    .bind(user.user_id)
+    .fetch_all(&state.pg)
+    .await?;
+
+    let totals = rows.iter().fold(ActivityTotals {
+        posts: 0, reactions_received: 0, replies_received: 0, followers_gained: 0,
+    }, |mut acc, r| {
+        acc.posts += r.posts;
+        acc.reactions_received += r.reactions_received;
+        acc.replies_received += r.replies_received;
+        acc.followers_gained += r.followers_gained;
+        acc
+    });
+
+    Ok(Json(ActivityResponse {
+        window: q.window,
+        totals,
+        daily: rows,
+    }))
 }
 
 #[derive(Deserialize)]

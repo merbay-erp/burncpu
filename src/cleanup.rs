@@ -66,6 +66,10 @@ async fn run_once(pg: &PgPool) {
             "invites",
             "DELETE FROM invites WHERE redeemed_at IS NULL AND expires_at < NOW() - interval '30 days'",
         ),
+        (
+            "posts_trashed",
+            "DELETE FROM posts WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - interval '30 days'",
+        ),
     ];
 
     let mut total_removed = 0u64;

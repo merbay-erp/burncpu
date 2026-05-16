@@ -1,18 +1,42 @@
-import { createResource, For, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import { api, type Timeline, type PostView } from '../api';
 import Post from '../components/Post';
 import Compose from '../components/Compose';
+import InfiniteList from '../components/InfiniteList';
 import { me } from '../auth';
 
 export default function Home() {
-  const [timeline, { refetch, mutate }] = createResource<Timeline>(() =>
-    api.get<Timeline>('/posts?limit=50'),
-  );
+  const [posts, setPosts] = createSignal<PostView[]>([]);
+  const [cursor, setCursor] = createSignal<string | null>(null);
+  const [loading, setLoading] = createSignal(false);
+  const [done, setDone] = createSignal(false);
+  const [initialized, setInitialized] = createSignal(false);
 
-  const prepend = (p: PostView) => {
-    const cur = timeline();
-    if (!cur) return;
-    mutate({ posts: [p, ...cur.posts], next_before: cur.next_before });
+  const loadMore = async () => {
+    if (loading() || done()) return;
+    setLoading(true);
+    try {
+      const qs = cursor() ? `?limit=30&before=${encodeURIComponent(cursor()!)}` : '?limit=30';
+      const page = await api.get<Timeline>(`/posts${qs}`);
+      setPosts((cur) => [...cur, ...page.posts]);
+      if (page.next_before && page.posts.length > 0) {
+        setCursor(page.next_before);
+      } else {
+        setDone(true);
+      }
+    } finally {
+      setLoading(false);
+      setInitialized(true);
+    }
+  };
+
+  const prepend = (p: PostView) => setPosts((cur) => [p, ...cur]);
+  const reload = async () => {
+    setPosts([]);
+    setCursor(null);
+    setDone(false);
+    setInitialized(false);
+    await loadMore();
   };
 
   return (
@@ -23,16 +47,18 @@ export default function Home() {
       <Show when={me()}>
         <Compose onPosted={prepend} />
       </Show>
-      <Show when={timeline()} fallback={<div class="muted">Yükleniyor…</div>}>
-        {(t) => (
-          <For
-            each={t().posts}
-            fallback={<div class="muted">Henüz post yok. İlk paylaşan sen ol.</div>}
-          >
-            {(p) => <Post post={p} onChange={refetch} />}
-          </For>
-        )}
-      </Show>
+      <InfiniteList onLoadMore={loadMore} loading={loading()} done={done()}>
+        <For
+          each={posts()}
+          fallback={
+            initialized() ? (
+              <div class="muted">Henüz post yok. İlk paylaşan sen ol.</div>
+            ) : null
+          }
+        >
+          {(p) => <Post post={p} onChange={reload} />}
+        </For>
+      </InfiniteList>
     </>
   );
 }

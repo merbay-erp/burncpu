@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b0b0c"/>
+      <stop offset="100%" stop-color="#1c1c20"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <text x="80" y="200" font-family="ui-monospace, Menlo, monospace" font-size="120" font-weight="700" fill="#ff6b35" letter-spacing="-4">burncpu</text>
+  <text x="80" y="270" font-family="ui-monospace, Menlo, monospace" font-size="34" font-weight="400" fill="#9b9ba1" letter-spacing="-1">1 VPS yeter.</text>
+  <text x="80" y="430" font-family="ui-sans-serif, system-ui, sans-serif" font-size="46" font-weight="600" fill="#e6e6e8">Built for humans who still</text>
+  <text x="80" y="486" font-family="ui-sans-serif, system-ui, sans-serif" font-size="46" font-weight="600" fill="#e6e6e8">think before posting.</text>
+  <text x="80" y="558" font-family="ui-monospace, Menlo, monospace" font-size="22" font-weight="400" fill="#5e5e66">Low ego. High signal.</text>
+  <rect x="80" y="118" width="60" height="6" fill="#ff6b35"/>
+</svg>

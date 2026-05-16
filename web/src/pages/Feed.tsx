@@ -1,20 +1,43 @@
-import { createResource, For, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api, type Timeline, type PostView } from '../api';
 import Post from '../components/Post';
 import Compose from '../components/Compose';
+import InfiniteList from '../components/InfiniteList';
 import { me } from '../auth';
 
 export default function Feed() {
-  const [data, { refetch, mutate }] = createResource<Timeline | null>(async () => {
-    if (!me()) return null;
-    return api.get<Timeline>('/feed?limit=50');
-  });
+  const [posts, setPosts] = createSignal<PostView[]>([]);
+  const [cursor, setCursor] = createSignal<string | null>(null);
+  const [loading, setLoading] = createSignal(false);
+  const [done, setDone] = createSignal(false);
+  const [initialized, setInitialized] = createSignal(false);
 
-  const prepend = (p: PostView) => {
-    const cur = data();
-    if (!cur) return;
-    mutate({ posts: [p, ...cur.posts], next_before: cur.next_before });
+  const loadMore = async () => {
+    if (!me() || loading() || done()) return;
+    setLoading(true);
+    try {
+      const qs = cursor() ? `?limit=30&before=${encodeURIComponent(cursor()!)}` : '?limit=30';
+      const page = await api.get<Timeline>(`/feed${qs}`);
+      setPosts((cur) => [...cur, ...page.posts]);
+      if (page.next_before && page.posts.length > 0) {
+        setCursor(page.next_before);
+      } else {
+        setDone(true);
+      }
+    } finally {
+      setLoading(false);
+      setInitialized(true);
+    }
+  };
+
+  const prepend = (p: PostView) => setPosts((cur) => [p, ...cur]);
+  const reload = async () => {
+    setPosts([]);
+    setCursor(null);
+    setDone(false);
+    setInitialized(false);
+    await loadMore();
   };
 
   return (
@@ -31,20 +54,20 @@ export default function Feed() {
         }
       >
         <Compose onPosted={prepend} />
-        <Show when={data()} fallback={<div class="muted">Yükleniyor…</div>}>
-          {(d) => (
-            <For
-              each={d().posts}
-              fallback={
+        <InfiniteList onLoadMore={loadMore} loading={loading()} done={done()}>
+          <For
+            each={posts()}
+            fallback={
+              initialized() ? (
                 <div class="muted">
                   Sessiz. <A href="/">Public timeline'a</A> bak ya da birini takip et.
                 </div>
-              }
-            >
-              {(p) => <Post post={p} onChange={refetch} />}
-            </For>
-          )}
-        </Show>
+              ) : null
+            }
+          >
+            {(p) => <Post post={p} onChange={reload} />}
+          </For>
+        </InfiniteList>
       </Show>
     </>
   );

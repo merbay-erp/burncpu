@@ -1,6 +1,6 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
-use super::auth;
+use super::{auth, posts};
 use crate::state::AppState;
 use axum::{routing::get, Router};
 use serde_json::json;
@@ -14,13 +14,18 @@ pub fn router(_state: AppState) -> Router<AppState> {
                     "name": "burncpu API",
                     "version": env!("CARGO_PKG_VERSION"),
                     "endpoints": {
-                        "POST /api/v1/auth/request":         "request magic-link email",
-                        "GET  /api/v1/auth/verify/:token":   "verify token + start session",
-                        "POST /api/v1/auth/logout":          "revoke current session",
-                        "GET  /healthz":                      "liveness probe",
+                        "POST   /api/v1/auth/request":         "request magic-link email",
+                        "GET    /api/v1/auth/verify/{token}":  "verify token + start session",
+                        "POST   /api/v1/auth/logout":          "revoke current session",
+                        "POST   /api/v1/posts":                "create post (auth)",
+                        "GET    /api/v1/posts":                "public timeline (paginated)",
+                        "GET    /api/v1/posts/{id}":           "single post",
+                        "DELETE /api/v1/posts/{id}":           "soft-delete (author or admin)",
+                        "GET    /healthz":                     "liveness probe",
                     },
                 }))
             }),
         )
         .nest("/auth", auth::router())
+        .nest("/posts", posts::router())
 }

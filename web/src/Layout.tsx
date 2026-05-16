@@ -1,19 +1,17 @@
 import type { JSX } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
 import { Show, onMount } from 'solid-js';
-import { me, unread, refetchUnread, probeSession, setCachedMe, logout } from './auth';
+import { me, unread, refetchUnread, probeSession, logout } from './auth';
 
 export default function Layout(props: { children?: JSX.Element }) {
   const loc = useLocation();
   const isActive = (p: string) => (loc.pathname === p ? 'active' : '');
 
   onMount(async () => {
-    // If we have a cached identity, verify it's still valid server-side
-    if (me()) {
-      const ok = await probeSession();
-      if (!ok) setCachedMe(null);
-      else refetchUnread();
-    }
+    // Always probe — cookie may be present without cached identity (e.g.
+    // after clicking a magic-link email which redirects back to /).
+    const ok = await probeSession();
+    if (ok) refetchUnread();
   });
 
   return (

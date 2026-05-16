@@ -1,23 +1,20 @@
 // Auth store — single source of truth for "who am I" in the SPA.
 //
 // The session cookie is HttpOnly so JS can't read it. We probe identity
-// by calling a cheap authenticated endpoint (notifications/count) and
-// caching the result. If the cookie's bad we get 401 and stay anon.
+// by calling /users/me at startup; if it returns the current user we
+// cache and use it, if it 401s we stay anon.
 
 import { createSignal, createResource } from 'solid-js';
 import { api, ApiError } from './api';
 
 interface Me {
+  user_id: string;
   username: string;
   display_name: string;
   role: string;
   pending_2fa: boolean;
+  session_flagged?: boolean;
 }
-
-// Probe by fetching unread count — endpoint is auth-only, so a 200 means
-// we have a valid session. We separately fetch /users/me-like info by
-// extracting the user from an extra call (no /me endpoint yet; fall back
-// to caching the username we set during login).
 
 const STORAGE_KEY = 'burncpu.me';
 
@@ -38,10 +35,12 @@ export function setCachedMe(m: Me | null) {
   else localStorage.removeItem(STORAGE_KEY);
 }
 
-/// Returns true if the server still recognizes our session.
+/// Calls /users/me. If the server returns the current user, cache it;
+/// if it 401s, drop any local state. Returns true if logged in.
 export async function probeSession(): Promise<boolean> {
   try {
-    await api.get<{ unread: number }>('/notifications/count');
+    const m = await api.get<Me>('/users/me');
+    setCachedMe(m);
     return true;
   } catch (e) {
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {

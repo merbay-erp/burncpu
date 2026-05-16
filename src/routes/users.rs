@@ -26,12 +26,41 @@ use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/me", patch(patch_me))
+        .route("/me", get(get_me).patch(patch_me))
         .route("/{username}", get(get_profile))
         .route("/{username}/posts", get(user_posts))
         .route("/{username}/followers", get(followers))
         .route("/{username}/following", get(following))
         .route("/{username}/follow", post(follow).delete(unfollow))
+}
+
+#[derive(Serialize)]
+pub struct Me {
+    user_id: Uuid,
+    username: String,
+    display_name: String,
+    role: String,
+    pending_2fa: bool,
+    session_flagged: bool,
+}
+
+async fn get_me(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> Result<Json<Me>, AppError> {
+    let row: (String, String) =
+        sqlx::query_as("SELECT username, display_name FROM users WHERE id = $1")
+            .bind(user.user_id)
+            .fetch_one(&state.pg)
+            .await?;
+    Ok(Json(Me {
+        user_id: user.user_id,
+        username: row.0,
+        display_name: row.1,
+        role: user.role,
+        pending_2fa: user.pending_2fa,
+        session_flagged: user.session_flagged,
+    }))
 }
 
 // ── Profile ─────────────────────────────────────────────────────

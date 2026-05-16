@@ -360,11 +360,14 @@ async fn upsert_user(
         return Ok(id);
     }
 
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(pg)
-        .await
-        .unwrap_or(0);
-    let role = if total == 0 { "admin" } else { "member" };
+    // Admin role is *only* granted to BOOTSTRAP_ADMIN_EMAIL. If unset, no
+    // signup ever becomes admin (admins must be promoted manually via DB).
+    // This removes the "first signup wins" race that previously made the
+    // first user to ever hit /auth/request the platform admin.
+    let role = match state.config.bootstrap_admin_email.as_deref() {
+        Some(allowed) if allowed == email => "admin",
+        _ => "member",
+    };
 
     // If signup carries a valid invite, resolve inviter and mark redeemed.
     let inviter: Option<uuid::Uuid> = if let Some(code) = invite_code {

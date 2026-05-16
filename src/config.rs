@@ -14,6 +14,8 @@ pub struct Config {
     pub meilisearch_key: String,
     pub site_origin: String,
     pub invites_required: bool,
+    pub bootstrap_admin_email: Option<String>,
+    pub allowed_origins: Vec<String>,
 }
 
 impl Config {
@@ -29,6 +31,16 @@ impl Config {
             invites_required: env::var("INVITES_REQUIRED")
                 .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
                 .unwrap_or(false),
+            bootstrap_admin_email: env::var("BOOTSTRAP_ADMIN_EMAIL")
+                .ok()
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty()),
+            allowed_origins: env::var("ALLOWED_ORIGINS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
         })
     }
 }

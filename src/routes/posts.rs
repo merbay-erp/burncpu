@@ -16,19 +16,21 @@
 use crate::{
     content::render_markdown,
     errors::AppError,
-    middleware::session::CurrentUser,
+    middleware::{client_ip, session::CurrentUser},
     state::AppState,
 };
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{ConnectInfo, Path, Query, State},
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
 };
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::types::chrono::{DateTime, Utc};
+use std::net::SocketAddr;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
@@ -76,12 +78,16 @@ fn default_visibility() -> String {
 }
 
 const MAX_POST_LEN: usize = 5000;
-const POST_RATE_LIMIT_MAX: u32 = 10;
+const POST_RATE_LIMIT_MAX_USER: u32 = 10;
+const POST_RATE_LIMIT_MAX_IP: u32 = 50;
 const POST_RATE_LIMIT_WINDOW_SECS: u64 = 600;
+const CONTENT_DEDUP_WINDOW_SECS: u64 = 86_400;
 
 async fn create_post(
     State(state): State<AppState>,
     user: CurrentUser,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(input): Json<CreateBody>,
 ) -> Result<impl IntoResponse, AppError> {
     let body = input.body.trim();
@@ -97,18 +103,52 @@ async fn create_post(
         return Err(AppError::BadRequest("invalid visibility".into()));
     }
 
-    // Rate limit per-user
+    let ip = client_ip::extract(&headers, Some(&peer))
+        .map(|i| i.to_string())
+        .unwrap_or_default();
+
+    // Three layers of rate limit, all in Redis:
+    //  1. Per-user count window  — limits one account
+    //  2. Per-IP count window    — limits a botnet sharing accounts
+    //  3. Content fingerprint    — blocks identical body re-post within 24h
     let mut redis = state.redis.clone();
-    let key = format!("rl:post:create:{}", user.user_id);
-    let count: u32 = redis.incr(&key, 1u32).await?;
-    if count == 1 {
+
+    let user_key = format!("rl:post:create:user:{}", user.user_id);
+    let user_count: u32 = redis.incr(&user_key, 1u32).await?;
+    if user_count == 1 {
         let _: () = redis
-            .expire(&key, POST_RATE_LIMIT_WINDOW_SECS as i64)
+            .expire(&user_key, POST_RATE_LIMIT_WINDOW_SECS as i64)
             .await?;
     }
-    if count > POST_RATE_LIMIT_MAX {
+    if user_count > POST_RATE_LIMIT_MAX_USER {
         return Err(AppError::RateLimited);
     }
+
+    if !ip.is_empty() {
+        let ip_key = format!("rl:post:create:ip:{ip}");
+        let ip_count: u32 = redis.incr(&ip_key, 1u32).await?;
+        if ip_count == 1 {
+            let _: () = redis
+                .expire(&ip_key, POST_RATE_LIMIT_WINDOW_SECS as i64)
+                .await?;
+        }
+        if ip_count > POST_RATE_LIMIT_MAX_IP {
+            return Err(AppError::RateLimited);
+        }
+    }
+
+    // Content fingerprint: normalize whitespace, lowercase, sha256, hex first 16
+    let normalized: String = body.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let mut h = Sha256::new();
+    h.update(normalized.as_bytes());
+    let fp_full = h.finalize();
+    let fp_hex: String = fp_full.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    let fp_key = format!("rl:post:fp:{}:{}", user.user_id, fp_hex);
+    let seen: Option<u8> = redis.get(&fp_key).await.unwrap_or(None);
+    if seen.is_some() {
+        return Err(AppError::BadRequest("duplicate content posted recently".into()));
+    }
+    let _: () = redis.set_ex(&fp_key, 1u8, CONTENT_DEDUP_WINDOW_SECS).await?;
 
     // Validate reply_to_id exists + is live
     if let Some(reply_id) = input.reply_to_id {

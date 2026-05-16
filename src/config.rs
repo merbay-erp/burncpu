@@ -1,0 +1,30 @@
+// Runtime config. Values come from environment variables; in production
+// systemd's EnvironmentFile=/opt/burncpu/.env provides them, locally
+// `cargo run` with a project-root `.env` works via dotenvy.
+
+use anyhow::{Context, Result};
+use std::env;
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub bind_addr: String,
+    pub database_url: String,
+    pub redis_url: String,
+    pub meilisearch_url: String,
+    pub meilisearch_key: String,
+    pub site_origin: String,
+}
+
+impl Config {
+    pub fn from_env() -> Result<Self> {
+        Ok(Self {
+            bind_addr: env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:3050".into()),
+            database_url: env::var("DATABASE_URL").context("DATABASE_URL not set")?,
+            redis_url: env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6380".into()),
+            meilisearch_url: env::var("MEILISEARCH_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:7700".into()),
+            meilisearch_key: env::var("MEILISEARCH_KEY").unwrap_or_default(),
+            site_origin: env::var("SITE_ORIGIN").unwrap_or_else(|_| "https://burncpu.com".into()),
+        })
+    }
+}

@@ -1,0 +1,57 @@
+[package]
+name = "burncpu"
+version = "0.1.0"
+edition = "2024"
+description = "burncpu.com — kendi sosyal medyamız"
+license = "MIT"
+authors = ["Mustafa Erbay <mustafa@mustafaerbay.com.tr>"]
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["macros", "tracing"] }
+tokio = { version = "1.42", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "compression-gzip", "cors", "limit", "timeout"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid", "json", "migrate"] }
+
+# Cache + Search
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Utils
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Crypto / Auth
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+
+# HTTP client (AI moderation, federation)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# Config
+dotenvy = "0.15"
+
+# Markdown rendering (post body)
+pulldown-cmark = "0.12"
+
+# HTML sanitization (XSS protection)
+ammonia = "4.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

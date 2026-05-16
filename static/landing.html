@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>burncpu.com — Yakında</title>
+  <meta name="description" content="burncpu.com — Mustafa Erbay'ın kendi sosyal medyası. Rust, Postgres, AI-destekli moderation. Yakında." />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://mustafaerbay.com.tr" />
+  <style>
+    :root {
+      --bg: #0a0e14;
+      --surface: rgba(255, 255, 255, 0.03);
+      --border: rgba(148, 163, 184, 0.18);
+      --text: #e6e9ef;
+      --muted: #94a3b8;
+      --accent: #f97316;     /* burncpu = warm orange */
+      --accent-2: #ef4444;   /* fire red */
+      --accent-3: #6366f1;   /* indigo from mustafaerbay brand */
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      min-height: 100vh;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(249, 115, 22, 0.10), transparent 45%),
+        radial-gradient(circle at 80% 80%, rgba(99, 102, 241, 0.10), transparent 45%),
+        var(--bg);
+    }
+    .wrap {
+      max-width: 42rem;
+      width: 100%;
+      text-align: center;
+    }
+    .mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 5rem;
+      height: 5rem;
+      border-radius: 1.4rem;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+      box-shadow: 0 18px 40px -8px rgba(249, 115, 22, 0.45);
+      font-size: 2.4rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      color: white;
+      margin-bottom: 1.6rem;
+    }
+    h1 {
+      font-size: clamp(2rem, 6vw, 3.2rem);
+      line-height: 1.1;
+      margin: 0 0 0.8rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(120deg, #fff 0%, #fed7aa 60%, #fca5a5 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .tagline {
+      font-size: clamp(1rem, 2.5vw, 1.18rem);
+      color: var(--muted);
+      margin: 0 0 2.4rem;
+      max-width: 36rem;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.5;
+    }
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+      margin: 0 0 2.4rem;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.4rem 0.9rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .pill strong {
+      color: var(--text);
+    }
+    .links {
+      display: inline-flex;
+      gap: 0.8rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.7rem 1.2rem;
+      border-radius: 0.7rem;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.92rem;
+      transition: border-color .15s ease, transform .15s ease, background .15s ease;
+    }
+    .links a:hover {
+      border-color: var(--accent);
+      background: rgba(249, 115, 22, 0.08);
+      transform: translateY(-1px);
+    }
+    .footer {
+      position: fixed;
+      bottom: 1.2rem;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .footer code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.1rem 0.4rem;
+      border-radius: 0.3rem;
+      font-size: 0.7rem;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50%      { opacity: 1; }
+    }
+    .live-dot {
+      display: inline-block;
+      width: 0.5rem;
+      height: 0.5rem;
+      background: #22c55e;
+      border-radius: 999px;
+      animation: pulse 2s ease infinite;
+      margin-right: 0.25rem;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="mark" aria-hidden="true">🔥</div>
+    <h1>burncpu.com</h1>
+    <p class="tagline">
+      Bizim sosyal medyamız. Kendi kuralları, kendi moderasyonu, kendi hızı.
+      <br />Rust ile yazılmış. Yavaş yavaş büyüyor.
+    </p>
+
+    <div class="pill-row">
+      <span class="pill"><span class="live-dot"></span><strong>build</strong> stage 0</span>
+      <span class="pill"><strong>stack</strong> Rust · Postgres · Redis · Meilisearch</span>
+      <span class="pill"><strong>federation</strong> later</span>
+    </div>
+
+    <div class="links">
+      <a href="https://mustafaerbay.com.tr/" rel="noopener">mustafaerbay.com.tr</a>
+      <a href="https://github.com/merbay-erp/burncpu" rel="noopener">github</a>
+    </div>
+  </main>
+
+  <div class="footer">
+    <code>burncpu</code> · self-hosted · made with care by <a href="https://mustafaerbay.com.tr/" style="color:inherit;text-decoration:underline;text-decoration-color:rgba(255,255,255,.25);">Mustafa Erbay</a>
+  </div>
+</body>
+</html>

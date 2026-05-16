@@ -168,12 +168,12 @@ export default function EmojiPicker(props: { onPick: (c: string) => void }) {
           style="position: absolute; bottom: 100%; left: 0; margin-bottom: 6px; width: 320px; max-height: 320px; background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; z-index: 30; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); overflow-y: auto;"
         >
           <input
+            ref={(el) => setTimeout(() => el?.focus(), 0)}
             type="search"
             placeholder="Ara (örn: ateş, fire, 🔥)"
             value={q()}
             onInput={(e) => setQ(e.currentTarget.value)}
             style="margin-bottom: 8px; font-size: 13px;"
-            autofocus
           />
           <For each={filtered()} fallback={<p class="muted tiny">Sonuç yok.</p>}>
             {(g) => (

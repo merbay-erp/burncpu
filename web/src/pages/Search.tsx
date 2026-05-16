@@ -22,11 +22,11 @@ export default function Search() {
     <>
       <h2 class="page-title">Ara</h2>
       <input
+        ref={(el) => setTimeout(() => el?.focus(), 0)}
         type="search"
         placeholder="Ne arıyorsun? (kelime veya #hashtag)"
         value={q()}
         onInput={(e) => onInput(e.currentTarget.value)}
-        autofocus
       />
       <Show when={results()}>
         {(r) => (

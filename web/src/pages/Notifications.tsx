@@ -1,4 +1,4 @@
-import { createResource, For, Show } from 'solid-js';
+import { createResource, For, Show, onMount, onCleanup } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api, type Notification } from '../api';
 import { me, refetchUnread } from '../auth';
@@ -56,9 +56,18 @@ const linkFor = (n: Notification): string => {
 };
 
 export default function NotificationsPage() {
-  const [data, { mutate }] = createResource<Listing | null>(async () => {
+  const [data, { mutate, refetch }] = createResource<Listing | null>(async () => {
     if (!me()) return null;
     return api.get<Listing>('/notifications?limit=50');
+  });
+
+  // 19 May 2026 — Real-time: yeni notification SSE'den geldiginde listeyi
+  // refetch et. Onceden sadece header badge guncellenir, liste sayfasi
+  // eski kaliyordu — yeni notification gormek icin refresh gerekti.
+  onMount(() => {
+    const onNotif = () => refetch();
+    window.addEventListener('burncpu:notification', onNotif);
+    onCleanup(() => window.removeEventListener('burncpu:notification', onNotif));
   });
 
   const markAll = async () => {

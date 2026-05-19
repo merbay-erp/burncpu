@@ -6,10 +6,10 @@
 // the configured TCP address.
 
 use anyhow::Result;
-use axum::{routing::get, Router};
+use axum::{Router, routing::get};
 use std::net::SocketAddr;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 mod auth;
 mod cleanup;
@@ -19,6 +19,7 @@ mod db;
 mod errors;
 mod federation;
 mod middleware;
+mod net_safety;
 mod routes;
 mod search;
 mod state;
@@ -52,7 +53,10 @@ async fn main() -> Result<()> {
 
     let search = search::Search::new(&cfg.meilisearch_url, &cfg.meilisearch_key);
     if let Err(e) = search.ensure_ready().await {
-        tracing::warn!(?e, "meilisearch ensure_ready failed; continuing — search will be degraded");
+        tracing::warn!(
+            ?e,
+            "meilisearch ensure_ready failed; continuing — search will be degraded"
+        );
     } else {
         tracing::info!("meilisearch index ready");
     }
@@ -84,7 +88,10 @@ async fn main() -> Result<()> {
         .route("/sitemap.xml", get(routes::sitemap::handler))
         .route("/embed/posts/{id}", get(routes::embed::post_embed))
         .route("/.well-known/webfinger", get(routes::federation::webfinger))
-        .route("/.well-known/nodeinfo", get(routes::federation::nodeinfo_discovery))
+        .route(
+            "/.well-known/nodeinfo",
+            get(routes::federation::nodeinfo_discovery),
+        )
         .route("/nodeinfo/2.1", get(routes::federation::nodeinfo))
         .nest("/ap", routes::federation::router())
         .nest("/rss", routes::rss::router())

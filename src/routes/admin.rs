@@ -18,17 +18,29 @@
 use crate::{
     errors::AppError,
     middleware::auth_extractor::AdminUser,
+    search::{PostDoc, Search},
     state::AppState,
 };
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, patch},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
 use uuid::Uuid;
+
+type SearchPostRow = (
+    Uuid,
+    String,
+    String,
+    String,
+    String,
+    DateTime<Utc>,
+    i32,
+    i32,
+);
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -47,13 +59,13 @@ pub fn router() -> Router<AppState> {
 pub struct Stats {
     total_users: i64,
     new_users_24h: i64,
-    dau_24h: i64,           // distinct users with a session row updated in 24h
+    dau_24h: i64, // distinct users with a session row updated in 24h
     total_posts: i64,
     posts_24h: i64,
     reactions_24h: i64,
     follows_24h: i64,
-    requests_24h: i64,      // audit_log rows in 24h
-    errors_24h: i64,        // audit_log with status >= 500 in 24h
+    requests_24h: i64, // audit_log rows in 24h
+    errors_24h: i64,   // audit_log with status >= 500 in 24h
     flagged_sessions: i64,
     pending_mod_posts: i64, // moderation_state = 'quarantine'
     dm_messages_24h: i64,
@@ -61,10 +73,7 @@ pub struct Stats {
     media_bytes: i64,
 }
 
-async fn stats(
-    State(state): State<AppState>,
-    _a: AdminUser,
-) -> Result<Json<Stats>, AppError> {
+async fn stats(State(state): State<AppState>, _a: AdminUser) -> Result<Json<Stats>, AppError> {
     macro_rules! scalar {
         ($pg:expr, $sql:expr) => {{
             let r: i64 = sqlx::query_scalar($sql).fetch_one($pg).await.unwrap_or(0);
@@ -82,10 +91,7 @@ async fn stats(
             pg,
             "SELECT COUNT(DISTINCT user_id) FROM sessions WHERE last_seen_at > NOW() - interval '24 hours'"
         ),
-        total_posts: scalar!(
-            pg,
-            "SELECT COUNT(*) FROM posts WHERE deleted_at IS NULL"
-        ),
+        total_posts: scalar!(pg, "SELECT COUNT(*) FROM posts WHERE deleted_at IS NULL"),
         posts_24h: scalar!(
             pg,
             "SELECT COUNT(*) FROM posts WHERE deleted_at IS NULL AND created_at > NOW() - interval '24 hours'"
@@ -194,33 +200,27 @@ async fn patch_post(
     Path(id): Path<Uuid>,
     Json(input): Json<PatchPost>,
 ) -> Result<StatusCode, AppError> {
-    if !matches!(input.moderation_state.as_str(), "live" | "quarantine" | "removed") {
+    if !matches!(
+        input.moderation_state.as_str(),
+        "live" | "quarantine" | "removed"
+    ) {
         return Err(AppError::BadRequest("invalid state".into()));
     }
-    let updated = sqlx::query(
-        "UPDATE posts SET moderation_state = $1, updated_at = NOW() WHERE id = $2",
-    )
-    .bind(&input.moderation_state)
-    .bind(id)
-    .execute(&state.pg)
-    .await?
-    .rows_affected();
+    let updated =
+        sqlx::query("UPDATE posts SET moderation_state = $1, updated_at = NOW() WHERE id = $2")
+            .bind(&input.moderation_state)
+            .bind(id)
+            .execute(&state.pg)
+            .await?
+            .rows_affected();
     if updated == 0 {
         return Err(AppError::NotFound);
     }
-    // Sync search index: only "live" posts surfaced anonymously
+    // Sync search index: only public+live posts from active users surface anonymously.
     let search = state.search.clone();
-    let new_state = input.moderation_state.clone();
+    let pg = state.pg.clone();
     tokio::spawn(async move {
-        if new_state == "live" {
-            // We don't have the post body here; trigger via a re-index task
-            // (cheap: just one document). The post is still in DB so the
-            // reindex helper can pull it.
-            // Skipping re-fetch keeps this fast; the moderator typically
-            // sees stale search until next post-touch. Acceptable for v1.
-        } else {
-            search.delete_post(id).await;
-        }
+        sync_post_search(pg, search, id).await;
     });
     log_mod(
         &state,
@@ -304,13 +304,28 @@ async fn patch_user(
     if updated == 0 {
         return Err(AppError::NotFound);
     }
-    // Suspending also revokes all sessions so the user is logged out instantly.
+    // Suspending also revokes active sessions/API tokens and removes public posts
+    // from search immediately. Unsuspend reindexes eligible public posts.
+    let pg = state.pg.clone();
+    let search = state.search.clone();
+    let role = input.role.clone();
     if input.role == "suspended" {
-        let _ = sqlx::query("UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL")
-            .bind(id)
-            .execute(&state.pg)
-            .await;
+        let _ = sqlx::query(
+            "UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
+        )
+        .bind(id)
+        .execute(&state.pg)
+        .await;
+        let _ = sqlx::query(
+            "UPDATE api_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
+        )
+        .bind(id)
+        .execute(&state.pg)
+        .await;
     }
+    tokio::spawn(async move {
+        sync_user_search(pg, search, id, &role).await;
+    });
     log_mod(
         &state,
         "user",
@@ -322,6 +337,91 @@ async fn patch_user(
     )
     .await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn sync_post_search(pg: sqlx::PgPool, search: Search, post_id: Uuid) {
+    let row: Option<SearchPostRow> = sqlx::query_as(
+        r#"
+            SELECT p.author_id, u.username, p.body, p.visibility, p.moderation_state,
+                   p.created_at, p.reactions_count, p.replies_count
+            FROM posts p
+            JOIN users u ON u.id = p.author_id
+            WHERE p.id = $1
+              AND p.deleted_at IS NULL
+              AND u.role <> 'suspended'
+            "#,
+    )
+    .bind(post_id)
+    .fetch_optional(&pg)
+    .await
+    .ok()
+    .flatten();
+
+    let Some((author_id, username, body, visibility, moderation_state, created_at, rc, replies)) =
+        row
+    else {
+        search.delete_post(post_id).await;
+        return;
+    };
+
+    if visibility == "public" && moderation_state == "live" {
+        let doc = PostDoc::from_parts(
+            post_id,
+            author_id,
+            &username,
+            &body,
+            &visibility,
+            &moderation_state,
+            rc,
+            replies,
+            created_at,
+        );
+        search.index_post(&doc).await;
+    } else {
+        search.delete_post(post_id).await;
+    }
+}
+
+async fn sync_user_search(pg: sqlx::PgPool, search: Search, user_id: Uuid, role: &str) {
+    if role == "suspended" {
+        let ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM posts WHERE author_id = $1 AND deleted_at IS NULL")
+                .bind(user_id)
+                .fetch_all(&pg)
+                .await
+                .unwrap_or_default();
+        for id in ids {
+            search.delete_post(id).await;
+        }
+        return;
+    }
+
+    let rows: Vec<(Uuid, String, String, DateTime<Utc>, i32, i32)> = sqlx::query_as(
+        r#"
+        SELECT p.id, u.username, p.body, p.created_at, p.reactions_count, p.replies_count
+        FROM posts p
+        JOIN users u ON u.id = p.author_id
+        WHERE p.author_id = $1
+          AND p.deleted_at IS NULL
+          AND p.moderation_state = 'live'
+          AND p.visibility = 'public'
+          AND u.role <> 'suspended'
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(&pg)
+    .await
+    .unwrap_or_default();
+
+    let docs: Vec<PostDoc> = rows
+        .into_iter()
+        .map(|(id, username, body, created_at, rc, replies)| {
+            PostDoc::from_parts(
+                id, user_id, &username, &body, "public", "live", rc, replies, created_at,
+            )
+        })
+        .collect();
+    search.index_many(&docs).await;
 }
 
 // ── Recent login_attempts ───────────────────────────────────────

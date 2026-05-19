@@ -67,10 +67,11 @@ ssh vps3 'cd /opt/burncpu && docker compose up -d'
 | Method | Path | Açıklama |
 |--------|------|---------|
 | `GET`    | `/` | Landing |
-| `GET`    | `/healthz` | Liveness (Postgres + Redis ping) |
+| `GET`    | `/healthz` | Liveness/readiness (Postgres + Redis ping; unhealthy ise `503`) |
 | `GET`    | `/api/v1` | API index |
 | `POST`   | `/api/v1/auth/request` | Magic-link iste (rate-limited per IP+email) |
-| `GET`    | `/api/v1/auth/verify/{token}` | Token doğrula → session başlat |
+| `GET`    | `/api/v1/auth/verify/{token}` | Link scanner-safe confirm sayfasına yönlendir |
+| `POST`   | `/api/v1/auth/verify/{token}` | Token tüket → session başlat |
 | `POST`   | `/api/v1/auth/logout` | Session iptal et |
 | `POST`   | `/api/v1/posts` | Post oluştur (auth, markdown sanitize) |
 | `GET`    | `/api/v1/posts` | Public timeline (keyset pagination) |

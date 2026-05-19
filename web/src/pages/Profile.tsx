@@ -4,6 +4,7 @@ import { api, type Profile, type PostView } from '../api';
 import Post from '../components/Post';
 import { me } from '../auth';
 import { relTime } from '../util';
+import { pushToast } from '../components/Toast';
 
 interface BriefPost {
   id: string;
@@ -106,24 +107,50 @@ export default function ProfilePage() {
                   <button onClick={follow} disabled={busy()}>
                     {following() ? 'Takipten çık' : 'Takip et'}
                   </button>
+                  {/* 19 May 2026 — Mute butonu state-aware: zaten mute ise "Mute kaldır"
+                      gosterir, alert() yerine pushToast kullanir, refetch ile UI guncel kalir. */}
                   <button
                     onClick={async () => {
-                      if (!confirm(`@${p().username} mute edilsin mi? (sessizce, kullanıcı bilmez)`)) return;
-                      await api.post(`/users/${p().username}/mute`);
-                      alert('Mute aktif');
+                      const isMuted = p().is_muted_by_viewer;
+                      if (isMuted) {
+                        try {
+                          await api.del(`/users/${p().username}/mute`);
+                          pushToast('Mute kaldırıldı', 'ok');
+                          refetchProfile();
+                        } catch (e) { pushToast((e as Error).message, 'warn'); }
+                      } else {
+                        if (!confirm(`@${p().username} mute edilsin mi? (sessizce, kullanıcı bilmez)`)) return;
+                        try {
+                          await api.post(`/users/${p().username}/mute`);
+                          pushToast('Mute aktif', 'ok');
+                          refetchProfile();
+                        } catch (e) { pushToast((e as Error).message, 'warn'); }
+                      }
                     }}
                   >
-                    🔇 Mute
+                    {p().is_muted_by_viewer ? '🔊 Mute kaldır' : '🔇 Mute'}
                   </button>
                   <button
                     style="color: var(--bad);"
                     onClick={async () => {
-                      if (!confirm(`@${p().username} BLOK edilsin mi? Mevcut takipler de kalkacak.`)) return;
-                      await api.post(`/users/${p().username}/block`);
-                      alert('Blok aktif');
+                      const isBlocked = p().is_blocked_by_viewer;
+                      if (isBlocked) {
+                        try {
+                          await api.del(`/users/${p().username}/block`);
+                          pushToast('Blok kaldırıldı', 'ok');
+                          refetchProfile();
+                        } catch (e) { pushToast((e as Error).message, 'warn'); }
+                      } else {
+                        if (!confirm(`@${p().username} BLOK edilsin mi? Mevcut takipler de kalkacak.`)) return;
+                        try {
+                          await api.post(`/users/${p().username}/block`);
+                          pushToast('Blok aktif', 'ok');
+                          refetchProfile();
+                        } catch (e) { pushToast((e as Error).message, 'warn'); }
+                      }
                     }}
                   >
-                    ⛔ Blok
+                    {p().is_blocked_by_viewer ? '✓ Blok kaldır' : '⛔ Blok'}
                   </button>
                 </div>
               </Show>

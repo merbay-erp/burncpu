@@ -7,16 +7,12 @@
 //   GET    /me/blocks         → list of blocked usernames
 //   GET    /me/mutes          → list of muted usernames
 
-use crate::{
-    errors::AppError,
-    middleware::session::CurrentUser,
-    state::AppState,
-};
+use crate::{errors::AppError, middleware::session::CurrentUser, state::AppState};
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, post},
-    Json, Router,
+    routing::{get, post},
 };
 use serde::Serialize;
 use uuid::Uuid;

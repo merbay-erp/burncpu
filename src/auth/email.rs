@@ -18,11 +18,11 @@
 //   SMTP_FROM       = "burncpu <hi@burncpu.com>"
 //   SMTP_STARTTLS   = true|false (default true; false → use port 465 implicit TLS)
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use lettre::{
-    message::{header::ContentType, Mailbox},
-    transport::smtp::{authentication::Credentials, AsyncSmtpTransport, AsyncSmtpTransportBuilder},
     AsyncTransport, Message, Tokio1Executor,
+    message::{Mailbox, header::ContentType},
+    transport::smtp::{AsyncSmtpTransport, AsyncSmtpTransportBuilder, authentication::Credentials},
 };
 pub enum Sender {
     Console,
@@ -85,7 +85,9 @@ impl SmtpSender {
             .map(|v| !matches!(v.to_lowercase().as_str(), "0" | "false" | "no" | "off"))
             .unwrap_or(true);
 
-        let from: Mailbox = from.parse().with_context(|| format!("invalid SMTP_FROM: {from}"))?;
+        let from: Mailbox = from
+            .parse()
+            .with_context(|| format!("invalid SMTP_FROM: {from}"))?;
 
         let builder: AsyncSmtpTransportBuilder = if starttls {
             AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&host)?
@@ -102,7 +104,9 @@ impl SmtpSender {
     }
 
     pub async fn send(&self, to: &str, subject: &str, body: &str) -> Result<()> {
-        let to: Mailbox = to.parse().with_context(|| format!("invalid recipient: {to}"))?;
+        let to: Mailbox = to
+            .parse()
+            .with_context(|| format!("invalid recipient: {to}"))?;
         let email = Message::builder()
             .from(self.from.clone())
             .to(to)

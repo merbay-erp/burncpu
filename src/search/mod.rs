@@ -21,7 +21,7 @@
 use crate::content::extract_hashtags;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::types::chrono::{DateTime, Utc};
 use uuid::Uuid;
 
@@ -49,6 +49,7 @@ pub struct PostDoc {
 }
 
 impl PostDoc {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_parts(
         id: Uuid,
         author_id: Uuid,
@@ -84,7 +85,10 @@ impl Search {
             http: Client::builder()
                 .timeout(std::time::Duration::from_secs(3))
                 .build()
-                .expect("http client"),
+                .unwrap_or_else(|e| {
+                    tracing::error!(?e, "failed to build timed search HTTP client");
+                    Client::new()
+                }),
         }
     }
 
@@ -102,7 +106,10 @@ impl Search {
         // Searchable attributes (ranked left → right)
         let _ = self
             .http
-            .put(format!("{}/indexes/{INDEX}/settings/searchable-attributes", self.base))
+            .put(format!(
+                "{}/indexes/{INDEX}/settings/searchable-attributes",
+                self.base
+            ))
             .bearer_auth(&self.key)
             .json(&json!(["body", "tags", "author_username"]))
             .send()
@@ -111,16 +118,27 @@ impl Search {
         // Filterable: tags + visibility + moderation_state
         let _ = self
             .http
-            .put(format!("{}/indexes/{INDEX}/settings/filterable-attributes", self.base))
+            .put(format!(
+                "{}/indexes/{INDEX}/settings/filterable-attributes",
+                self.base
+            ))
             .bearer_auth(&self.key)
-            .json(&json!(["tags", "visibility", "moderation_state", "author_id"]))
+            .json(&json!([
+                "tags",
+                "visibility",
+                "moderation_state",
+                "author_id"
+            ]))
             .send()
             .await?;
 
         // Sortable: created_at (timeline-style results)
         let _ = self
             .http
-            .put(format!("{}/indexes/{INDEX}/settings/sortable-attributes", self.base))
+            .put(format!(
+                "{}/indexes/{INDEX}/settings/sortable-attributes",
+                self.base
+            ))
             .bearer_auth(&self.key)
             .json(&json!(["created_at", "reactions_count"]))
             .send()
@@ -187,7 +205,10 @@ impl Search {
             "moderation_state = \"live\"".to_string(),
             "visibility = \"public\"".to_string(),
         ];
-        if let Some(t) = tag.map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty()) {
+        if let Some(t) = tag
+            .map(|t| t.trim().to_lowercase())
+            .filter(|t| !t.is_empty())
+        {
             filter_parts.push(format!("tags = \"{}\"", t.replace('"', "\\\"")));
         }
         let body = json!({

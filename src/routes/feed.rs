@@ -8,15 +8,11 @@
 // on `posts_author_idx` is fine to ~1K followees / ~100K posts. Above
 // that we'll precompute via materialized view or move to a feed cache.
 
-use crate::{
-    errors::AppError,
-    middleware::session::CurrentUser,
-    state::AppState,
-};
+use crate::{errors::AppError, middleware::session::CurrentUser, state::AppState};
 use axum::{
+    Json, Router,
     extract::{Query, State},
     routing::get,
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};

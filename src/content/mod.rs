@@ -54,10 +54,7 @@ fn linkify_mentions(src: &str) -> String {
 
     while i < bytes.len() {
         // Detect ``` fence on a fresh line
-        if (i == 0 || bytes[i - 1] == b'\n')
-            && bytes.len() >= i + 3
-            && &bytes[i..i + 3] == b"```"
-        {
+        if (i == 0 || bytes[i - 1] == b'\n') && bytes.len() >= i + 3 && &bytes[i..i + 3] == b"```" {
             in_fence = !in_fence;
             out.push_str("```");
             i += 3;
@@ -90,7 +87,9 @@ fn linkify_mentions(src: &str) -> String {
                 let name = &src[start..end];
                 if name.len() >= 3
                     && name.len() <= 32
-                    && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                    && name
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
                 {
                     out.push_str(&format!("[@{name}](/u/{name})"));
                     i = end;
@@ -112,10 +111,7 @@ pub fn extract_mentions(body: &str) -> Vec<String> {
     let mut in_fence = false;
     let mut in_inline = false;
     while i < bytes.len() {
-        if (i == 0 || bytes[i - 1] == b'\n')
-            && bytes.len() >= i + 3
-            && &bytes[i..i + 3] == b"```"
-        {
+        if (i == 0 || bytes[i - 1] == b'\n') && bytes.len() >= i + 3 && &bytes[i..i + 3] == b"```" {
             in_fence = !in_fence;
             i += 3;
             continue;

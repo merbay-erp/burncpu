@@ -11,10 +11,10 @@ use crate::{
     state::AppState,
 };
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, post},
-    Json, Router,
+    routing::{delete, get},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
@@ -89,7 +89,9 @@ async fn create(
         ));
     }
     let (raw, hash) = new_token().map_err(AppError::Internal)?;
-    let expires_at = input.expires_in_days.map(|d| Utc::now() + chrono::Duration::days(d));
+    let expires_at = input
+        .expires_in_days
+        .map(|d| Utc::now() + chrono::Duration::days(d));
 
     let id: Uuid = sqlx::query_scalar(
         r#"

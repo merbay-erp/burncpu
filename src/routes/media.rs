@@ -19,18 +19,14 @@
 // Storage: files live in `state.config.media_dir` (default /data/media),
 // served by nginx directly at /media/<filename>.
 
-use crate::{
-    errors::AppError,
-    middleware::session::CurrentUser,
-    state::AppState,
-};
+use crate::{errors::AppError, middleware::session::CurrentUser, state::AppState};
 use axum::{
+    Json, Router,
     extract::{Multipart, Path, State},
     http::StatusCode,
-    routing::{delete, get, post},
-    Json, Router,
+    routing::{delete, post},
 };
-use image::ImageFormat;
+use image::{ImageFormat, ImageReader, Limits};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::types::chrono::{DateTime, Utc};
@@ -44,6 +40,8 @@ pub fn router() -> Router<AppState> {
 }
 
 const MAX_BYTES: usize = 5 * 1024 * 1024;
+const MAX_DIMENSION: u32 = 8192;
+const MAX_PIXELS: u64 = 25_000_000;
 const ALLOWED: &[(&str, ImageFormat, &str)] = &[
     ("image/jpeg", ImageFormat::Jpeg, "jpg"),
     ("image/png", ImageFormat::Png, "png"),
@@ -68,7 +66,11 @@ async fn upload(
 ) -> Result<(StatusCode, Json<MediaResponse>), AppError> {
     // Pull the first field named "file"
     let mut bytes: Option<Vec<u8>> = None;
-    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(format!("multipart: {e}")))? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("multipart: {e}")))?
+    {
         if field.name() == Some("file") {
             let data = field
                 .bytes()
@@ -90,7 +92,8 @@ async fn upload(
     }
 
     // Sniff MIME from the bytes (not from the client's claim)
-    let kind = infer::get(&raw).ok_or_else(|| AppError::BadRequest("unrecognized format".into()))?;
+    let kind =
+        infer::get(&raw).ok_or_else(|| AppError::BadRequest("unrecognized format".into()))?;
     let mime = kind.mime_type();
     let (mime_str, fmt, ext) = ALLOWED
         .iter()
@@ -98,10 +101,24 @@ async fn upload(
         .ok_or_else(|| AppError::BadRequest(format!("unsupported type: {mime}")))?;
 
     // Decode + re-encode → drops metadata (EXIF / XMP) and rejects fake/bombed payloads.
-    let img = image::load_from_memory(&raw)
+    let mut reader = ImageReader::new(Cursor::new(raw.as_slice()));
+    reader.set_format(*fmt);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_DIMENSION);
+    limits.max_image_height = Some(MAX_DIMENSION);
+    limits.max_alloc = Some(MAX_PIXELS * 4);
+    reader.limits(limits);
+    let img = reader
+        .decode()
         .map_err(|e| AppError::BadRequest(format!("decode: {e}")))?;
     let width = img.width() as i32;
     let height = img.height() as i32;
+    let pixels = (width as u64) * (height as u64);
+    if pixels > MAX_PIXELS {
+        return Err(AppError::BadRequest(format!(
+            "image has too many pixels (max {MAX_PIXELS})"
+        )));
+    }
 
     let mut out = Cursor::new(Vec::with_capacity(raw.len()));
     img.write_to(&mut out, *fmt)
@@ -119,13 +136,16 @@ async fn upload(
 
     // Write to disk (atomic via .tmp + rename)
     let dir = std::path::PathBuf::from(&state.config.media_dir);
-    tokio::fs::create_dir_all(&dir).await
+    tokio::fs::create_dir_all(&dir)
+        .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("media dir: {e}")))?;
     let final_path = dir.join(&filename);
     let tmp_path = dir.join(format!("{filename}.tmp"));
-    tokio::fs::write(&tmp_path, &re_encoded).await
+    tokio::fs::write(&tmp_path, &re_encoded)
+        .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("write: {e}")))?;
-    tokio::fs::rename(&tmp_path, &final_path).await
+    tokio::fs::rename(&tmp_path, &final_path)
+        .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("rename: {e}")))?;
 
     // INSERT (idempotent per owner via UNIQUE owner_id + sha256)
@@ -199,13 +219,12 @@ async fn delete_mine(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
     // Look up filename + verify ownership
-    let row: Option<(String,)> = sqlx::query_as(
-        "SELECT filename FROM media WHERE id = $1 AND owner_id = $2",
-    )
-    .bind(id)
-    .bind(user.user_id)
-    .fetch_optional(&state.pg)
-    .await?;
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT filename FROM media WHERE id = $1 AND owner_id = $2")
+            .bind(id)
+            .bind(user.user_id)
+            .fetch_optional(&state.pg)
+            .await?;
     let (filename,) = row.ok_or(AppError::NotFound)?;
 
     sqlx::query("DELETE FROM media WHERE id = $1")
@@ -214,13 +233,12 @@ async fn delete_mine(
         .await?;
 
     // Only unlink the file if no other media row still references it.
-    let still_referenced: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM media WHERE filename = $1)",
-    )
-    .bind(&filename)
-    .fetch_one(&state.pg)
-    .await
-    .unwrap_or(false);
+    let still_referenced: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media WHERE filename = $1)")
+            .bind(&filename)
+            .fetch_one(&state.pg)
+            .await
+            .unwrap_or(false);
     if !still_referenced {
         let path = std::path::PathBuf::from(&state.config.media_dir).join(&filename);
         let _ = tokio::fs::remove_file(path).await;

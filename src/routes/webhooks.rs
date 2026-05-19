@@ -10,16 +10,12 @@
 // deliveries (network or non-2xx) bump failure_streak; ≥20 disables the
 // webhook automatically.
 
-use crate::{
-    errors::AppError,
-    middleware::session::CurrentUser,
-    state::AppState,
-};
+use crate::{errors::AppError, middleware::session::CurrentUser, state::AppState};
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, patch, post},
-    Json, Router,
+    routing::{get, patch},
 };
 use hmac::Mac;
 use rand::RngCore;
@@ -72,14 +68,16 @@ pub struct CreateBody {
     #[serde(default = "default_true")]
     active: bool,
 }
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Serialize)]
 pub struct CreatedWebhook {
     id: Uuid,
     url: String,
     events: Vec<String>,
-    secret: String,   // shown ONCE
+    secret: String, // shown ONCE
 }
 
 async fn create(
@@ -88,9 +86,9 @@ async fn create(
     Json(input): Json<CreateBody>,
 ) -> Result<(StatusCode, Json<CreatedWebhook>), AppError> {
     let url = input.url.trim();
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err(AppError::BadRequest("url must be http(s)://...".into()));
-    }
+    let safe_url = crate::net_safety::validate_public_http_url(url)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("url is not a public http(s) endpoint: {e}")))?;
     if input.events.is_empty() {
         return Err(AppError::BadRequest("at least one event required".into()));
     }
@@ -114,7 +112,7 @@ async fn create(
         "#,
     )
     .bind(user.user_id)
-    .bind(url)
+    .bind(safe_url.as_str())
     .bind(&secret)
     .bind(&input.events)
     .bind(input.active)
@@ -125,7 +123,7 @@ async fn create(
         StatusCode::CREATED,
         Json(CreatedWebhook {
             id,
-            url: url.to_string(),
+            url: safe_url.to_string(),
             events: input.events,
             secret,
         }),
@@ -192,12 +190,7 @@ async fn remove(
 
 // ─── Dispatcher (called from notify()) ─────────────────────────
 
-pub async fn dispatch_event(
-    state: &AppState,
-    user_id: Uuid,
-    event: &str,
-    payload: &JsonValue,
-) {
+pub async fn dispatch_event(state: &AppState, user_id: Uuid, event: &str, payload: &JsonValue) {
     let rows: Vec<(Uuid, String, String, Vec<String>)> = sqlx::query_as(
         r#"
         SELECT id, url, secret, events FROM webhooks
@@ -224,17 +217,38 @@ pub async fn dispatch_event(
         };
         let sig = sign_hmac(&secret, &bytes);
         let pg = state.pg.clone();
-        let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build();
         let url_for_task = url.clone();
         tokio::spawn(async move {
-            let http = match http { Ok(c) => c, Err(_) => return };
+            let (http, safe_url) = match crate::net_safety::safe_client_for(
+                &url_for_task,
+                "burncpu-webhook/1",
+                std::time::Duration::from_secs(5),
+            )
+            .await
+            {
+                Ok(pair) => pair,
+                Err(e) => {
+                    tracing::warn!(?e, webhook_id = %id, url = %url_for_task, "webhook URL blocked");
+                    let _ = sqlx::query(
+                        r#"
+                        UPDATE webhooks SET
+                            last_called_at = NOW(),
+                            last_status = NULL,
+                            failure_streak = failure_streak + 1,
+                            active = CASE WHEN failure_streak + 1 >= 20 THEN false ELSE active END
+                        WHERE id = $1
+                        "#,
+                    )
+                    .bind(id)
+                    .execute(&pg)
+                    .await;
+                    return;
+                }
+            };
             let resp = http
-                .post(&url_for_task)
+                .post(safe_url.as_str())
                 .header("Content-Type", "application/json")
                 .header("X-Burncpu-Signature", format!("sha256={sig}"))
-                .header("User-Agent", "burncpu-webhook/1")
                 .body(bytes)
                 .send()
                 .await;
@@ -264,8 +278,10 @@ pub async fn dispatch_event(
 
 fn sign_hmac(secret: &str, body: &[u8]) -> String {
     type HmacSha256 = hmac::Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("hmac key");
+    let mut mac = match HmacSha256::new_from_slice(secret.as_bytes()) {
+        Ok(mac) => mac,
+        Err(_) => unreachable!("HMAC accepts keys of any length"),
+    };
     mac.update(body);
     hex_encode(&mac.finalize().into_bytes())
 }

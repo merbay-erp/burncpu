@@ -17,25 +17,27 @@ use std::net::{IpAddr, SocketAddr};
 
 pub fn extract(headers: &HeaderMap, peer: Option<&SocketAddr>) -> Option<IpAddr> {
     // 1. CF-Connecting-IP
-    if let Some(v) = headers.get("cf-connecting-ip").and_then(|h| h.to_str().ok()) {
-        if let Ok(ip) = v.trim().parse() {
-            return Some(ip);
-        }
+    if let Some(ip) = header_ip(headers, "cf-connecting-ip") {
+        return Some(ip);
     }
     // 2. X-Real-IP
-    if let Some(v) = headers.get("x-real-ip").and_then(|h| h.to_str().ok()) {
-        if let Ok(ip) = v.trim().parse() {
-            return Some(ip);
-        }
+    if let Some(ip) = header_ip(headers, "x-real-ip") {
+        return Some(ip);
     }
     // 3. X-Forwarded-For (left-most is original client)
-    if let Some(v) = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok()) {
-        if let Some(first) = v.split(',').next() {
-            if let Ok(ip) = first.trim().parse() {
-                return Some(ip);
-            }
-        }
+    if let Some(v) = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok())
+        && let Some(first) = v.split(',').next()
+        && let Ok(ip) = first.trim().parse()
+    {
+        return Some(ip);
     }
     // 4. Direct socket
     peer.map(|sa| sa.ip())
+}
+
+fn header_ip(headers: &HeaderMap, name: &str) -> Option<IpAddr> {
+    headers
+        .get(name)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|v| v.trim().parse().ok())
 }

@@ -78,6 +78,10 @@ export default function Layout(props: { children?: JSX.Element }) {
             const ev = JSON.parse((msg as MessageEvent).data) as NotificationEvent;
             pushToast(eventText(ev));
             if (ev.kind !== 'dm') refetchUnread();
+            // 19 May 2026 — Sayfa-spesifik real-time refetch icin global event.
+            // DMs.tsx ve DMThread.tsx listener ile aktif sayfasi otomatik refresh
+            // edebilir. Onceden sadece toast gosteriliyor, liste/thread eski kaliyordu.
+            window.dispatchEvent(new CustomEvent('burncpu:notification', { detail: ev }));
           } catch { /* ignore */ }
         });
       }

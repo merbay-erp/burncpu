@@ -1,4 +1,4 @@
-import { createResource, For, Show } from 'solid-js';
+import { createResource, For, Show, onMount, onCleanup } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
@@ -16,10 +16,19 @@ interface ThreadSummary {
 }
 
 export default function DMs() {
-  const [list] = createResource<ThreadSummary[] | null>(async () => {
+  const [list, { refetch }] = createResource<ThreadSummary[] | null>(async () => {
     if (!me()) return null;
     return api.get<ThreadSummary[]>('/dm/threads');
   });
+
+  // 19 May 2026 — Real-time: yeni DM event geldiginde listeyi refetch et
+  // (eski: sadece toast goruluyor, liste yenilemek icin sayfa refresh gerekti).
+  const onNotif = (ev: Event) => {
+    const detail = (ev as CustomEvent).detail as { kind?: string } | undefined;
+    if (detail?.kind === 'dm') refetch();
+  };
+  onMount(() => window.addEventListener('burncpu:notification', onNotif));
+  onCleanup(() => window.removeEventListener('burncpu:notification', onNotif));
 
   return (
     <>

@@ -5,11 +5,14 @@
 // High-traffic apps would push this to ClickHouse / Loki; for burncpu's
 // expected volume (single-digit RPS Hafta 1-4) Postgres is fine.
 
-use crate::{middleware::{client_ip, session::CurrentUser}, state::AppState};
+use crate::{
+    middleware::{client_ip, session::CurrentUser},
+    state::AppState,
+};
 use axum::{
     body::Body,
     extract::State,
-    http::{header, Request, StatusCode},
+    http::{Request, StatusCode, header},
     middleware::Next,
     response::Response,
 };
@@ -19,11 +22,7 @@ use uuid::Uuid;
 
 /// Tower middleware: wrap every request, attach request_id header, write
 /// audit row asynchronously.
-pub async fn layer(
-    State(state): State<AppState>,
-    req: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn layer(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
     let started = Instant::now();
     let request_id = Uuid::new_v4();
 
@@ -96,10 +95,6 @@ pub async fn layer(
 
     response
 }
-
-/// Allow `axum::extract::ConnectInfo` to surface inside the middleware
-/// extraction chain. (Re-export for handlers that need it.)
-pub use axum::extract::ConnectInfo as _ConnectInfoReExport;
 
 #[allow(dead_code)]
 fn _status_help(s: StatusCode) -> bool {

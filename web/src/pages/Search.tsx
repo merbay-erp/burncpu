@@ -17,6 +17,10 @@ export default function Search() {
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(() => setTrigger(v.trim()), 300);
   };
+  const snippet = (hit: SearchHit) =>
+    (hit._formatted?.body ?? hit.body)
+      .replaceAll('<mark>', '')
+      .replaceAll('</mark>', '');
 
   return (
     <>
@@ -50,7 +54,7 @@ export default function Search() {
                         {relTime(new Date(h.created_at * 1000).toISOString())}
                       </A>
                     </div>
-                    <div class="post-body" innerHTML={h._formatted?.body ?? h.body} />
+                    <div class="post-body">{snippet(h)}</div>
                   </article>
                 )}
               </For>

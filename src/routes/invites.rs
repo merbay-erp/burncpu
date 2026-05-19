@@ -10,17 +10,12 @@
 // primary key — no separate hash. Codes are single-use; an invite consumed
 // during /auth/verify gets `redeemed_at` set.
 
-use crate::{
-    config::Config,
-    errors::AppError,
-    middleware::session::CurrentUser,
-    state::AppState,
-};
+use crate::{config::Config, errors::AppError, middleware::session::CurrentUser, state::AppState};
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
 use rand::RngCore;
 use serde::Serialize;
@@ -93,7 +88,11 @@ async fn create(
     .await?;
 
     let url = format!("{}/invite/{}", state.config.site_origin, code);
-    Ok(Json(InviteCreated { code, url, expires_at }))
+    Ok(Json(InviteCreated {
+        code,
+        url,
+        expires_at,
+    }))
 }
 
 // ── GET /invites ────────────────────────────────────────────────
@@ -153,9 +152,12 @@ async fn check(
 
     let (valid, reason, inviter, expires) = match row {
         None => (false, Some("not_found"), None, None),
-        Some((expires_at, Some(_), inviter)) => {
-            (false, Some("already_redeemed"), Some(inviter), Some(expires_at))
-        }
+        Some((expires_at, Some(_), inviter)) => (
+            false,
+            Some("already_redeemed"),
+            Some(inviter),
+            Some(expires_at),
+        ),
         Some((expires_at, None, inviter)) => {
             if expires_at < Utc::now() {
                 (false, Some("expired"), Some(inviter), Some(expires_at))

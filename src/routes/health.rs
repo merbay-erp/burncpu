@@ -2,10 +2,15 @@
 // Pings Postgres + Redis; non-200 means something is wrong upstream.
 
 use crate::{errors::AppError, state::AppState};
-use axum::{extract::State, Json};
-use serde_json::{json, Value};
+use axum::{
+    Json,
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use serde_json::{Value, json};
 
-pub async fn handler(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
+pub async fn handler(State(state): State<AppState>) -> Result<Response, AppError> {
     // ── Postgres ping
     let pg_ok: bool = sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(&state.pg)
@@ -21,8 +26,14 @@ pub async fn handler(State(state): State<AppState>) -> Result<Json<Value>, AppEr
         .map(|r| r == "PONG")
         .unwrap_or(false);
 
-    Ok(Json(json!({
-        "ok": pg_ok && redis_ok,
+    let ok = pg_ok && redis_ok;
+    let status = if ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    let body: Value = json!({
+        "ok": ok,
         "service": "burncpu",
         "version": env!("CARGO_PKG_VERSION"),
         "checks": {
@@ -30,5 +41,6 @@ pub async fn handler(State(state): State<AppState>) -> Result<Json<Value>, AppEr
             "redis": redis_ok,
         },
         "ts": chrono::Utc::now().to_rfc3339(),
-    })))
+    });
+    Ok((status, Json(body)).into_response())
 }

@@ -10,11 +10,11 @@
 
 use crate::{errors::AppError, state::AppState};
 use axum::{
+    Router,
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
 use sqlx::types::chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -43,6 +43,7 @@ async fn all(State(state): State<AppState>) -> Result<Response, AppError> {
                p.body, p.body_html, p.created_at
         FROM posts p JOIN users u ON u.id = p.author_id
         WHERE p.deleted_at IS NULL AND p.moderation_state = 'live' AND p.visibility = 'public'
+          AND u.role <> 'suspended'
         ORDER BY p.created_at DESC LIMIT 50
         "#,
     )
@@ -67,6 +68,7 @@ async fn user_feed(
         FROM posts p JOIN users u ON u.id = p.author_id
         WHERE u.username = $1
           AND p.deleted_at IS NULL AND p.moderation_state = 'live' AND p.visibility = 'public'
+          AND u.role <> 'suspended'
         ORDER BY p.created_at DESC LIMIT 50
         "#,
     )
@@ -93,6 +95,7 @@ async fn hashtag_feed(
         FROM posts p JOIN users u ON u.id = p.author_id
         WHERE LOWER(p.body) LIKE $1
           AND p.deleted_at IS NULL AND p.moderation_state = 'live' AND p.visibility = 'public'
+          AND u.role <> 'suspended'
         ORDER BY p.created_at DESC LIMIT 50
         "#,
     )
@@ -110,10 +113,7 @@ async fn hashtag_feed(
 // ── Atom serialization ──────────────────────────────────────────
 
 fn atom_response(site: &str, title: &str, self_path: &str, rows: Vec<FeedRow>) -> Response {
-    let updated = rows
-        .first()
-        .map(|r| r.created_at)
-        .unwrap_or_else(Utc::now);
+    let updated = rows.first().map(|r| r.created_at).unwrap_or_else(Utc::now);
     let self_url = format!("{site}{self_path}");
     let mut xml = String::with_capacity(rows.len() * 512 + 1024);
     xml.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
@@ -125,10 +125,7 @@ fn atom_response(site: &str, title: &str, self_path: &str, rows: Vec<FeedRow>) -
         esc(&self_url)
     ));
     xml.push_str(&format!("  <link href=\"{}\"/>\n", esc(site)));
-    xml.push_str(&format!(
-        "  <updated>{}</updated>\n",
-        updated.to_rfc3339()
-    ));
+    xml.push_str(&format!("  <updated>{}</updated>\n", updated.to_rfc3339()));
     xml.push_str(&format!(
         "  <generator uri=\"{}\">burncpu</generator>\n",
         esc(site)
@@ -142,10 +139,7 @@ fn atom_response(site: &str, title: &str, self_path: &str, rows: Vec<FeedRow>) -
             "    <title>{}</title>\n",
             esc(&first_line(&r.body, 80))
         ));
-        xml.push_str(&format!(
-            "    <link href=\"{}\"/>\n",
-            esc(&post_url)
-        ));
+        xml.push_str(&format!("    <link href=\"{}\"/>\n", esc(&post_url)));
         xml.push_str(&format!(
             "    <updated>{}</updated>\n",
             r.created_at.to_rfc3339()

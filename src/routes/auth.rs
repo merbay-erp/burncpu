@@ -19,14 +19,14 @@ use crate::{
     middleware::client_ip,
     state::AppState,
 };
-use chrono::{DateTime, Utc};
 use axum::{
+    Json, Router,
     extract::{ConnectInfo, Path, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
-    Json, Router,
 };
+use chrono::{DateTime, Utc};
 use redis::AsyncCommands;
 use serde::Deserialize;
 use std::net::SocketAddr;
@@ -34,7 +34,10 @@ use std::net::SocketAddr;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/request", post(request_handler))
-        .route("/verify/{token}", get(verify_bounce_handler).post(verify_handler))
+        .route(
+            "/verify/{token}",
+            get(verify_bounce_handler).post(verify_handler),
+        )
         .route("/logout", post(logout_handler))
         .nest("/2fa", super::twofa::router())
 }
@@ -75,7 +78,16 @@ pub async fn request_handler(
         let _: () = redis.expire(&key, RATE_LIMIT_WINDOW_SECS as i64).await?;
     }
     if count > RATE_LIMIT_MAX {
-        log_attempt(&state, Some(&email), "request", "rate_limited", &ip_str, &ua, None).await;
+        log_attempt(
+            &state,
+            Some(&email),
+            "request",
+            "rate_limited",
+            &ip_str,
+            &ua,
+            None,
+        )
+        .await;
         return Err(AppError::RateLimited);
     }
 
@@ -90,7 +102,16 @@ pub async fn request_handler(
             // New email → must present a valid, unredeemed, unexpired invite
             let code = body.invite.as_deref().unwrap_or("").trim();
             if code.is_empty() {
-                log_attempt(&state, Some(&email), "request", "invalid", &ip_str, &ua, None).await;
+                log_attempt(
+                    &state,
+                    Some(&email),
+                    "request",
+                    "invalid",
+                    &ip_str,
+                    &ua,
+                    None,
+                )
+                .await;
                 return Err(AppError::BadRequest("invite code required".into()));
             }
             let valid: Option<bool> = sqlx::query_scalar(
@@ -103,7 +124,16 @@ pub async fn request_handler(
             .fetch_optional(&state.pg)
             .await?;
             if valid.is_none() {
-                log_attempt(&state, Some(&email), "request", "invalid", &ip_str, &ua, None).await;
+                log_attempt(
+                    &state,
+                    Some(&email),
+                    "request",
+                    "invalid",
+                    &ip_str,
+                    &ua,
+                    None,
+                )
+                .await;
                 return Err(AppError::BadRequest("invite invalid or expired".into()));
             }
         }
@@ -128,7 +158,12 @@ pub async fn request_handler(
 
     // Stash invite code in Redis so verify_handler can mark it consumed.
     // Keyed by token hash; TTL matches the magic link.
-    if let Some(code) = body.invite.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+    if let Some(code) = body
+        .invite
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
         let mut r = state.redis.clone();
         let key = format!("invite:pending:{}", hex(&hash));
         let _: () = r.set_ex(&key, code, MAGIC_LINK_TTL.as_secs()).await?;
@@ -191,9 +226,9 @@ pub async fn verify_handler(
         RETURNING email
         "#,
     )
-        .bind(&hash)
-        .fetch_optional(&state.pg)
-        .await?;
+    .bind(&hash)
+    .fetch_optional(&state.pg)
+    .await?;
     let email = match email {
         Some(email) => email,
         None => {
@@ -213,16 +248,40 @@ pub async fn verify_handler(
             .await?;
             match row {
                 Some((email, Some(_), _)) => {
-                    log_attempt(&state, Some(&email), "verify", "consumed", &ip_str, &ua, None)
-                        .await;
+                    log_attempt(
+                        &state,
+                        Some(&email),
+                        "verify",
+                        "consumed",
+                        &ip_str,
+                        &ua,
+                        None,
+                    )
+                    .await;
                 }
                 Some((email, None, expires_at)) if expires_at < chrono::Utc::now() => {
-                    log_attempt(&state, Some(&email), "verify", "expired", &ip_str, &ua, None)
-                        .await;
+                    log_attempt(
+                        &state,
+                        Some(&email),
+                        "verify",
+                        "expired",
+                        &ip_str,
+                        &ua,
+                        None,
+                    )
+                    .await;
                 }
                 Some((email, _, _)) => {
-                    log_attempt(&state, Some(&email), "verify", "invalid", &ip_str, &ua, None)
-                        .await;
+                    log_attempt(
+                        &state,
+                        Some(&email),
+                        "verify",
+                        "invalid",
+                        &ip_str,
+                        &ua,
+                        None,
+                    )
+                    .await;
                 }
                 None => log_attempt(&state, None, "verify", "invalid", &ip_str, &ua, None).await,
             }
@@ -273,7 +332,16 @@ pub async fn verify_handler(
     .execute(&state.pg)
     .await?;
 
-    log_attempt(&state, Some(&email), "verify", "ok", &ip_str, &ua, Some(user_id)).await;
+    log_attempt(
+        &state,
+        Some(&email),
+        "verify",
+        "ok",
+        &ip_str,
+        &ua,
+        Some(user_id),
+    )
+    .await;
 
     // ── Set cookie + return JSON so the SPA can navigate client-side.
     let cookie = format!(
@@ -286,9 +354,11 @@ pub async fn verify_handler(
         "pending_2fa": has_totp,
     });
     let mut response = (StatusCode::OK, Json(body)).into_response();
+    let cookie_value =
+        HeaderValue::from_str(&cookie).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
     response
         .headers_mut()
-        .insert(header::SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
+        .insert(header::SET_COOKIE, cookie_value);
     Ok(response)
 }
 
@@ -310,12 +380,13 @@ pub async fn logout_handler(
         .await?;
     }
 
-    let cookie =
-        format!("{SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0");
+    let cookie = format!("{SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0");
     let mut response = StatusCode::NO_CONTENT.into_response();
+    let cookie_value =
+        HeaderValue::from_str(&cookie).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
     response
         .headers_mut()
-        .insert(header::SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
+        .insert(header::SET_COOKIE, cookie_value);
     Ok(response)
 }
 
@@ -510,14 +581,17 @@ fn derive_username(email: &str) -> String {
 
 async fn unique_username(pg: &sqlx::PgPool, base: &str) -> Result<String, AppError> {
     for n in 0..1000 {
-        let candidate = if n == 0 { base.to_string() } else { format!("{base}{n}") };
-        let taken: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)",
-        )
-        .bind(&candidate)
-        .fetch_one(pg)
-        .await
-        .unwrap_or(false);
+        let candidate = if n == 0 {
+            base.to_string()
+        } else {
+            format!("{base}{n}")
+        };
+        let taken: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)")
+                .bind(&candidate)
+                .fetch_one(pg)
+                .await
+                .unwrap_or(false);
         if !taken {
             return Ok(candidate);
         }

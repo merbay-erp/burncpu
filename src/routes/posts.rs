@@ -22,11 +22,11 @@ use crate::{
     state::AppState,
 };
 use axum::{
+    Json, Router,
     extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{delete, get, post},
-    Json, Router,
+    routing::{get, post},
 };
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
@@ -162,7 +162,10 @@ async fn create_post(
             "body too long (max {MAX_POST_LEN} chars)"
         )));
     }
-    if !matches!(input.visibility.as_str(), "public" | "followers" | "private") {
+    if !matches!(
+        input.visibility.as_str(),
+        "public" | "followers" | "private"
+    ) {
         return Err(AppError::BadRequest("invalid visibility".into()));
     }
 
@@ -229,7 +232,11 @@ async fn create_post(
     };
 
     // Content fingerprint: normalize whitespace, lowercase, sha256, hex first 16
-    let normalized: String = body.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let normalized: String = body
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
     let mut h = Sha256::new();
     h.update(normalized.as_bytes());
     let fp_full = h.finalize();
@@ -237,9 +244,13 @@ async fn create_post(
     let fp_key = format!("rl:post:fp:{}:{}", user.user_id, fp_hex);
     let seen: Option<u8> = redis.get(&fp_key).await.unwrap_or(None);
     if seen.is_some() {
-        return Err(AppError::BadRequest("duplicate content posted recently".into()));
+        return Err(AppError::BadRequest(
+            "duplicate content posted recently".into(),
+        ));
     }
-    let _: () = redis.set_ex(&fp_key, 1u8, CONTENT_DEDUP_WINDOW_SECS).await?;
+    let _: () = redis
+        .set_ex(&fp_key, 1u8, CONTENT_DEDUP_WINDOW_SECS)
+        .await?;
 
     let body_html = render_markdown(body);
 
@@ -287,12 +298,7 @@ async fn create_post(
 
     let post = fetch_post(&state, id, Some(user.user_id)).await?;
 
-    // @-mentions → notifications (skip already-notified parent author)
-    let exclude = input.reply_to_id.and_then(|rid| {
-        // can't `await` here cleanly; defer below
-        Some(rid)
-    });
-    let _ = exclude; // suppress unused
+    // @-mentions → notifications.
     notify_mentions(
         &state,
         body,
@@ -307,7 +313,9 @@ async fn create_post(
     if post.visibility == "public" {
         let s2 = state.clone();
         let pid = post.id;
-        tokio::spawn(async move { crate::federation::fanout_post(&s2, pid).await; });
+        tokio::spawn(async move {
+            crate::federation::fanout_post(&s2, pid).await;
+        });
     }
 
     // Fire-and-forget search index (only public posts surfaced in search)
@@ -376,10 +384,7 @@ async fn timeline(
     let next_before = rows.last().map(|r| r.created_at);
     let posts = rows.into_iter().map(PostRow::into_view).collect();
 
-    Ok(Json(TimelineResponse {
-        posts,
-        next_before,
-    }))
+    Ok(Json(TimelineResponse { posts, next_before }))
 }
 
 #[derive(Serialize)]
@@ -406,12 +411,11 @@ async fn delete_post(
     user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    let author_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT author_id FROM posts WHERE id = $1 AND deleted_at IS NULL",
-    )
-    .bind(id)
-    .fetch_optional(&state.pg)
-    .await?;
+    let author_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1 AND deleted_at IS NULL")
+            .bind(id)
+            .fetch_optional(&state.pg)
+            .await?;
 
     let author_id = author_id.ok_or(AppError::NotFound)?;
     if author_id != user.user_id && (user.role != "admin" || user.is_api_token()) {
@@ -452,12 +456,11 @@ async fn edit_post(
             "body too long (max {MAX_POST_LEN} chars)"
         )));
     }
-    let author_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT author_id FROM posts WHERE id = $1 AND deleted_at IS NULL",
-    )
-    .bind(id)
-    .fetch_optional(&state.pg)
-    .await?;
+    let author_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1 AND deleted_at IS NULL")
+            .bind(id)
+            .fetch_optional(&state.pg)
+            .await?;
     let author_id = author_id.ok_or(AppError::NotFound)?;
     if author_id != user.user_id {
         return Err(AppError::Forbidden);
@@ -571,12 +574,11 @@ async fn repost(
     .await?;
 
     // Notify original author
-    let orig_author: Option<Uuid> =
-        sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")
-            .bind(target_id)
-            .fetch_optional(&state.pg)
-            .await
-            .unwrap_or(None);
+    let orig_author: Option<Uuid> = sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")
+        .bind(target_id)
+        .fetch_optional(&state.pg)
+        .await
+        .unwrap_or(None);
     if let Some(orig_author) = orig_author {
         notify(
             &state,
@@ -596,7 +598,13 @@ async fn repost(
 
 // ── Reactions ───────────────────────────────────────────────────
 
-const VALID_EMOJI: &[&str] = &["\u{1F525}", "\u{1F422}", "\u{1F91D}", "\u{1F64F}", "\u{1F602}"];
+const VALID_EMOJI: &[&str] = &[
+    "\u{1F525}",
+    "\u{1F422}",
+    "\u{1F91D}",
+    "\u{1F64F}",
+    "\u{1F602}",
+];
 // fire / turtle / handshake / pray / joy
 
 #[derive(Deserialize)]
@@ -611,7 +619,7 @@ async fn react(
     Json(body): Json<ReactBody>,
 ) -> Result<StatusCode, AppError> {
     let emoji = body.emoji.trim();
-    if !VALID_EMOJI.iter().any(|e| *e == emoji) {
+    if !VALID_EMOJI.contains(&emoji) {
         return Err(AppError::BadRequest("invalid emoji".into()));
     }
     let post: Option<(Uuid, String)> = sqlx::query_as(
@@ -649,12 +657,11 @@ async fn react(
     refresh_reactions_count(&state, id).await?;
 
     // Notify the post author (skip if reacting to own post — handled by notify())
-    let author_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pg)
-            .await
-            .unwrap_or(None);
+    let author_id: Option<Uuid> = sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pg)
+        .await
+        .unwrap_or(None);
     if let Some(author_id) = author_id {
         notify(
             &state,
@@ -715,13 +722,11 @@ async fn reactions(
     }
 
     let viewer = if let Some(u) = viewer_opt {
-        sqlx::query_scalar(
-            "SELECT emoji FROM reactions WHERE post_id = $1 AND user_id = $2",
-        )
-        .bind(id)
-        .bind(u.user_id)
-        .fetch_optional(&state.pg)
-        .await?
+        sqlx::query_scalar("SELECT emoji FROM reactions WHERE post_id = $1 AND user_id = $2")
+            .bind(id)
+            .bind(u.user_id)
+            .fetch_optional(&state.pg)
+            .await?
     } else {
         None
     };
@@ -788,7 +793,9 @@ impl PostRow {
 }
 
 async fn attach_parent(state: &AppState, view: &mut PostView, viewer: Option<Uuid>) {
-    let Some(parent_id) = view.reply_to_id else { return };
+    let Some(parent_id) = view.reply_to_id else {
+        return;
+    };
     let row: Option<(Uuid, String, String)> = sqlx::query_as(
         r#"
         SELECT p.id, u.username, p.body
@@ -878,17 +885,15 @@ async fn can_view_post_author(
     match visibility {
         "public" => true,
         "private" => viewer_id == author_id,
-        "followers" => {
-            viewer_id == author_id
-                || sqlx::query_scalar::<_, bool>(
-                    "SELECT EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2)",
-                )
-                .bind(viewer_id)
-                .bind(author_id)
-                .fetch_one(&state.pg)
-                .await
-                .unwrap_or(false)
-        }
+        "followers" => viewer_id == author_id
+            || sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2)",
+            )
+            .bind(viewer_id)
+            .bind(author_id)
+            .fetch_one(&state.pg)
+            .await
+            .unwrap_or(false),
         _ => false,
     }
 }
@@ -1175,7 +1180,10 @@ async fn thread(
     .fetch_all(&state.pg)
     .await?;
 
-    let descendants = descendants_rows.into_iter().map(PostRow::into_view).collect();
+    let descendants = descendants_rows
+        .into_iter()
+        .map(PostRow::into_view)
+        .collect();
     Ok(Json(ThreadResponse { root, descendants }))
 }
 

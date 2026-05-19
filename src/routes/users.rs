@@ -9,16 +9,14 @@
 //   PATCH  /users/me                    → edit own profile (auth)
 
 use crate::{
-    errors::AppError,
-    middleware::session::CurrentUser,
-    routes::notifications::notify,
+    errors::AppError, middleware::session::CurrentUser, routes::notifications::notify,
     state::AppState,
 };
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{delete, get, patch, post},
-    Json, Router,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
@@ -75,7 +73,9 @@ pub struct ActivityQuery {
     #[serde(default = "default_activity_window")]
     window: String,
 }
-fn default_activity_window() -> String { "30d".to_string() }
+fn default_activity_window() -> String {
+    "30d".to_string()
+}
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct ActivityBucket {
@@ -168,15 +168,21 @@ async fn activity(
     .fetch_all(&state.pg)
     .await?;
 
-    let totals = rows.iter().fold(ActivityTotals {
-        posts: 0, reactions_received: 0, replies_received: 0, followers_gained: 0,
-    }, |mut acc, r| {
-        acc.posts += r.posts;
-        acc.reactions_received += r.reactions_received;
-        acc.replies_received += r.replies_received;
-        acc.followers_gained += r.followers_gained;
-        acc
-    });
+    let totals = rows.iter().fold(
+        ActivityTotals {
+            posts: 0,
+            reactions_received: 0,
+            replies_received: 0,
+            followers_gained: 0,
+        },
+        |mut acc, r| {
+            acc.posts += r.posts;
+            acc.reactions_received += r.reactions_received;
+            acc.replies_received += r.replies_received;
+            acc.followers_gained += r.followers_gained;
+            acc
+        },
+    );
 
     Ok(Json(ActivityResponse {
         window: q.window,
@@ -191,7 +197,9 @@ pub struct LookupQuery {
     #[serde(default = "default_lookup_limit")]
     limit: i64,
 }
-fn default_lookup_limit() -> i64 { 8 }
+fn default_lookup_limit() -> i64 {
+    8
+}
 
 async fn lookup_prefix(
     State(state): State<AppState>,
@@ -284,12 +292,11 @@ async fn export_me(
     user: CurrentUser,
 ) -> Result<axum::response::Response, AppError> {
     use axum::http::header;
-    let profile: serde_json::Value = sqlx::query_scalar(
-        "SELECT row_to_json(u) FROM users u WHERE id = $1",
-    )
-    .bind(user.user_id)
-    .fetch_one(&state.pg)
-    .await?;
+    let profile: serde_json::Value =
+        sqlx::query_scalar("SELECT row_to_json(u) FROM users u WHERE id = $1")
+            .bind(user.user_id)
+            .fetch_one(&state.pg)
+            .await?;
     let posts: Vec<serde_json::Value> = sqlx::query_scalar(
         r#"SELECT row_to_json(p) FROM posts p WHERE author_id = $1 ORDER BY created_at DESC"#,
     )
@@ -348,19 +355,20 @@ async fn export_me(
         "bookmarks": bookmarks,
         "media": media_list,
     });
-    let json = serde_json::to_vec_pretty(&payload)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    let json =
+        serde_json::to_vec_pretty(&payload).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
 
     let mut h = axum::http::HeaderMap::new();
-    h.insert(header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/json"));
     h.insert(
-        header::CONTENT_DISPOSITION,
-        axum::http::HeaderValue::from_str(&format!(
-            "attachment; filename=\"burncpu-export-{}.json\"",
-            Utc::now().format("%Y-%m-%d")
-        ))
-        .unwrap(),
+        header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
     );
+    let disposition = axum::http::HeaderValue::from_str(&format!(
+        "attachment; filename=\"burncpu-export-{}.json\"",
+        Utc::now().format("%Y-%m-%d")
+    ))
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    h.insert(header::CONTENT_DISPOSITION, disposition);
     use axum::response::IntoResponse;
     Ok((axum::http::StatusCode::OK, h, json).into_response())
 }
@@ -376,11 +384,10 @@ async fn delete_me(
     user: CurrentUser,
     headers: axum::http::HeaderMap,
 ) -> Result<axum::http::StatusCode, AppError> {
-    let username: String =
-        sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
-            .bind(user.user_id)
-            .fetch_one(&state.pg)
-            .await?;
+    let username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+        .bind(user.user_id)
+        .fetch_one(&state.pg)
+        .await?;
     let confirm = headers
         .get("x-confirm-username")
         .and_then(|v| v.to_str().ok())
@@ -413,10 +420,7 @@ pub struct Me {
     session_flagged: bool,
 }
 
-async fn get_me(
-    State(state): State<AppState>,
-    user: CurrentUser,
-) -> Result<Json<Me>, AppError> {
+async fn get_me(State(state): State<AppState>, user: CurrentUser) -> Result<Json<Me>, AppError> {
     let row: (String, String) =
         sqlx::query_as("SELECT username, display_name FROM users WHERE id = $1")
             .bind(user.user_id)
@@ -451,9 +455,9 @@ pub struct Profile {
     // refresh sonrasi "Takip Et" butonun yanlis state'e donmesini engeller
     // (eski bug: setFollowing(null) hep null kaliyordu, refresh sonrasi UI
     // her zaman "Takip Et" goseriyordu).
-    is_following: bool,        // viewer → profile takip ediyor mu
-    is_followed_by: bool,      // profile → viewer takip ediyor mu (mutual icin)
-    mutual_follow: bool,       // ikisi de true → DM goderebilir
+    is_following: bool,   // viewer → profile takip ediyor mu
+    is_followed_by: bool, // profile → viewer takip ediyor mu (mutual icin)
+    mutual_follow: bool,  // ikisi de true → DM goderebilir
     is_blocked_by_viewer: bool,
     is_muted_by_viewer: bool,
 }
@@ -465,12 +469,24 @@ pub struct ProfileCounts {
     following: i64,
 }
 
+type ProfileRow = (
+    Uuid,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    DateTime<Utc>,
+    Option<DateTime<Utc>>,
+    Option<Uuid>,
+);
+
 async fn get_profile(
     State(state): State<AppState>,
     viewer: Option<CurrentUser>,
     Path(username): Path<String>,
 ) -> Result<Json<Profile>, AppError> {
-    let row: Option<(Uuid, String, String, Option<String>, Option<String>, String, DateTime<Utc>, Option<DateTime<Utc>>, Option<Uuid>)> =
+    let row: Option<ProfileRow> =
         sqlx::query_as(
             r#"
             SELECT id, username, display_name, bio, avatar_url, role, created_at, last_seen_at, pinned_post_id
@@ -482,8 +498,17 @@ async fn get_profile(
         .fetch_optional(&state.pg)
         .await?;
 
-    let (id, username, display_name, bio, avatar_url, role, created_at, last_seen_at, pinned_post_id) =
-        row.ok_or(AppError::NotFound)?;
+    let (
+        id,
+        username,
+        display_name,
+        bio,
+        avatar_url,
+        role,
+        created_at,
+        last_seen_at,
+        pinned_post_id,
+    ) = row.ok_or(AppError::NotFound)?;
 
     if let Some(ref v) = viewer
         && v.user_id != id
@@ -533,13 +558,15 @@ async fn get_profile(
 
     // 19 May 2026 — Viewer-spesifik state. Anonim ziyaretci icin hepsi false.
     // Tek SQL ile 4 flag birden cekiliyor (4 ayri query yerine).
-    let (is_following, is_followed_by, is_blocked_by_viewer, is_muted_by_viewer) =
-        if let Some(ref v) = viewer {
-            if v.user_id == id {
-                // Kendi profili — flag'ler anlamsiz
-                (false, false, false, false)
-            } else {
-                let row: Option<(bool, bool, bool, bool)> = sqlx::query_as(
+    let (is_following, is_followed_by, is_blocked_by_viewer, is_muted_by_viewer) = if let Some(
+        ref v,
+    ) = viewer
+    {
+        if v.user_id == id {
+            // Kendi profili — flag'ler anlamsiz
+            (false, false, false, false)
+        } else {
+            let row: Option<(bool, bool, bool, bool)> = sqlx::query_as(
                     r#"
                     SELECT
                         EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2) AS is_following,
@@ -554,11 +581,11 @@ async fn get_profile(
                 .await
                 .ok()
                 .flatten();
-                row.unwrap_or((false, false, false, false))
-            }
-        } else {
-            (false, false, false, false)
-        };
+            row.unwrap_or((false, false, false, false))
+        }
+    } else {
+        (false, false, false, false)
+    };
 
     let mutual_follow = is_following && is_followed_by;
 
@@ -572,7 +599,11 @@ async fn get_profile(
         created_at,
         last_seen_at,
         pinned_post_id,
-        counts: ProfileCounts { posts, followers, following },
+        counts: ProfileCounts {
+            posts,
+            followers,
+            following,
+        },
         is_following,
         is_followed_by,
         mutual_follow,
@@ -611,9 +642,9 @@ async fn user_posts(
 ) -> Result<Json<Vec<PostBrief>>, AppError> {
     let user_id: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
-        .bind(&username)
-        .fetch_optional(&state.pg)
-        .await?;
+            .bind(&username)
+            .fetch_optional(&state.pg)
+            .await?;
     let user_id = user_id.ok_or(AppError::NotFound)?;
     let limit = q.limit.clamp(1, 100);
     let before = q.before.unwrap_or_else(Utc::now);
@@ -656,9 +687,9 @@ async fn followers(
 ) -> Result<Json<Vec<UserBrief>>, AppError> {
     let user_id: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
-        .bind(&username)
-        .fetch_optional(&state.pg)
-        .await?;
+            .bind(&username)
+            .fetch_optional(&state.pg)
+            .await?;
     let user_id = user_id.ok_or(AppError::NotFound)?;
     let rows: Vec<UserBrief> = sqlx::query_as(
         r#"
@@ -682,9 +713,9 @@ async fn following(
 ) -> Result<Json<Vec<UserBrief>>, AppError> {
     let user_id: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
-        .bind(&username)
-        .fetch_optional(&state.pg)
-        .await?;
+            .bind(&username)
+            .fetch_optional(&state.pg)
+            .await?;
     let user_id = user_id.ok_or(AppError::NotFound)?;
     let rows: Vec<UserBrief> = sqlx::query_as(
         r#"
@@ -711,9 +742,9 @@ async fn follow(
 ) -> Result<StatusCode, AppError> {
     let target: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
-        .bind(&username)
-        .fetch_optional(&state.pg)
-        .await?;
+            .bind(&username)
+            .fetch_optional(&state.pg)
+            .await?;
     let target = target.ok_or(AppError::NotFound)?;
     if target == user.user_id {
         return Err(AppError::BadRequest("cannot follow yourself".into()));
@@ -745,7 +776,16 @@ async fn follow(
 
     // Notify only on the first follow (idempotent — duplicate POST is a no-op)
     if inserted > 0 {
-        notify(&state, target, Some(user.user_id), "follow", "user", target, None).await;
+        notify(
+            &state,
+            target,
+            Some(user.user_id),
+            "follow",
+            "user",
+            target,
+            None,
+        )
+        .await;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -788,20 +828,22 @@ async fn patch_me(
     if let Some(n) = &input.display_name {
         let n = n.trim();
         if n.is_empty() || n.chars().count() > 80 {
-            return Err(AppError::BadRequest("display_name must be 1..=80 chars".into()));
-        }
-    }
-    if let Some(b) = &input.bio {
-        if b.chars().count() > 280 {
-            return Err(AppError::BadRequest("bio max 280 chars".into()));
-        }
-    }
-    if let Some(a) = &input.avatar_url {
-        if !(a.starts_with("https://") || a.starts_with("/media/") || a.is_empty()) {
             return Err(AppError::BadRequest(
-                "avatar_url must be https:// or /media/".into(),
+                "display_name must be 1..=80 chars".into(),
             ));
         }
+    }
+    if let Some(b) = &input.bio
+        && b.chars().count() > 280
+    {
+        return Err(AppError::BadRequest("bio max 280 chars".into()));
+    }
+    if let Some(a) = &input.avatar_url
+        && !(a.starts_with("https://") || a.starts_with("/media/") || a.is_empty())
+    {
+        return Err(AppError::BadRequest(
+            "avatar_url must be https:// or /media/".into(),
+        ));
     }
 
     sqlx::query(
@@ -822,10 +864,9 @@ async fn patch_me(
     .await?;
 
     // Return the freshly updated profile by looking up username
-    let username: String =
-        sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
-            .bind(user.user_id)
-            .fetch_one(&state.pg)
-            .await?;
+    let username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+        .bind(user.user_id)
+        .fetch_one(&state.pg)
+        .await?;
     get_profile(State(state), Some(user), Path(username)).await
 }

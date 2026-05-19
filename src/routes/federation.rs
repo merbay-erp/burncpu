@@ -6,16 +6,19 @@
 
 use crate::{
     errors::AppError,
-    federation::{actor_json, actor_url, ensure_actor_key, fetch_actor, handle_inbox, sign, IncomingActivity, AP_CT, PUBLIC_URI},
+    federation::{
+        AP_CT, IncomingActivity, PUBLIC_URI, actor_json, actor_url, ensure_actor_key, fetch_actor,
+        handle_inbox, sign,
+    },
     state::AppState,
 };
 use axum::{
+    Json, Router,
     body::Bytes,
     extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -58,8 +61,16 @@ async fn actor(
     .fetch_optional(&state.pg)
     .await?;
     let (user_id, username, display_name, bio) = row.ok_or(AppError::NotFound)?;
-    let key = ensure_actor_key(&state, user_id).await.map_err(AppError::Internal)?;
-    let body = actor_json(&state.config.site_origin, &username, &display_name, bio.as_deref(), &key.public_pem);
+    let key = ensure_actor_key(&state, user_id)
+        .await
+        .map_err(AppError::Internal)?;
+    let body = actor_json(
+        &state.config.site_origin,
+        &username,
+        &display_name,
+        bio.as_deref(),
+        &key.public_pem,
+    );
     Ok(ap_response(body))
 }
 
@@ -103,10 +114,11 @@ async fn outbox(
     if !state.config.federation_enabled {
         return Ok(fed_off());
     }
-    let row: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
-        .bind(&username)
-        .fetch_optional(&state.pg)
-        .await?;
+    let row: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
+            .bind(&username)
+            .fetch_optional(&state.pg)
+            .await?;
     let user_id = row.ok_or(AppError::NotFound)?;
     let actor = actor_url(&state.config.site_origin, &username);
     let outbox_id = format!("{actor}/outbox");
@@ -193,24 +205,37 @@ async fn followers(
     if !state.config.federation_enabled {
         return Ok(fed_off());
     }
-    let user_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
-        .bind(&username)
-        .fetch_optional(&state.pg)
-        .await?;
+    let user_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
+            .bind(&username)
+            .fetch_optional(&state.pg)
+            .await?;
     let user_id = user_id.ok_or(AppError::NotFound)?;
-    let local: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM follows WHERE followee_id = $1")
-        .bind(user_id)
-        .fetch_one(&state.pg)
-        .await
-        .unwrap_or(0);
-    let remote: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM federation_followers WHERE local_user_id = $1 AND accepted = true")
-        .bind(user_id)
-        .fetch_one(&state.pg)
-        .await
-        .unwrap_or(0);
+    let local: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM follows f
+        JOIN users u ON u.id = f.follower_id
+        WHERE f.followee_id = $1 AND u.role <> 'suspended'
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(0);
+    let remote: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM federation_followers WHERE local_user_id = $1 AND accepted = true",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(0);
     Ok(ap_response(CollectionSummary {
         context: "https://www.w3.org/ns/activitystreams",
-        id: format!("{}/followers", actor_url(&state.config.site_origin, &username)),
+        id: format!(
+            "{}/followers",
+            actor_url(&state.config.site_origin, &username)
+        ),
         typ: "Collection",
         total_items: local + remote,
     }))
@@ -223,19 +248,30 @@ async fn following(
     if !state.config.federation_enabled {
         return Ok(fed_off());
     }
-    let user_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
-        .bind(&username)
-        .fetch_optional(&state.pg)
-        .await?;
+    let user_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
+            .bind(&username)
+            .fetch_optional(&state.pg)
+            .await?;
     let user_id = user_id.ok_or(AppError::NotFound)?;
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM follows WHERE follower_id = $1")
-        .bind(user_id)
-        .fetch_one(&state.pg)
-        .await
-        .unwrap_or(0);
+    let n: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM follows f
+        JOIN users u ON u.id = f.followee_id
+        WHERE f.follower_id = $1 AND u.role <> 'suspended'
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(0);
     Ok(ap_response(CollectionSummary {
         context: "https://www.w3.org/ns/activitystreams",
-        id: format!("{}/following", actor_url(&state.config.site_origin, &username)),
+        id: format!(
+            "{}/following",
+            actor_url(&state.config.site_origin, &username)
+        ),
         typ: "Collection",
         total_items: n,
     }))
@@ -252,17 +288,24 @@ async fn inbox(
     if !state.config.federation_enabled {
         return Ok(fed_off());
     }
-    let user_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
-        .bind(&username)
-        .fetch_optional(&state.pg)
-        .await?;
+    let user_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
+            .bind(&username)
+            .fetch_optional(&state.pg)
+            .await?;
     let user_id = user_id.ok_or(AppError::NotFound)?;
 
     let activity: IncomingActivity = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::BadRequest(format!("invalid AS2: {e}")))?;
 
-    let actor = fetch_actor(&state, &activity.actor).await
+    let actor = fetch_actor(&state, &activity.actor)
+        .await
         .map_err(|e| AppError::BadRequest(format!("fetch actor: {e}")))?;
+    if let Some(key_id) = sign::signature_key_id(&headers)
+        && key_id != actor.public_key_id
+    {
+        return Err(AppError::BadRequest("signature keyId mismatch".into()));
+    }
     let path = format!("/ap/users/{username}/inbox");
     sign::verify_request("POST", &path, &headers, &bytes, &actor.public_key_pem)
         .map_err(|e| AppError::BadRequest(format!("signature: {e}")))?;
@@ -305,7 +348,9 @@ pub async fn webfinger(
     // Accept `acct:user@host` (host must match our site)
     let resource = q.resource.trim();
     let acct = resource.strip_prefix("acct:").unwrap_or(resource);
-    let (user_part, host_part) = acct.split_once('@').ok_or(AppError::BadRequest("bad resource".into()))?;
+    let (user_part, host_part) = acct
+        .split_once('@')
+        .ok_or(AppError::BadRequest("bad resource".into()))?;
     let our_host = state
         .config
         .site_origin
@@ -317,12 +362,11 @@ pub async fn webfinger(
     if host_part != our_host {
         return Err(AppError::NotFound);
     }
-    let exists: Option<bool> = sqlx::query_scalar(
-        "SELECT TRUE FROM users WHERE username = $1 AND role <> 'suspended'",
-    )
-    .bind(user_part)
-    .fetch_optional(&state.pg)
-    .await?;
+    let exists: Option<bool> =
+        sqlx::query_scalar("SELECT TRUE FROM users WHERE username = $1 AND role <> 'suspended'")
+            .bind(user_part)
+            .fetch_optional(&state.pg)
+            .await?;
     if exists.is_none() {
         return Err(AppError::NotFound);
     }
@@ -334,13 +378,27 @@ pub async fn webfinger(
         subject: format!("acct:{user_part}@{our_host}"),
         aliases: vec![profile.clone(), actor.clone()],
         links: vec![
-            WfLink { rel: "self", typ: Some(AP_CT), href: actor },
-            WfLink { rel: "http://webfinger.net/rel/profile-page", typ: Some("text/html"), href: profile },
+            WfLink {
+                rel: "self",
+                typ: Some(AP_CT),
+                href: actor,
+            },
+            WfLink {
+                rel: "http://webfinger.net/rel/profile-page",
+                typ: Some("text/html"),
+                href: profile,
+            },
         ],
     };
     let mut h = HeaderMap::new();
-    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/jrd+json; charset=utf-8"));
-    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=600"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/jrd+json; charset=utf-8"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=600"),
+    );
     Ok((StatusCode::OK, h, Json(wf)).into_response())
 }
 
@@ -408,7 +466,10 @@ pub async fn nodeinfo_discovery(State(state): State<AppState>) -> Result<Respons
         }],
     };
     let mut h = HeaderMap::new();
-    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json; charset=utf-8"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json; charset=utf-8"),
+    );
     Ok((StatusCode::OK, h, Json(body)).into_response())
 }
 
@@ -416,18 +477,33 @@ pub async fn nodeinfo(State(state): State<AppState>) -> Result<Response, AppErro
     if !state.config.federation_enabled {
         return Ok(fed_off());
     }
-    let total_users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE role <> 'suspended'")
-        .fetch_one(&state.pg)
-        .await
-        .unwrap_or(0);
+    let total_users: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE role <> 'suspended'")
+            .fetch_one(&state.pg)
+            .await
+            .unwrap_or(0);
     let active_month: i64 = sqlx::query_scalar(
-        "SELECT COUNT(DISTINCT user_id) FROM sessions WHERE last_seen_at > NOW() - interval '30 days'",
+        r#"
+        SELECT COUNT(DISTINCT s.user_id)
+        FROM sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.last_seen_at > NOW() - interval '30 days'
+          AND u.role <> 'suspended'
+        "#,
     )
     .fetch_one(&state.pg)
     .await
     .unwrap_or(0);
     let posts: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM posts WHERE deleted_at IS NULL AND visibility = 'public'",
+        r#"
+        SELECT COUNT(*)
+        FROM posts p
+        JOIN users u ON u.id = p.author_id
+        WHERE p.deleted_at IS NULL
+          AND p.moderation_state = 'live'
+          AND p.visibility = 'public'
+          AND u.role <> 'suspended'
+        "#,
     )
     .fetch_one(&state.pg)
     .await
@@ -440,12 +516,18 @@ pub async fn nodeinfo(State(state): State<AppState>) -> Result<Response, AppErro
             repository: "https://github.com/merbay-erp/burncpu",
         },
         protocols: vec!["activitypub"],
-        services: NodeServices { inbound: vec![], outbound: vec![] },
+        services: NodeServices {
+            inbound: vec![],
+            outbound: vec![],
+        },
         open_registrations: !std::env::var("INVITES_REQUIRED")
             .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
             .unwrap_or(false),
         usage: NodeUsage {
-            users: NodeUsers { total: total_users, active_month },
+            users: NodeUsers {
+                total: total_users,
+                active_month,
+            },
             local_posts: posts,
         },
         metadata: serde_json::json!({
@@ -455,7 +537,9 @@ pub async fn nodeinfo(State(state): State<AppState>) -> Result<Response, AppErro
     let mut h = HeaderMap::new();
     h.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json; profile=\"http://nodeinfo.diaspora.software/ns/schema/2.1#\""),
+        HeaderValue::from_static(
+            "application/json; profile=\"http://nodeinfo.diaspora.software/ns/schema/2.1#\"",
+        ),
     );
     Ok((StatusCode::OK, h, Json(body)).into_response())
 }

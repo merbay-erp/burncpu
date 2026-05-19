@@ -19,11 +19,11 @@
 pub mod sign;
 
 use crate::{auth::totp, state::AppState};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use rsa::{
-    pkcs1::EncodeRsaPublicKey,
-    pkcs8::{EncodePrivateKey, DecodePrivateKey, LineEnding},
     RsaPrivateKey, RsaPublicKey,
+    pkcs1::EncodeRsaPublicKey,
+    pkcs8::{DecodePrivateKey, EncodePrivateKey, LineEnding},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::Utc;
@@ -33,6 +33,7 @@ const AS_CTX: &str = "https://www.w3.org/ns/activitystreams";
 const SEC_CTX: &str = "https://w3id.org/security/v1";
 pub const PUBLIC_URI: &str = "https://www.w3.org/ns/activitystreams#Public";
 pub const AP_CT: &str = "application/activity+json";
+type ActorKeyRow = (Option<Vec<u8>>, Option<Vec<u8>>, Option<String>);
 
 // ─── Per-user keypair (lazy-generated) ─────────────────────────
 
@@ -43,29 +44,35 @@ pub struct ActorKey {
 
 pub async fn ensure_actor_key(state: &AppState, user_id: Uuid) -> Result<ActorKey> {
     // Fast path
-    let row: Option<(Option<Vec<u8>>, Option<Vec<u8>>, Option<String>)> = sqlx::query_as(
+    let row: Option<ActorKeyRow> = sqlx::query_as(
         "SELECT actor_private_key_encrypted, actor_private_key_nonce, actor_public_key_pem FROM users WHERE id = $1",
     )
     .bind(user_id)
     .fetch_optional(&state.pg)
     .await?;
-    let Some((enc, nonce, pubpem)) = row else { return Err(anyhow!("user not found")); };
+    let Some((enc, nonce, pubpem)) = row else {
+        return Err(anyhow!("user not found"));
+    };
     if let (Some(enc), Some(nonce), Some(pubpem)) = (enc.clone(), nonce.clone(), pubpem.clone()) {
         let priv_bytes = totp::decrypt_blob(&enc, &nonce)?;
         let private_pem = String::from_utf8(priv_bytes)?;
-        return Ok(ActorKey { public_pem: pubpem, private_pem });
+        return Ok(ActorKey {
+            public_pem: pubpem,
+            private_pem,
+        });
     }
 
     // Generate fresh keypair (2048-bit, blocking-but-fast — spawn_blocking)
-    let (priv_key, pub_key) = tokio::task::spawn_blocking(|| -> Result<(RsaPrivateKey, RsaPublicKey)> {
-        let mut rng = rand::thread_rng();
-        let priv_key = RsaPrivateKey::new(&mut rng, 2048)
-            .map_err(|e| anyhow!("rsa gen: {e}"))?;
-        let pub_key = RsaPublicKey::from(&priv_key);
-        Ok((priv_key, pub_key))
-    })
-    .await
-    .map_err(|e| anyhow!("join: {e}"))??;
+    let (priv_key, pub_key) =
+        tokio::task::spawn_blocking(|| -> Result<(RsaPrivateKey, RsaPublicKey)> {
+            let mut rng = rand::thread_rng();
+            let priv_key =
+                RsaPrivateKey::new(&mut rng, 2048).map_err(|e| anyhow!("rsa gen: {e}"))?;
+            let pub_key = RsaPublicKey::from(&priv_key);
+            Ok((priv_key, pub_key))
+        })
+        .await
+        .map_err(|e| anyhow!("join: {e}"))??;
 
     let private_pem = priv_key
         .to_pkcs8_pem(LineEnding::LF)
@@ -92,7 +99,10 @@ pub async fn ensure_actor_key(state: &AppState, user_id: Uuid) -> Result<ActorKe
     .execute(&state.pg)
     .await?;
 
-    Ok(ActorKey { public_pem, private_pem })
+    Ok(ActorKey {
+        public_pem,
+        private_pem,
+    })
 }
 
 pub fn load_private(pem: &str) -> Result<RsaPrivateKey> {
@@ -133,7 +143,13 @@ pub struct ActorPubKey {
     pem: String,
 }
 
-pub fn actor_json(site: &str, username: &str, display_name: &str, bio: Option<&str>, public_pem: &str) -> ActorJson {
+pub fn actor_json(
+    site: &str,
+    username: &str,
+    display_name: &str,
+    bio: Option<&str>,
+    public_pem: &str,
+) -> ActorJson {
     let id = actor_url(site, username);
     ActorJson {
         context: [AS_CTX, SEC_CTX],
@@ -274,26 +290,59 @@ pub async fn fetch_actor(state: &AppState, uri: &str) -> Result<RemoteActor> {
     .fetch_optional(&state.pg)
     .await?;
     if let Some((inbox, kid, pem)) = cached {
-        return Ok(RemoteActor { uri: uri.to_string(), inbox, public_key_id: kid, public_key_pem: pem });
+        return Ok(RemoteActor {
+            uri: uri.to_string(),
+            inbox,
+            public_key_id: kid,
+            public_key_pem: pem,
+        });
     }
 
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(8))
-        .user_agent("burncpu-federation/0.1")
-        .build()?;
+    let (http, safe_uri) = crate::net_safety::safe_client_for(
+        uri,
+        "burncpu-federation/0.1",
+        std::time::Duration::from_secs(8),
+    )
+    .await?;
     let resp = http
-        .get(uri)
+        .get(safe_uri.as_str())
         .header(reqwest::header::ACCEPT, AP_CT)
         .send()
         .await?
         .error_for_status()?;
     let body: serde_json::Value = resp.json().await?;
-    let inbox = body.get("inbox").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("no inbox"))?.to_string();
-    let shared_inbox = body.get("endpoints").and_then(|e| e.get("sharedInbox")).and_then(|v| v.as_str()).map(|s| s.to_string());
-    let pk = body.get("publicKey").ok_or_else(|| anyhow!("no publicKey"))?;
-    let pk_id = pk.get("id").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("no publicKey.id"))?.to_string();
-    let pk_pem = pk.get("publicKeyPem").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("no publicKeyPem"))?.to_string();
-    let username = body.get("preferredUsername").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let inbox = body
+        .get("inbox")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("no inbox"))?
+        .to_string();
+    let shared_inbox = body
+        .get("endpoints")
+        .and_then(|e| e.get("sharedInbox"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    crate::net_safety::validate_public_http_url(&inbox).await?;
+    if let Some(ref inbox) = shared_inbox {
+        crate::net_safety::validate_public_http_url(inbox).await?;
+    }
+    let pk = body
+        .get("publicKey")
+        .ok_or_else(|| anyhow!("no publicKey"))?;
+    let pk_id = pk
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("no publicKey.id"))?
+        .to_string();
+    let pk_pem = pk
+        .get("publicKeyPem")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("no publicKeyPem"))?
+        .to_string();
+    let username = body
+        .get("preferredUsername")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let host = uri
         .strip_prefix("https://")
         .or_else(|| uri.strip_prefix("http://"))
@@ -341,12 +390,19 @@ pub async fn fanout_post(state: &AppState, post_id: Uuid) {
     if !state.config.federation_enabled {
         return;
     }
-    let row: Option<(Uuid, String, String, String, sqlx::types::chrono::DateTime<Utc>)> = sqlx::query_as(
+    let row: Option<(
+        Uuid,
+        String,
+        String,
+        String,
+        sqlx::types::chrono::DateTime<Utc>,
+    )> = sqlx::query_as(
         r#"
         SELECT p.author_id, u.username, p.body, p.body_html, p.created_at
         FROM posts p JOIN users u ON u.id = p.author_id
         WHERE p.id = $1 AND p.deleted_at IS NULL AND p.moderation_state = 'live'
               AND p.visibility = 'public'
+              AND u.role <> 'suspended'
         "#,
     )
     .bind(post_id)
@@ -354,7 +410,9 @@ pub async fn fanout_post(state: &AppState, post_id: Uuid) {
     .await
     .ok()
     .flatten();
-    let Some((author_id, username, _body, body_html, created_at)) = row else { return };
+    let Some((author_id, username, _body, body_html, created_at)) = row else {
+        return;
+    };
 
     let inboxes: Vec<String> = sqlx::query_scalar(
         r#"
@@ -374,10 +432,16 @@ pub async fn fanout_post(state: &AppState, post_id: Uuid) {
 
     let key = match ensure_actor_key(state, author_id).await {
         Ok(k) => k,
-        Err(e) => { tracing::warn!(?e, "fanout: actor key"); return; }
+        Err(e) => {
+            tracing::warn!(?e, "fanout: actor key");
+            return;
+        }
     };
     let actor_uri = actor_url(&state.config.site_origin, &username);
-    let object_id = format!("{}/posts/{post_id}", state.config.site_origin.trim_end_matches('/'));
+    let object_id = format!(
+        "{}/posts/{post_id}",
+        state.config.site_origin.trim_end_matches('/')
+    );
     let create = serde_json::json!({
         "@context": AS_CTX,
         "id": format!("{object_id}#create"),
@@ -407,7 +471,10 @@ pub async fn fanout_post(state: &AppState, post_id: Uuid) {
     .await;
 
     let cfg = state.config.clone();
-    let key_clone = ActorKey { public_pem: key.public_pem.clone(), private_pem: key.private_pem.clone() };
+    let key_clone = ActorKey {
+        public_pem: key.public_pem.clone(),
+        private_pem: key.private_pem.clone(),
+    };
     tokio::spawn(async move {
         for inbox in inboxes {
             let _ = sign::deliver(&cfg, &key_clone, &actor_uri, &inbox, &create).await;

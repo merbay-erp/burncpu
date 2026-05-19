@@ -2,9 +2,9 @@
 // Handlers return `Result<T, AppError>` and bubble most errors up via `?`.
 
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde_json::json;
 

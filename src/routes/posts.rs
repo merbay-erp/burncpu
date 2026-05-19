@@ -107,6 +107,15 @@ pub struct PostView {
     content_warning: Option<String>,
     reactions_count: i32,
     replies_count: i32,
+    // 19 May 2026 — Viewer-spesifik state. Frontend Post.tsx sayfa refresh
+    // sonrasi react/bookmark butonlarinin DOGRU state'te yuklenebilmesi icin.
+    // Onceden setReacted(false) ile basliyordu → refresh sonrasi 🐢 ikonu
+    // hep bos goruluyordu (kullanici "react atmis miydim?" diye karistiriyordu).
+    // None = anonim viewer; Some(false/true) = giris yapmis.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    viewer_reacted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    viewer_bookmarked: Option<bool>,
     created_at: DateTime<Utc>,
 }
 
@@ -364,7 +373,13 @@ async fn timeline(
         SELECT
             p.id, p.author_id, u.username, u.display_name,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at
+            p.reactions_count, p.replies_count, p.created_at,
+            CASE WHEN $3::uuid IS NOT NULL THEN
+                EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $3)
+            ELSE NULL END AS viewer_reacted,
+            CASE WHEN $3::uuid IS NOT NULL THEN
+                EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.user_id = $3)
+            ELSE NULL END AS viewer_bookmarked
         FROM posts p
         JOIN users u ON u.id = p.author_id
         WHERE p.visibility = 'public'
@@ -768,6 +783,11 @@ struct PostRow {
     reactions_count: i32,
     replies_count: i32,
     created_at: DateTime<Utc>,
+    // 19 May 2026 — SQL'de EXISTS subquery ile cekilir. NULL = anonim viewer.
+    #[sqlx(default)]
+    viewer_reacted: Option<bool>,
+    #[sqlx(default)]
+    viewer_bookmarked: Option<bool>,
 }
 
 impl PostRow {
@@ -788,6 +808,8 @@ impl PostRow {
             reactions_count: self.reactions_count,
             replies_count: self.replies_count,
             created_at: self.created_at,
+            viewer_reacted: self.viewer_reacted,
+            viewer_bookmarked: self.viewer_bookmarked,
         }
     }
 }
@@ -983,7 +1005,13 @@ async fn fetch_post(
         SELECT
             p.id, p.author_id, u.username, u.display_name,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at
+            p.reactions_count, p.replies_count, p.created_at,
+            CASE WHEN $2::uuid IS NOT NULL THEN
+                EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $2)
+            ELSE NULL END AS viewer_reacted,
+            CASE WHEN $2::uuid IS NOT NULL THEN
+                EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.user_id = $2)
+            ELSE NULL END AS viewer_bookmarked
         FROM posts p
         JOIN users u ON u.id = p.author_id
         WHERE p.id = $1
@@ -1041,7 +1069,13 @@ async fn replies(
         SELECT
             p.id, p.author_id, u.username, u.display_name,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at
+            p.reactions_count, p.replies_count, p.created_at,
+            CASE WHEN $3::uuid IS NOT NULL THEN
+                EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $3)
+            ELSE NULL END AS viewer_reacted,
+            CASE WHEN $3::uuid IS NOT NULL THEN
+                EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.user_id = $3)
+            ELSE NULL END AS viewer_bookmarked
         FROM posts p
         JOIN users u ON u.id = p.author_id
         WHERE p.reply_to_id = $1
@@ -1144,7 +1178,13 @@ async fn thread(
         SELECT
             p.id, p.author_id, u.username, u.display_name,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at
+            p.reactions_count, p.replies_count, p.created_at,
+            CASE WHEN $2::uuid IS NOT NULL THEN
+                EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $2)
+            ELSE NULL END AS viewer_reacted,
+            CASE WHEN $2::uuid IS NOT NULL THEN
+                EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.user_id = $2)
+            ELSE NULL END AS viewer_bookmarked
         FROM descendants d
         JOIN posts p ON p.id = d.id
         JOIN users u ON u.id = p.author_id

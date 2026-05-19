@@ -62,6 +62,10 @@ export interface PostView {
   reactions_count: number;
   replies_count: number;
   created_at: string;
+  // 19 May 2026 — viewer-spesifik state. Anonim icin undefined, giris yapmissa true/false.
+  // Post.tsx createEffect ile setReacted/setBookmarked initial state sync.
+  viewer_reacted?: boolean;
+  viewer_bookmarked?: boolean;
 }
 
 export interface Timeline {

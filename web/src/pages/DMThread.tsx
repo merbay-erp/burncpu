@@ -14,7 +14,7 @@ interface DmMessage {
 }
 
 interface ThreadView {
-  id: string;
+  id: string | null;
   other_username: string;
   other_display_name: string;
   mutual_follow: boolean;

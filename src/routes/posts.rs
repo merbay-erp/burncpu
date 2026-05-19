@@ -200,6 +200,34 @@ async fn create_post(
         }
     }
 
+    // Validate reply target before inserting. This avoids the old
+    // insert-then-forbid path that left rejected replies in the DB.
+    let parent_author = if let Some(reply_id) = input.reply_to_id {
+        let parent: Option<(Uuid, String)> = sqlx::query_as(
+            r#"
+            SELECT author_id, visibility FROM posts
+            WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live'
+            "#,
+        )
+        .bind(reply_id)
+        .fetch_optional(&state.pg)
+        .await?;
+        let Some((author_id, visibility)) = parent else {
+            return Err(AppError::BadRequest("reply target not found".into()));
+        };
+        if !can_view_post_author(&state, author_id, &visibility, Some(user.user_id)).await {
+            return Err(AppError::Forbidden);
+        }
+        if !reply_visibility_allowed(&input.visibility, &visibility) {
+            return Err(AppError::BadRequest(
+                "reply visibility cannot be broader than parent".into(),
+            ));
+        }
+        Some(author_id)
+    } else {
+        None
+    };
+
     // Content fingerprint: normalize whitespace, lowercase, sha256, hex first 16
     let normalized: String = body.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
     let mut h = Sha256::new();
@@ -212,22 +240,6 @@ async fn create_post(
         return Err(AppError::BadRequest("duplicate content posted recently".into()));
     }
     let _: () = redis.set_ex(&fp_key, 1u8, CONTENT_DEDUP_WINDOW_SECS).await?;
-
-    // Validate reply_to_id exists + is live
-    if let Some(reply_id) = input.reply_to_id {
-        let exists: Option<bool> = sqlx::query_scalar(
-            r#"
-            SELECT TRUE FROM posts
-            WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live'
-            "#,
-        )
-        .bind(reply_id)
-        .fetch_optional(&state.pg)
-        .await?;
-        if exists.is_none() {
-            return Err(AppError::BadRequest("reply target not found".into()));
-        }
-    }
 
     let body_html = render_markdown(body);
 
@@ -255,17 +267,6 @@ async fn create_post(
 
     // Bump parent reply count + notify parent author
     if let Some(reply_id) = input.reply_to_id {
-        let parent_author: Option<Uuid> =
-            sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")
-                .bind(reply_id)
-                .fetch_optional(&state.pg)
-                .await
-                .unwrap_or(None);
-        if let Some(parent_author) = parent_author {
-            if is_blocked(&state, user.user_id, parent_author).await {
-                return Err(AppError::Forbidden);
-            }
-        }
         let _ = sqlx::query("UPDATE posts SET replies_count = replies_count + 1 WHERE id = $1")
             .bind(reply_id)
             .execute(&state.pg)
@@ -292,7 +293,15 @@ async fn create_post(
         Some(rid)
     });
     let _ = exclude; // suppress unused
-    notify_mentions(&state, body, user.user_id, id, &post.author.username).await;
+    notify_mentions(
+        &state,
+        body,
+        user.user_id,
+        id,
+        &post.author.username,
+        &post.visibility,
+    )
+    .await;
 
     // Federation fanout to remote followers (no-op if FEDERATION_ENABLED=false)
     if post.visibility == "public" {
@@ -353,6 +362,7 @@ async fn timeline(
         WHERE p.visibility = 'public'
           AND p.moderation_state = 'live'
           AND p.deleted_at IS NULL
+          AND u.role <> 'suspended'
           AND p.created_at < $1
         ORDER BY p.created_at DESC
         LIMIT $2
@@ -383,8 +393,9 @@ pub struct TimelineResponse {
 async fn get_post(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
+    viewer_opt: Option<CurrentUser>,
 ) -> Result<Json<PostView>, AppError> {
-    let view = fetch_post(&state, id, None).await?;
+    let view = fetch_post(&state, id, viewer_opt.as_ref().map(|u| u.user_id)).await?;
     Ok(Json(view))
 }
 
@@ -403,7 +414,7 @@ async fn delete_post(
     .await?;
 
     let author_id = author_id.ok_or(AppError::NotFound)?;
-    if author_id != user.user_id && user.role != "admin" {
+    if author_id != user.user_id && (user.role != "admin" || user.is_api_token()) {
         return Err(AppError::Forbidden);
     }
 
@@ -509,28 +520,40 @@ async fn repost(
     Path(id): Path<Uuid>,
     Json(input): Json<RepostBody>,
 ) -> Result<(StatusCode, Json<PostView>), AppError> {
-    let target: Option<(Uuid, String)> = sqlx::query_as(
+    let target: Option<(Uuid, Uuid, String)> = sqlx::query_as(
         r#"
-        SELECT id, visibility FROM posts
-        WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live'
+        SELECT p.id, p.author_id, p.visibility
+        FROM posts p JOIN users u ON u.id = p.author_id
+        WHERE p.id = $1
+          AND p.deleted_at IS NULL
+          AND p.moderation_state = 'live'
+          AND u.role <> 'suspended'
         "#,
     )
     .bind(id)
     .fetch_optional(&state.pg)
     .await?;
-    let (target_id, target_vis) = target.ok_or(AppError::NotFound)?;
-    if target_vis != "public" {
+    let (target_id, target_author, target_vis) = target.ok_or(AppError::NotFound)?;
+    if target_vis != "public"
+        || !can_view_post_author(&state, target_author, &target_vis, Some(user.user_id)).await
+    {
         return Err(AppError::Forbidden);
     }
-    if target_id == id && Some(target_id) == Some(id) {
-        // (no-op self-check placeholder — repost of own post is allowed)
-    }
 
-    let body_raw = input.body.trim().chars().take(MAX_POST_LEN).collect::<String>();
+    let body_raw = input.body.trim();
+    if body_raw.chars().count() > MAX_POST_LEN {
+        return Err(AppError::BadRequest(format!(
+            "body too long (max {MAX_POST_LEN} chars)"
+        )));
+    }
     // posts.body CHECK forbids empty — pure repost (no quote) uses a single
     // sentinel character so the row is valid; the UI ignores it and shows
     // the embedded original.
-    let body = if body_raw.is_empty() { "↻".to_string() } else { body_raw };
+    let body = if body_raw.is_empty() {
+        "↻".to_string()
+    } else {
+        body_raw.to_string()
+    };
     let body_html = render_markdown(&body);
 
     let new_id: Uuid = sqlx::query_scalar(
@@ -591,18 +614,18 @@ async fn react(
     if !VALID_EMOJI.iter().any(|e| *e == emoji) {
         return Err(AppError::BadRequest("invalid emoji".into()));
     }
-    let post: Option<(Uuid,)> = sqlx::query_as(
+    let post: Option<(Uuid, String)> = sqlx::query_as(
         r#"
-        SELECT author_id FROM posts
+        SELECT author_id, visibility FROM posts
         WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live'
         "#,
     )
     .bind(id)
     .fetch_optional(&state.pg)
     .await?;
-    let author_id = post.ok_or(AppError::NotFound)?.0;
-    if is_blocked(&state, user.user_id, author_id).await {
-        return Err(AppError::Forbidden);
+    let (author_id, visibility) = post.ok_or(AppError::NotFound)?;
+    if !can_view_post_author(&state, author_id, &visibility, Some(user.user_id)).await {
+        return Err(AppError::NotFound);
     }
 
     // Upsert reaction. If user already had a reaction, replace it. Either
@@ -675,6 +698,9 @@ async fn reactions(
     // Viewer is optional — if cookie missing, returned viewer = null.
     viewer_opt: Option<CurrentUser>,
 ) -> Result<Json<ReactionsView>, AppError> {
+    let viewer_id = viewer_opt.as_ref().map(|u| u.user_id);
+    ensure_post_visible(&state, id, viewer_id).await?;
+
     let rows: Vec<(String, i64)> = sqlx::query_as(
         "SELECT emoji, COUNT(*)::bigint FROM reactions WHERE post_id = $1 GROUP BY emoji",
     )
@@ -761,16 +787,41 @@ impl PostRow {
     }
 }
 
-async fn attach_parent(state: &AppState, view: &mut PostView) {
+async fn attach_parent(state: &AppState, view: &mut PostView, viewer: Option<Uuid>) {
     let Some(parent_id) = view.reply_to_id else { return };
     let row: Option<(Uuid, String, String)> = sqlx::query_as(
         r#"
         SELECT p.id, u.username, p.body
         FROM posts p JOIN users u ON u.id = p.author_id
-        WHERE p.id = $1 AND p.deleted_at IS NULL AND p.moderation_state = 'live'
+        WHERE p.id = $1
+          AND p.deleted_at IS NULL
+          AND p.moderation_state = 'live'
+          AND u.role <> 'suspended'
+          AND (
+              p.visibility = 'public'
+              OR ($2::uuid IS NOT NULL AND p.author_id = $2)
+              OR (
+                  p.visibility = 'followers'
+                  AND $2::uuid IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM follows f
+                      WHERE f.follower_id = $2 AND f.followee_id = p.author_id
+                  )
+              )
+          )
+          AND (
+              $2::uuid IS NULL
+              OR p.author_id = $2
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $2 AND b.blocked_id = p.author_id)
+                     OR (b.blocker_id = p.author_id AND b.blocked_id = $2)
+              )
+          )
         "#,
     )
     .bind(parent_id)
+    .bind(viewer)
     .fetch_optional(&state.pg)
     .await
     .ok()
@@ -879,6 +930,7 @@ async fn notify_mentions(
     actor_id: Uuid,
     post_id: Uuid,
     actor_username: &str,
+    visibility: &str,
 ) {
     let mentions = extract_mentions(body);
     if mentions.is_empty() {
@@ -900,6 +952,9 @@ async fn notify_mentions(
     .await
     .unwrap_or_default();
     for (uid, uname) in rows {
+        if !can_view_post_author(state, actor_id, visibility, Some(uid)).await {
+            continue;
+        }
         notify(
             state,
             uid,
@@ -916,7 +971,7 @@ async fn notify_mentions(
 async fn fetch_post(
     state: &AppState,
     id: Uuid,
-    _viewer: Option<Uuid>,
+    viewer: Option<Uuid>,
 ) -> Result<PostView, AppError> {
     let row: Option<PostRow> = sqlx::query_as(
         r#"
@@ -929,14 +984,37 @@ async fn fetch_post(
         WHERE p.id = $1
           AND p.deleted_at IS NULL
           AND p.moderation_state = 'live'
+          AND u.role <> 'suspended'
+          AND (
+              p.visibility = 'public'
+              OR ($2::uuid IS NOT NULL AND p.author_id = $2)
+              OR (
+                  p.visibility = 'followers'
+                  AND $2::uuid IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM follows f
+                      WHERE f.follower_id = $2 AND f.followee_id = p.author_id
+                  )
+              )
+          )
+          AND (
+              $2::uuid IS NULL
+              OR p.author_id = $2
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $2 AND b.blocked_id = p.author_id)
+                     OR (b.blocker_id = p.author_id AND b.blocked_id = $2)
+              )
+          )
         "#,
     )
     .bind(id)
+    .bind(viewer)
     .fetch_optional(&state.pg)
     .await?;
 
     let mut view = row.map(PostRow::into_view).ok_or(AppError::NotFound)?;
-    attach_parent(state, &mut view).await;
+    attach_parent(state, &mut view, viewer).await;
     Ok(view)
 }
 
@@ -946,9 +1024,12 @@ async fn replies(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Query(q): Query<TimelineQuery>,
+    viewer_opt: Option<CurrentUser>,
 ) -> Result<Json<TimelineResponse>, AppError> {
     let limit = q.limit.clamp(1, 100);
     let before = q.before.unwrap_or_else(Utc::now);
+    let viewer_id = viewer_opt.as_ref().map(|u| u.user_id);
+    ensure_post_visible(&state, id, viewer_id).await?;
 
     let rows: Vec<PostRow> = sqlx::query_as(
         r#"
@@ -962,12 +1043,35 @@ async fn replies(
           AND p.moderation_state = 'live'
           AND p.deleted_at IS NULL
           AND p.created_at < $2
-        ORDER BY p.created_at ASC
-        LIMIT $3
+          AND u.role <> 'suspended'
+          AND (
+              p.visibility = 'public'
+              OR ($3::uuid IS NOT NULL AND p.author_id = $3)
+              OR (
+                  p.visibility = 'followers'
+                  AND $3::uuid IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM follows f
+                      WHERE f.follower_id = $3 AND f.followee_id = p.author_id
+                  )
+              )
+          )
+          AND (
+              $3::uuid IS NULL
+              OR p.author_id = $3
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $3 AND b.blocked_id = p.author_id)
+                     OR (b.blocker_id = p.author_id AND b.blocked_id = $3)
+              )
+          )
+        ORDER BY p.created_at DESC
+        LIMIT $4
         "#,
     )
     .bind(id)
     .bind(before)
+    .bind(viewer_id)
     .bind(limit)
     .fetch_all(&state.pg)
     .await?;
@@ -996,15 +1100,22 @@ pub struct ThreadResponse {
 async fn thread(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
+    viewer_opt: Option<CurrentUser>,
 ) -> Result<Json<ThreadResponse>, AppError> {
+    let viewer_id = viewer_opt.as_ref().map(|u| u.user_id);
+    let _requested = fetch_post(&state, id, viewer_id).await?;
+
     // Walk up to find the root of the thread
     let root_id: Uuid = sqlx::query_scalar(
         r#"
         WITH RECURSIVE ancestor(id, reply_to_id) AS (
-            SELECT id, reply_to_id FROM posts WHERE id = $1
+            SELECT id, reply_to_id
+            FROM posts
+            WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live'
             UNION ALL
             SELECT p.id, p.reply_to_id
             FROM posts p JOIN ancestor a ON p.id = a.reply_to_id
+            WHERE p.deleted_at IS NULL AND p.moderation_state = 'live'
         )
         SELECT id FROM ancestor WHERE reply_to_id IS NULL LIMIT 1
         "#,
@@ -1014,7 +1125,7 @@ async fn thread(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let root = fetch_post(&state, root_id, None).await?;
+    let root = fetch_post(&state, root_id, viewer_id).await?;
 
     let descendants_rows: Vec<PostRow> = sqlx::query_as(
         r#"
@@ -1033,14 +1144,55 @@ async fn thread(
         JOIN posts p ON p.id = d.id
         JOIN users u ON u.id = p.author_id
         WHERE p.moderation_state = 'live'
+          AND u.role <> 'suspended'
+          AND (
+              p.visibility = 'public'
+              OR ($2::uuid IS NOT NULL AND p.author_id = $2)
+              OR (
+                  p.visibility = 'followers'
+                  AND $2::uuid IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM follows f
+                      WHERE f.follower_id = $2 AND f.followee_id = p.author_id
+                  )
+              )
+          )
+          AND (
+              $2::uuid IS NULL
+              OR p.author_id = $2
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $2 AND b.blocked_id = p.author_id)
+                     OR (b.blocker_id = p.author_id AND b.blocked_id = $2)
+              )
+          )
         ORDER BY p.created_at ASC
         LIMIT 500
         "#,
     )
     .bind(root_id)
+    .bind(viewer_id)
     .fetch_all(&state.pg)
     .await?;
 
     let descendants = descendants_rows.into_iter().map(PostRow::into_view).collect();
     Ok(Json(ThreadResponse { root, descendants }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reply_visibility_cannot_be_broader_than_parent() {
+        assert!(reply_visibility_allowed("private", "private"));
+        assert!(reply_visibility_allowed("private", "followers"));
+        assert!(reply_visibility_allowed("followers", "followers"));
+        assert!(reply_visibility_allowed("followers", "public"));
+        assert!(reply_visibility_allowed("public", "public"));
+
+        assert!(!reply_visibility_allowed("public", "followers"));
+        assert!(!reply_visibility_allowed("public", "private"));
+        assert!(!reply_visibility_allowed("followers", "private"));
+    }
 }

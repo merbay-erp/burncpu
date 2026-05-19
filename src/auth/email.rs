@@ -24,11 +24,9 @@ use lettre::{
     transport::smtp::{authentication::Credentials, AsyncSmtpTransport, AsyncSmtpTransportBuilder},
     AsyncTransport, Message, Tokio1Executor,
 };
-use std::sync::Arc;
-
 pub enum Sender {
     Console,
-    Smtp(SmtpSender),
+    Smtp(Box<SmtpSender>),
 }
 
 pub struct SmtpSender {
@@ -37,29 +35,21 @@ pub struct SmtpSender {
 }
 
 impl Sender {
-    pub fn from_env() -> Self {
+    pub fn from_env() -> Result<Self> {
         match std::env::var("EMAIL_BACKEND").ok().as_deref() {
             Some("smtp") => match SmtpSender::from_env() {
                 Ok(s) => {
                     tracing::info!(host = %s.from, "📧 SMTP sender ready");
-                    Self::Smtp(s)
+                    Ok(Self::Smtp(Box::new(s)))
                 }
-                Err(e) => {
-                    // Hard fail in prod is preferable to silent console — but
-                    // we crash later (on first send) so startup stays healthy
-                    // for health checks. Loud log.
-                    tracing::error!(
-                        ?e,
-                        "EMAIL_BACKEND=smtp set but SMTP config invalid — falling back to CONSOLE. Magic links will leak to logs."
-                    );
-                    Self::Console
-                }
+                Err(e) => Err(anyhow!("EMAIL_BACKEND=smtp is invalid: {e}")),
             },
+            Some(other) => Err(anyhow!("unsupported EMAIL_BACKEND: {other}")),
             _ => {
                 tracing::warn!(
                     "EMAIL_BACKEND not set to 'smtp' — magic links emitted to tracing logs only (dev mode)."
                 );
-                Self::Console
+                Ok(Self::Console)
             }
         }
     }
@@ -127,5 +117,3 @@ impl SmtpSender {
         Ok(())
     }
 }
-
-pub type SharedSender = Arc<Sender>;

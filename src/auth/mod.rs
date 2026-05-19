@@ -10,6 +10,7 @@
 //   - session     : long-lived (30 days), revocable, identifies a user
 
 pub mod email;
+pub mod scope;
 pub mod token;
 pub mod totp;
 

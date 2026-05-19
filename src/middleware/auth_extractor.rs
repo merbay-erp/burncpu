@@ -31,6 +31,9 @@ where
         if u.role != "admin" {
             return Err(AppError::Forbidden);
         }
+        if u.is_api_token() {
+            return Err(AppError::Forbidden);
+        }
         if u.pending_2fa {
             // Authenticated, admin, but second factor not yet satisfied
             // → reject. Client should POST /auth/2fa/challenge.
@@ -47,11 +50,48 @@ where
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        parts
+        let user = parts
             .extensions
             .get::<CurrentUser>()
             .cloned()
-            .ok_or(AppError::Unauthorized)
+            .ok_or(AppError::Unauthorized)?;
+        if user.role == "suspended" || user.pending_2fa {
+            return Err(AppError::Forbidden);
+        }
+        Ok(user)
+    }
+}
+
+/// Authenticated browser session only. Use for account-control surfaces
+/// such as 2FA and API-token management, where a bearer token should not
+/// be able to mint more credentials or weaken login protections.
+#[derive(Clone)]
+pub struct SessionUser(pub CurrentUser);
+
+impl std::ops::Deref for SessionUser {
+    type Target = CurrentUser;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<S> FromRequestParts<S> for SessionUser
+where
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let user = parts
+            .extensions
+            .get::<CurrentUser>()
+            .cloned()
+            .ok_or(AppError::Unauthorized)?;
+        if user.role == "suspended" || user.pending_2fa || user.is_api_token() {
+            return Err(AppError::Forbidden);
+        }
+        Ok(SessionUser(user))
     }
 }
 
@@ -67,6 +107,10 @@ where
         parts: &mut Parts,
         _state: &S,
     ) -> Result<Option<Self>, Self::Rejection> {
-        Ok(parts.extensions.get::<CurrentUser>().cloned())
+        Ok(parts
+            .extensions
+            .get::<CurrentUser>()
+            .cloned()
+            .filter(|u| u.role != "suspended" && !u.pending_2fa))
     }
 }

@@ -106,6 +106,12 @@ pub struct ThreadView {
     other_username: String,
     other_display_name: String,
     mutual_follow: bool,
+    // 19 May 2026 — Frontend "takip et" CTA'si: mutual=false durumunda
+    // is_following=false ise "takip et" butonu, is_following=true ise
+    // "o seni takip etmeli" mesaji. Onceden sadece "mutual_required" banner
+    // vardi, kullanici "mesajlasma aktif olmuyor" diye sikayet ediyordu.
+    is_following: bool,
+    is_followed_by: bool,
     messages: Vec<DmMessage>,
     next_before: Option<DateTime<Utc>>,
 }
@@ -131,7 +137,22 @@ async fn thread(
         return Err(AppError::BadRequest("cannot DM yourself".into()));
     }
     let (a, b) = canonical_pair(user.user_id, other.0);
-    let mutual = mutual_follow(&state, user.user_id, other.0).await;
+    // 19 May 2026 — Tek query'de iki follow yonu cek (mutual + asimetrik state).
+    let follow_state: Option<(bool, bool)> = sqlx::query_as(
+        r#"
+        SELECT
+            EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2) AS is_following,
+            EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = $1) AS is_followed_by
+        "#,
+    )
+    .bind(user.user_id)
+    .bind(other.0)
+    .fetch_optional(&state.pg)
+    .await
+    .ok()
+    .flatten();
+    let (is_following, is_followed_by) = follow_state.unwrap_or((false, false));
+    let mutual = is_following && is_followed_by;
 
     let thread_id: Uuid = sqlx::query_scalar(
         r#"
@@ -171,6 +192,8 @@ async fn thread(
         other_username: other.1,
         other_display_name: other.2,
         mutual_follow: mutual,
+        is_following,
+        is_followed_by,
         messages,
         next_before,
     }))

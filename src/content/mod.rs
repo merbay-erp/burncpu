@@ -20,7 +20,7 @@ pub fn render_markdown(src: &str) -> String {
     let mut html_out = String::with_capacity(pre.len() + 64);
     html::push_html(&mut html_out, parser);
 
-    sanitizer().clean(&html_out).to_string()
+    scrub_remote_images(sanitizer().clean(&html_out).to_string())
 }
 
 /// Pre-pass: rewrite `@username` tokens into markdown link
@@ -171,9 +171,9 @@ fn sanitizer() -> &'static ammonia::Builder<'static> {
                 .copied()
                 .collect::<std::collections::HashSet<_>>(),
         );
-        // Allow inline <img> (markdown ![]() syntax). Constrain src to
-        // same-origin /media/ paths or absolute https URLs. alt + title
-        // pass through for accessibility.
+        // Allow inline <img> (markdown ![]() syntax). A post-pass below
+        // restricts src to local /media/ paths so posts cannot beacon
+        // readers to third-party tracking pixels.
         let mut tags = b.clone_tags();
         tags.insert("img");
         b.tags(tags);
@@ -184,6 +184,59 @@ fn sanitizer() -> &'static ammonia::Builder<'static> {
         // ammonia's defaults.
         b
     })
+}
+
+fn scrub_remote_images(html: String) -> String {
+    let bytes = html.as_bytes();
+    let mut out = String::with_capacity(html.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let is_img = bytes.len() >= i + 5
+            && bytes[i] == b'<'
+            && bytes[i + 1].eq_ignore_ascii_case(&b'i')
+            && bytes[i + 2].eq_ignore_ascii_case(&b'm')
+            && bytes[i + 3].eq_ignore_ascii_case(&b'g')
+            && matches!(bytes[i + 4], b' ' | b'\t' | b'>' | b'/');
+        if !is_img {
+            let start = i;
+            let mut end = start + 1;
+            while end < bytes.len() && (bytes[end] & 0xC0) == 0x80 {
+                end += 1;
+            }
+            out.push_str(&html[start..end]);
+            i = end;
+            continue;
+        }
+
+        let mut end = i + 4;
+        while end < bytes.len() && bytes[end] != b'>' {
+            end += 1;
+        }
+        let tag_slice = &html[i..end.min(bytes.len())];
+        let kept = if let Some(src_at) = tag_slice.find("src=\"") {
+            let val_start = src_at + 5;
+            if let Some(val_end_rel) = tag_slice[val_start..].find('"') {
+                let val = &tag_slice[val_start..val_start + val_end_rel];
+                if val.starts_with("/media/") {
+                    tag_slice.to_string()
+                } else {
+                    tag_slice.replacen(&format!("src=\"{val}\""), "src=\"\"", 1)
+                }
+            } else {
+                tag_slice.to_string()
+            }
+        } else {
+            tag_slice.to_string()
+        };
+        out.push_str(&kept);
+        if end < bytes.len() {
+            out.push('>');
+            i = end + 1;
+        } else {
+            i = end;
+        }
+    }
+    out
 }
 
 /// First N characters of plain text, used for previews / timeline meta.
@@ -235,4 +288,43 @@ pub fn extract_hashtags(body: &str) -> Vec<String> {
         i += 1;
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_keeps_utf8_intact() {
+        let html = render_markdown("İlk Post şahane");
+        assert!(html.contains("İlk"));
+        assert!(html.contains("şahane"));
+        assert!(!html.contains("Ä°"));
+    }
+
+    #[test]
+    fn render_linkifies_mentions() {
+        let html = render_markdown("hey @mustafa");
+        assert!(html.contains("href=\"/u/mustafa\""));
+    }
+
+    #[test]
+    fn mention_extraction_skips_code() {
+        assert!(extract_mentions("`@nope`").is_empty());
+        assert!(extract_mentions("```\n@nope\n```").is_empty());
+    }
+
+    #[test]
+    fn image_src_allows_only_local_media() {
+        let local = render_markdown("![ok](/media/abc.png)");
+        assert!(local.contains("src=\"/media/abc.png\""));
+
+        let remote = render_markdown("![x](https://example.com/pixel.png)");
+        assert!(!remote.contains("example.com"));
+        assert!(remote.contains("src=\"\""));
+
+        let protocol_relative = render_markdown("![x](//example.com/pixel.png)");
+        assert!(!protocol_relative.contains("//example.com"));
+        assert!(protocol_relative.contains("src=\"\""));
+    }
 }

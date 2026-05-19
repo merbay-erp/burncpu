@@ -18,6 +18,8 @@ interface ThreadView {
   other_username: string;
   other_display_name: string;
   mutual_follow: boolean;
+  is_following: boolean;
+  is_followed_by: boolean;
   messages: DmMessage[];
   next_before: string | null;
 }
@@ -102,7 +104,41 @@ export default function DMThread() {
                   }}
                 </For>
               </div>
-              <Show when={t().mutual_follow}>
+              {/* 19 May 2026 — UX fix: kullanici onceden sadece "mutual_required" banner
+                  goruyordu, hicbir CTA yoktu → "mesajlasma aktif olmuyor" sikayeti.
+                  Simdi mutual=false ise: cift takipte aktif olur, takip et butonu CTA.
+                  Optimistic: butona basinca local state hemen guncellenir + refetch. */}
+              <Show when={t().mutual_follow} fallback={
+                <div style="border-top: 1px solid var(--border); padding: 16px; text-align: center;">
+                  <p class="muted" style="margin-bottom: 12px;">
+                    Mesajlaşmanın aktif olması için <strong>her iki tarafın</strong> birbirini takip etmesi gerekiyor.
+                  </p>
+                  <Show when={!t().is_following} fallback={
+                    <p class="tiny muted">
+                      Sen @{t().other_username}'i takip ediyorsun. <strong>O da seni takip ettiğinde</strong> burada mesajlaşabilirsiniz.
+                    </p>
+                  }>
+                    <button
+                      class="primary"
+                      disabled={busy()}
+                      onClick={async () => {
+                        if (busy()) return;
+                        setBusy(true);
+                        try {
+                          await api.post(`/users/${t().other_username}/follow`);
+                          await refetch();
+                        } catch (e) {
+                          setErr((e as Error).message);
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      {busy() ? 'Gönderiliyor…' : `@${t().other_username}'i takip et`}
+                    </button>
+                  </Show>
+                </div>
+              }>
                 <div style="border-top: 1px solid var(--border); padding-top: 12px; position: sticky; bottom: 0; background: var(--bg);">
                   <textarea
                     placeholder="Mesajın..."

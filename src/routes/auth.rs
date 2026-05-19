@@ -1,7 +1,9 @@
 // /api/v1/auth/* — magic-link authentication endpoints.
 //
 //   POST /auth/request          { email }                       → 204
-//   GET  /auth/verify/:token                                    → 302 / (cookie set)
+//   GET  /auth/verify/:token                                    → 303 /auth/confirm/:token
+//                                                                 (scanner-safe; does not consume)
+//   POST /auth/verify/:token                                    → 200 + Set-Cookie
 //   POST /auth/logout                                           → 204
 //
 // Token strategy: 32 random bytes → base64url → emailed to user (raw),
@@ -32,7 +34,7 @@ use std::net::SocketAddr;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/request", post(request_handler))
-        .route("/verify/{token}", get(verify_handler))
+        .route("/verify/{token}", get(verify_bounce_handler).post(verify_handler))
         .route("/logout", post(logout_handler))
         .nest("/2fa", super::twofa::router())
 }
@@ -134,7 +136,7 @@ pub async fn request_handler(
 
     // ── Build verify URL + send mail
     let url = format!("{}/api/v1/auth/verify/{}", state.config.site_origin, raw);
-    let sender = Sender::from_env();
+    let sender = Sender::from_env().map_err(AppError::Internal)?;
     let body_text = format!(
         "Hoş geldin!\n\n\
          burncpu.com'a giriş için aşağıdaki linke tıkla (15 dakika geçerli):\n\n\
@@ -153,7 +155,15 @@ pub async fn request_handler(
 }
 
 // ────────────────────────────────────────────────────────────────
-//  GET /auth/verify/:token
+//  GET /auth/verify/:token → scanner-safe bounce
+// ────────────────────────────────────────────────────────────────
+
+pub async fn verify_bounce_handler(Path(token): Path<String>) -> Response {
+    Redirect::to(&format!("/auth/confirm/{token}")).into_response()
+}
+
+// ────────────────────────────────────────────────────────────────
+//  POST /auth/verify/:token → consume one-shot token + create session
 // ────────────────────────────────────────────────────────────────
 
 pub async fn verify_handler(
@@ -168,40 +178,57 @@ pub async fn verify_handler(
         .map(|i| i.to_string())
         .unwrap_or_default();
 
-    // ── Lookup token (any state — we want to distinguish expired/consumed)
-    let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>, chrono::DateTime<chrono::Utc>)> =
-        sqlx::query_as(
-            r#"
-            SELECT email, consumed_at, expires_at
-            FROM auth_tokens
-            WHERE token_hash = $1
-            "#,
-        )
+    // ── Atomically consume the magic link. Concurrent verifies can only
+    // have one winner because consumed_at is checked and set in the same
+    // UPDATE.
+    let email: Option<String> = sqlx::query_scalar(
+        r#"
+        UPDATE auth_tokens
+        SET consumed_at = NOW()
+        WHERE token_hash = $1
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+        RETURNING email
+        "#,
+    )
         .bind(&hash)
         .fetch_optional(&state.pg)
         .await?;
-
-    let (email, consumed_at, expires_at) = match row {
-        Some(t) => t,
+    let email = match email {
+        Some(email) => email,
         None => {
-            log_attempt(&state, None, "verify", "invalid", &ip_str, &ua, None).await;
+            let row: Option<(
+                String,
+                Option<chrono::DateTime<chrono::Utc>>,
+                chrono::DateTime<chrono::Utc>,
+            )> = sqlx::query_as(
+                r#"
+                SELECT email, consumed_at, expires_at
+                FROM auth_tokens
+                WHERE token_hash = $1
+                "#,
+            )
+            .bind(&hash)
+            .fetch_optional(&state.pg)
+            .await?;
+            match row {
+                Some((email, Some(_), _)) => {
+                    log_attempt(&state, Some(&email), "verify", "consumed", &ip_str, &ua, None)
+                        .await;
+                }
+                Some((email, None, expires_at)) if expires_at < chrono::Utc::now() => {
+                    log_attempt(&state, Some(&email), "verify", "expired", &ip_str, &ua, None)
+                        .await;
+                }
+                Some((email, _, _)) => {
+                    log_attempt(&state, Some(&email), "verify", "invalid", &ip_str, &ua, None)
+                        .await;
+                }
+                None => log_attempt(&state, None, "verify", "invalid", &ip_str, &ua, None).await,
+            }
             return Err(AppError::Unauthorized);
         }
     };
-    if consumed_at.is_some() {
-        log_attempt(&state, Some(&email), "verify", "consumed", &ip_str, &ua, None).await;
-        return Err(AppError::Unauthorized);
-    }
-    if expires_at < chrono::Utc::now() {
-        log_attempt(&state, Some(&email), "verify", "expired", &ip_str, &ua, None).await;
-        return Err(AppError::Unauthorized);
-    }
-
-    // ── Mark consumed (one-shot)
-    sqlx::query("UPDATE auth_tokens SET consumed_at = NOW() WHERE token_hash = $1")
-        .bind(&hash)
-        .execute(&state.pg)
-        .await?;
 
     // ── Pull pending invite code (if any) from Redis and consume on signup
     let pending_invite: Option<String> = {
@@ -248,13 +275,17 @@ pub async fn verify_handler(
 
     log_attempt(&state, Some(&email), "verify", "ok", &ip_str, &ua, Some(user_id)).await;
 
-    // ── Set cookie + redirect /
+    // ── Set cookie + return JSON so the SPA can navigate client-side.
     let cookie = format!(
         "{SESSION_COOKIE}={session_raw}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={}",
         SESSION_TTL.as_secs()
     );
 
-    let mut response = Redirect::to("/").into_response();
+    let body = serde_json::json!({
+        "ok": true,
+        "pending_2fa": has_totp,
+    });
+    let mut response = (StatusCode::OK, Json(body)).into_response();
     response
         .headers_mut()
         .insert(header::SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
@@ -360,12 +391,15 @@ async fn upsert_user(
     invite_code: Option<&str>,
     pg: &sqlx::PgPool,
 ) -> Result<uuid::Uuid, AppError> {
-    let existing: Option<uuid::Uuid> =
-        sqlx::query_scalar("SELECT id FROM users WHERE email = $1")
+    let existing: Option<(uuid::Uuid, String)> =
+        sqlx::query_as("SELECT id, role FROM users WHERE email = $1")
             .bind(email)
             .fetch_optional(pg)
             .await?;
-    if let Some(id) = existing {
+    if let Some((id, role)) = existing {
+        if role == "suspended" {
+            return Err(AppError::Forbidden);
+        }
         sqlx::query("UPDATE users SET last_seen_at = NOW() WHERE id = $1")
             .bind(id)
             .execute(pg)
@@ -382,23 +416,31 @@ async fn upsert_user(
         _ => "member",
     };
 
-    // If signup carries a valid invite, resolve inviter and mark redeemed.
-    let inviter: Option<uuid::Uuid> = if let Some(code) = invite_code {
-        sqlx::query_scalar(
-            r#"
-            SELECT inviter_id FROM invites
-            WHERE code = $1 AND redeemed_at IS NULL AND expires_at > NOW()
-            "#,
-        )
-        .bind(code)
-        .fetch_optional(pg)
-        .await?
-    } else {
-        None
-    };
+    if state.config.invites_required && invite_code.is_none() {
+        return Err(AppError::BadRequest("invite code required".into()));
+    }
 
     let username_base = derive_username(email);
     let username = unique_username(pg, &username_base).await?;
+
+    let mut tx = pg.begin().await?;
+
+    // If signup carries a valid invite, lock it until user creation commits.
+    let inviter: Option<uuid::Uuid> = if let Some(code) = invite_code {
+        let inviter: Option<uuid::Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT inviter_id FROM invites
+            WHERE code = $1 AND redeemed_at IS NULL AND expires_at > NOW()
+            FOR UPDATE
+            "#,
+        )
+        .bind(code)
+        .fetch_optional(&mut *tx)
+        .await?;
+        Some(inviter.ok_or_else(|| AppError::BadRequest("invite invalid or expired".into()))?)
+    } else {
+        None
+    };
 
     let id: uuid::Uuid = sqlx::query_scalar(
         r#"
@@ -412,24 +454,32 @@ async fn upsert_user(
     .bind(&username)
     .bind(role)
     .bind(inviter)
-    .fetch_one(pg)
+    .fetch_one(&mut *tx)
     .await?;
 
     // Mark invite consumed
-    if let Some(code) = invite_code {
-        if inviter.is_some() {
-            let _ = sqlx::query(
-                "UPDATE invites SET redeemed_at = NOW(), redeemed_by = $1 WHERE code = $2",
-            )
-            .bind(id)
-            .bind(code)
-            .execute(pg)
-            .await;
+    if let Some(code) = invite_code
+        && inviter.is_some()
+    {
+        let updated = sqlx::query(
+            r#"
+            UPDATE invites
+            SET redeemed_at = NOW(), redeemed_by = $1
+            WHERE code = $2 AND redeemed_at IS NULL
+            "#,
+        )
+        .bind(id)
+        .bind(code)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if updated == 0 {
+            return Err(AppError::BadRequest("invite already redeemed".into()));
         }
     }
 
+    tx.commit().await?;
     tracing::info!(%email, %username, %role, ?inviter, "user created");
-    let _ = state; // unused after refactor; kept for symmetric call site
     Ok(id)
 }
 

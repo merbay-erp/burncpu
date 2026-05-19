@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from 'solid-js';
+import { createResource, createSignal, createEffect, For, Show } from 'solid-js';
 import { useParams } from '@solidjs/router';
 import { api, type Profile, type PostView } from '../api';
 import Post from '../components/Post';
@@ -39,6 +39,14 @@ export default function ProfilePage() {
   };
   const [following, setFollowing] = createSignal<boolean | null>(null);
   const [busy, setBusy] = createSignal(false);
+
+  // 19 May 2026 — Sayfa yuklendiginde profile.is_following backend'den geldiginde
+  // local state'e push et. Onceden setFollowing(null) hep null kaliyordu →
+  // refresh sonrasi UI "Takip Et" gosteriyordu (zaten takip ediyor olsa bile).
+  createEffect(() => {
+    const p = profile();
+    if (p) setFollowing(p.is_following);
+  });
 
   const follow = async () => {
     if (busy()) return;

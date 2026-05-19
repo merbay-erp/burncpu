@@ -80,6 +80,14 @@ export interface Profile {
   last_seen_at: string | null;
   pinned_post_id: string | null;
   counts: { posts: number; followers: number; following: number };
+  // 19 May 2026 — viewer-spesifik state. Sayfa refresh sonrasi follow/block/mute
+  // butonlarinin dogru gozukmesi icin backend'den geliyor (eski bug: refresh
+  // ettiginde "Takip Et" hep aktif gozukurdu).
+  is_following: boolean;
+  is_followed_by: boolean;
+  mutual_follow: boolean;
+  is_blocked_by_viewer: boolean;
+  is_muted_by_viewer: boolean;
 }
 
 export interface Notification {

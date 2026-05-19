@@ -426,6 +426,16 @@ pub struct Profile {
     last_seen_at: Option<DateTime<Utc>>,
     pinned_post_id: Option<Uuid>,
     counts: ProfileCounts,
+    // 19 May 2026 — Viewer-spesifik flagler. Giris yapmamis (anonim) ziyaretci
+    // icin hepsi false. Frontend bu flag'leri sayfa yuklenirken okur, sayfa
+    // refresh sonrasi "Takip Et" butonun yanlis state'e donmesini engeller
+    // (eski bug: setFollowing(null) hep null kaliyordu, refresh sonrasi UI
+    // her zaman "Takip Et" goseriyordu).
+    is_following: bool,        // viewer → profile takip ediyor mu
+    is_followed_by: bool,      // profile → viewer takip ediyor mu (mutual icin)
+    mutual_follow: bool,       // ikisi de true → DM goderebilir
+    is_blocked_by_viewer: bool,
+    is_muted_by_viewer: bool,
 }
 
 #[derive(Serialize)]
@@ -437,6 +447,7 @@ pub struct ProfileCounts {
 
 async fn get_profile(
     State(state): State<AppState>,
+    viewer: Option<CurrentUser>,
     Path(username): Path<String>,
 ) -> Result<Json<Profile>, AppError> {
     let row: Option<(Uuid, String, String, Option<String>, Option<String>, String, DateTime<Utc>, Option<DateTime<Utc>>, Option<Uuid>)> =
@@ -480,6 +491,37 @@ async fn get_profile(
             .await
             .unwrap_or(0);
 
+    // 19 May 2026 — Viewer-spesifik state. Anonim ziyaretci icin hepsi false.
+    // Tek SQL ile 4 flag birden cekiliyor (4 ayri query yerine).
+    let (is_following, is_followed_by, is_blocked_by_viewer, is_muted_by_viewer) =
+        if let Some(ref v) = viewer {
+            if v.user_id == id {
+                // Kendi profili — flag'ler anlamsiz
+                (false, false, false, false)
+            } else {
+                let row: Option<(bool, bool, bool, bool)> = sqlx::query_as(
+                    r#"
+                    SELECT
+                        EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2) AS is_following,
+                        EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = $1) AS is_followed_by,
+                        EXISTS(SELECT 1 FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2) AS is_blocked,
+                        EXISTS(SELECT 1 FROM user_mutes WHERE muter_id = $1 AND muted_id = $2) AS is_muted
+                    "#,
+                )
+                .bind(v.user_id)
+                .bind(id)
+                .fetch_optional(&state.pg)
+                .await
+                .ok()
+                .flatten();
+                row.unwrap_or((false, false, false, false))
+            }
+        } else {
+            (false, false, false, false)
+        };
+
+    let mutual_follow = is_following && is_followed_by;
+
     Ok(Json(Profile {
         id,
         username,
@@ -491,6 +533,11 @@ async fn get_profile(
         last_seen_at,
         pinned_post_id,
         counts: ProfileCounts { posts, followers, following },
+        is_following,
+        is_followed_by,
+        mutual_follow,
+        is_blocked_by_viewer,
+        is_muted_by_viewer,
     }))
 }
 
@@ -734,5 +781,5 @@ async fn patch_me(
             .bind(user.user_id)
             .fetch_one(&state.pg)
             .await?;
-    get_profile(State(state), Path(username)).await
+    get_profile(State(state), Some(user), Path(username)).await
 }

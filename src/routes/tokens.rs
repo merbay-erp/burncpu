@@ -5,9 +5,9 @@
 //   DELETE /tokens/{id}           → revoke
 
 use crate::{
-    auth::{hash_token, new_token},
+    auth::{new_token, scope::is_valid_scope},
     errors::AppError,
-    middleware::session::CurrentUser,
+    middleware::auth_extractor::SessionUser,
     state::AppState,
 };
 use axum::{
@@ -39,7 +39,7 @@ pub struct TokenRow {
 
 async fn list(
     State(state): State<AppState>,
-    user: CurrentUser,
+    user: SessionUser,
 ) -> Result<Json<Vec<TokenRow>>, AppError> {
     let rows: Vec<TokenRow> = sqlx::query_as(
         r#"
@@ -61,28 +61,32 @@ pub struct CreateBody {
     scope: String,
     expires_in_days: Option<i64>,
 }
-fn default_scope() -> String { "all".to_string() }
+fn default_scope() -> String {
+    "all".to_string()
+}
 
 #[derive(Serialize)]
 pub struct CreatedToken {
     id: Uuid,
     name: String,
     scope: String,
-    token: String,           // raw, shown ONCE
+    token: String, // raw, shown ONCE
     expires_at: Option<DateTime<Utc>>,
 }
 
 async fn create(
     State(state): State<AppState>,
-    user: CurrentUser,
+    user: SessionUser,
     Json(input): Json<CreateBody>,
 ) -> Result<(StatusCode, Json<CreatedToken>), AppError> {
     let name = input.name.trim();
     if name.is_empty() || name.len() > 64 {
         return Err(AppError::BadRequest("name 1..64 chars".into()));
     }
-    if !matches!(input.scope.as_str(), "all" | "read") {
-        return Err(AppError::BadRequest("scope must be all|read".into()));
+    if !is_valid_scope(&input.scope) {
+        return Err(AppError::BadRequest(
+            "invalid scope; use all, read, read:<resource>, or write:<resource>".into(),
+        ));
     }
     let (raw, hash) = new_token().map_err(AppError::Internal)?;
     let expires_at = input.expires_in_days.map(|d| Utc::now() + chrono::Duration::days(d));
@@ -116,7 +120,7 @@ async fn create(
 
 async fn revoke(
     State(state): State<AppState>,
-    user: CurrentUser,
+    user: SessionUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
     let n = sqlx::query(
@@ -131,11 +135,4 @@ async fn revoke(
         return Err(AppError::NotFound);
     }
     Ok(StatusCode::NO_CONTENT)
-}
-
-// Helper used by tokens.rs equivalent; hash_token re-exported for clarity
-#[allow(dead_code)]
-fn _touch(_h: Vec<u8>) {
-    // ensures import is used in slim build
-    let _ = hash_token("");
 }

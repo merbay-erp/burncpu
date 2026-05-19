@@ -799,6 +799,78 @@ async fn is_blocked(state: &AppState, a: Uuid, b: Uuid) -> bool {
     .unwrap_or(false)
 }
 
+fn visibility_rank(v: &str) -> u8 {
+    match v {
+        "private" => 1,
+        "followers" => 2,
+        "public" => 3,
+        _ => 0,
+    }
+}
+
+fn reply_visibility_allowed(reply_visibility: &str, parent_visibility: &str) -> bool {
+    visibility_rank(reply_visibility) <= visibility_rank(parent_visibility)
+}
+
+async fn can_view_post_author(
+    state: &AppState,
+    author_id: Uuid,
+    visibility: &str,
+    viewer: Option<Uuid>,
+) -> bool {
+    let Some(viewer_id) = viewer else {
+        return visibility == "public";
+    };
+    if viewer_id != author_id && is_blocked(state, viewer_id, author_id).await {
+        return false;
+    }
+    match visibility {
+        "public" => true,
+        "private" => viewer_id == author_id,
+        "followers" => {
+            viewer_id == author_id
+                || sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2)",
+                )
+                .bind(viewer_id)
+                .bind(author_id)
+                .fetch_one(&state.pg)
+                .await
+                .unwrap_or(false)
+        }
+        _ => false,
+    }
+}
+
+async fn ensure_post_visible(
+    state: &AppState,
+    post_id: Uuid,
+    viewer: Option<Uuid>,
+) -> Result<(), AppError> {
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        r#"
+        SELECT p.author_id, p.visibility
+        FROM posts p
+        JOIN users u ON u.id = p.author_id
+        WHERE p.id = $1
+          AND p.deleted_at IS NULL
+          AND p.moderation_state = 'live'
+          AND u.role <> 'suspended'
+        "#,
+    )
+    .bind(post_id)
+    .fetch_optional(&state.pg)
+    .await?;
+    let Some((author_id, visibility)) = row else {
+        return Err(AppError::NotFound);
+    };
+    if can_view_post_author(state, author_id, &visibility, viewer).await {
+        Ok(())
+    } else {
+        Err(AppError::NotFound)
+    }
+}
+
 /// Best-effort: scan `body` for @-mentions, look up each username, fire
 /// notify(kind="mention"). Skips the post author themselves.
 async fn notify_mentions(

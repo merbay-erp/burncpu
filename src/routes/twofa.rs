@@ -13,7 +13,7 @@
 use crate::{
     auth::{hash_token, token::SESSION_COOKIE, totp},
     errors::AppError,
-    middleware::session::CurrentUser,
+    middleware::auth_extractor::SessionUser,
     state::AppState,
 };
 use axum::{
@@ -42,7 +42,7 @@ pub struct Status {
 
 async fn status(
     State(state): State<AppState>,
-    user: CurrentUser,
+    user: SessionUser,
 ) -> Result<Json<Status>, AppError> {
     let row: Option<(Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, i32)> =
         sqlx::query_as(
@@ -74,7 +74,7 @@ pub struct EnrollResponse {
 
 async fn enroll(
     State(state): State<AppState>,
-    user: CurrentUser,
+    user: SessionUser,
 ) -> Result<Json<EnrollResponse>, AppError> {
     // Look up username for QR label
     let username: String =
@@ -85,8 +85,9 @@ async fn enroll(
 
     let e = totp::enroll(&username).map_err(AppError::Internal)?;
 
-    // Upsert pending enrollment: replaces any previous unconfirmed row.
-    sqlx::query(
+    // Upsert pending enrollment. A confirmed 2FA row cannot be replaced
+    // here; the user must prove possession via /disable first.
+    let touched: Option<uuid::Uuid> = sqlx::query_scalar(
         r#"
         INSERT INTO user_totp (user_id, secret_encrypted, secret_nonce, recovery_codes, confirmed_at, last_used_step, created_at)
         VALUES ($1, $2, $3, $4, NULL, NULL, NOW())
@@ -96,14 +97,21 @@ async fn enroll(
             recovery_codes   = EXCLUDED.recovery_codes,
             confirmed_at     = NULL,
             last_used_step   = NULL
+        WHERE user_totp.confirmed_at IS NULL
+        RETURNING user_id
         "#,
     )
     .bind(user.user_id)
     .bind(&e.secret_encrypted)
     .bind(&e.secret_nonce)
     .bind(&e.recovery_hashes)
-    .execute(&state.pg)
+    .fetch_optional(&state.pg)
     .await?;
+    if touched.is_none() {
+        return Err(AppError::BadRequest(
+            "2FA already active; disable it before enrolling again".into(),
+        ));
+    }
 
     Ok(Json(EnrollResponse {
         otpauth_uri: e.otpauth_uri,
@@ -121,7 +129,7 @@ pub struct CodeBody {
 
 async fn confirm(
     State(state): State<AppState>,
-    user: CurrentUser,
+    user: SessionUser,
     Json(body): Json<CodeBody>,
 ) -> Result<StatusCode, AppError> {
     let row: Option<(Vec<u8>, Vec<u8>, Option<i64>, Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>)> =
@@ -171,21 +179,31 @@ async fn challenge(
     let hash = hash_token(&raw);
 
     // Find session + user's secret
-    let row: Option<(uuid::Uuid, Vec<u8>, Vec<u8>, Option<i64>, Vec<Vec<u8>>, Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>)> =
+    let row: Option<(
+        uuid::Uuid,
+        uuid::Uuid,
+        Vec<u8>,
+        Vec<u8>,
+        Option<i64>,
+        Vec<Vec<u8>>,
+        Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>,
+    )> =
         sqlx::query_as(
             r#"
-            SELECT s.id, t.secret_encrypted, t.secret_nonce, t.last_used_step, t.recovery_codes, t.confirmed_at
+            SELECT s.id, s.user_id, t.secret_encrypted, t.secret_nonce, t.last_used_step, t.recovery_codes, t.confirmed_at
             FROM sessions s
             JOIN user_totp t ON t.user_id = s.user_id
+            JOIN users u ON u.id = s.user_id
             WHERE s.token_hash = $1
               AND s.revoked_at IS NULL
               AND s.expires_at > NOW()
+              AND u.role <> 'suspended'
             "#,
         )
         .bind(&hash)
         .fetch_optional(&state.pg)
         .await?;
-    let (session_id, secret, nonce, last_step, recovery_codes, confirmed_at) =
+    let (session_id, user_id, secret, nonce, last_step, recovery_codes, confirmed_at) =
         row.ok_or(AppError::Unauthorized)?;
     if confirmed_at.is_none() {
         return Err(AppError::BadRequest("2FA not confirmed".into()));
@@ -195,11 +213,9 @@ async fn challenge(
     // Try TOTP first, then fall back to recovery code.
     let ok = match totp::verify_code(&secret, &nonce, code, last_step) {
         Ok(step) => {
-            let _ = sqlx::query(
-                "UPDATE user_totp SET last_used_step = $1 WHERE secret_encrypted = $2",
-            )
+            let _ = sqlx::query("UPDATE user_totp SET last_used_step = $1 WHERE user_id = $2")
             .bind(step)
-            .bind(&secret)
+            .bind(user_id)
             .execute(&state.pg)
             .await;
             true
@@ -209,10 +225,10 @@ async fn challenge(
             let h = totp::hash_recovery(code);
             if recovery_codes.iter().any(|c| c == &h) {
                 let _ = sqlx::query(
-                    "UPDATE user_totp SET recovery_codes = array_remove(recovery_codes, $1) WHERE secret_encrypted = $2",
+                    "UPDATE user_totp SET recovery_codes = array_remove(recovery_codes, $1) WHERE user_id = $2",
                 )
                 .bind(&h)
-                .bind(&secret)
+                .bind(user_id)
                 .execute(&state.pg)
                 .await;
                 true
@@ -237,7 +253,7 @@ async fn challenge(
 
 async fn disable(
     State(state): State<AppState>,
-    user: CurrentUser,
+    user: SessionUser,
     Json(body): Json<CodeBody>,
 ) -> Result<StatusCode, AppError> {
     let row: Option<(Vec<u8>, Vec<u8>, Option<i64>)> = sqlx::query_as(

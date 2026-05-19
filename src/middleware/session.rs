@@ -13,16 +13,28 @@
 // cookie), we don't abort the request — we just don't attach the
 // extension and let the handler enforce its own auth (or 401).
 
-use crate::{auth::hash_token, auth::token::SESSION_COOKIE, middleware::client_ip, state::AppState};
+use crate::{
+    auth::{hash_token, scope::scope_allows, token::SESSION_COOKIE},
+    middleware::client_ip,
+    state::AppState,
+};
 use axum::{
     body::Body,
     extract::State,
-    http::{header, Request},
+    http::{header, Request, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
+    Json,
 };
+use serde_json::json;
 use std::net::SocketAddr;
 use uuid::Uuid;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AuthKind {
+    Session,
+    ApiToken,
+}
 
 #[derive(Clone, Debug)]
 pub struct CurrentUser {
@@ -31,6 +43,13 @@ pub struct CurrentUser {
     pub session_id: Uuid,
     pub session_flagged: bool,
     pub pending_2fa: bool,
+    pub auth_kind: AuthKind,
+}
+
+impl CurrentUser {
+    pub fn is_api_token(&self) -> bool {
+        matches!(self.auth_kind, AuthKind::ApiToken)
+    }
 }
 
 pub async fn layer(
@@ -42,12 +61,20 @@ pub async fn layer(
     let bearer = read_bearer(req.headers());
     if let Some(token) = bearer {
         let hash = hash_token(&token);
-        let row: Option<(uuid::Uuid, String, String, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>)> =
+        let row: Option<(
+            uuid::Uuid,
+            uuid::Uuid,
+            String,
+            String,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        )> =
             sqlx::query_as(
                 r#"
-                SELECT t.id, t.user_id::text, u.role, t.expires_at, t.revoked_at
+                SELECT t.id, t.user_id, u.role, t.scope, t.expires_at, t.revoked_at
                 FROM api_tokens t JOIN users u ON u.id = t.user_id
                 WHERE t.token_hash = $1
+                  AND u.role <> 'suspended'
                 "#,
             )
             .bind(&hash)
@@ -55,27 +82,32 @@ pub async fn layer(
             .await
             .ok()
             .flatten();
-        if let Some((_tid, user_id_text, role, expires_at, revoked_at)) = row {
+        if let Some((_tid, user_id, role, scope, expires_at, revoked_at)) = row {
             let alive = revoked_at.is_none()
                 && expires_at.map(|e| e > chrono::Utc::now()).unwrap_or(true);
             if alive {
-                if let Ok(user_id) = uuid::Uuid::parse_str(&user_id_text) {
-                    // Bump last_used_at best-effort
-                    let _ = sqlx::query(
-                        "UPDATE api_tokens SET last_used_at = NOW() WHERE token_hash = $1",
-                    )
-                    .bind(&hash)
-                    .execute(&state.pg)
-                    .await;
-                    req.extensions_mut().insert(CurrentUser {
-                        user_id,
-                        role,
-                        session_id: Uuid::nil(),
-                        session_flagged: false,
-                        pending_2fa: false,
-                    });
-                    return next.run(req).await;
+                if !scope_allows(&scope, req.method(), req.uri().path()) {
+                    return forbidden(
+                        "token_scope_denied",
+                        "API token scope does not permit this request",
+                    );
                 }
+                // Bump last_used_at best-effort
+                let _ = sqlx::query(
+                    "UPDATE api_tokens SET last_used_at = NOW() WHERE token_hash = $1",
+                )
+                .bind(&hash)
+                .execute(&state.pg)
+                .await;
+                req.extensions_mut().insert(CurrentUser {
+                    user_id,
+                    role,
+                    session_id: Uuid::nil(),
+                    session_flagged: false,
+                    pending_2fa: false,
+                    auth_kind: AuthKind::ApiToken,
+                });
+                return next.run(req).await;
             }
         }
         // Fall through: bad bearer doesn't 401 here — handler decides.
@@ -111,6 +143,7 @@ pub async fn layer(
                 WHERE s.token_hash = $1
                   AND s.revoked_at IS NULL
                   AND s.expires_at > NOW()
+                  AND u.role <> 'suspended'
                 "#,
             )
             .bind(&hash)
@@ -158,6 +191,7 @@ pub async fn layer(
                 session_id,
                 session_flagged: was_flagged || should_flag,
                 pending_2fa,
+                auth_kind: AuthKind::Session,
             });
         }
     }
@@ -180,4 +214,15 @@ fn read_cookie(headers: &axum::http::HeaderMap) -> Option<String> {
 fn read_bearer(headers: &axum::http::HeaderMap) -> Option<String> {
     let v = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     v.strip_prefix("Bearer ").map(|s| s.trim().to_string())
+}
+
+fn forbidden(code: &str, message: &str) -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({
+            "error": code,
+            "message": message,
+        })),
+    )
+        .into_response()
 }

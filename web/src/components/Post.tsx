@@ -1,4 +1,4 @@
-import { Show, createSignal } from 'solid-js';
+import { Show, createSignal, createEffect } from 'solid-js';
 import { A } from '@solidjs/router';
 import type { PostView } from '../api';
 import { api } from '../api';
@@ -17,9 +17,17 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
   if (!props.post || !props.post.author) return null;
 
   const [reactionsTotal, setReactionsTotal] = createSignal(props.post.reactions_count);
-  const [reacted, setReacted] = createSignal(false);
+  // 19 May 2026 — Initial state backend'den geliyor (viewer_reacted/viewer_bookmarked).
+  // Onceden hep false ile basliyordu → sayfa refresh sonrasi 🐢 ve bookmark
+  // ikonlari kayboluyordu. createEffect ile props guncellendiginde sync.
+  const [reacted, setReacted] = createSignal(props.post.viewer_reacted ?? false);
   const [busy, setBusy] = createSignal(false);
-  const [bookmarked, setBookmarked] = createSignal(false);
+  const [bookmarked, setBookmarked] = createSignal(props.post.viewer_bookmarked ?? false);
+
+  createEffect(() => {
+    if (typeof props.post.viewer_reacted === 'boolean') setReacted(props.post.viewer_reacted);
+    if (typeof props.post.viewer_bookmarked === 'boolean') setBookmarked(props.post.viewer_bookmarked);
+  });
   const [editing, setEditing] = createSignal(false);
   const [editBody, setEditBody] = createSignal(props.post.body);
   const [body, setBody] = createSignal(props.post.body);

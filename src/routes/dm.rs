@@ -67,7 +67,11 @@ async fn list_threads(
         WITH my AS (
             SELECT id, a_id, b_id, last_message_at
             FROM dm_threads
-            WHERE a_id = $1 OR b_id = $1
+            WHERE (a_id = $1 OR b_id = $1)
+              AND EXISTS (
+                  SELECT 1 FROM dm_messages m
+                  WHERE m.thread_id = dm_threads.id AND m.deleted_at IS NULL
+              )
         )
         SELECT
             my.id,
@@ -80,6 +84,12 @@ async fn list_threads(
             (SELECT COUNT(*)::bigint FROM dm_messages m WHERE m.thread_id = my.id AND m.sender_id <> $1 AND m.read_at IS NULL AND m.deleted_at IS NULL) AS unread_count
         FROM my
         JOIN users u ON u.id = (CASE WHEN my.a_id = $1 THEN my.b_id ELSE my.a_id END)
+        WHERE u.role <> 'suspended'
+          AND NOT EXISTS (
+              SELECT 1 FROM user_blocks b
+              WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
+                 OR (b.blocker_id = u.id AND b.blocked_id = $1)
+          )
         ORDER BY my.last_message_at DESC
         LIMIT 100
         "#,
@@ -102,7 +112,7 @@ fn default_limit() -> i64 { 50 }
 
 #[derive(Serialize)]
 pub struct ThreadView {
-    id: Uuid,
+    id: Option<Uuid>,
     other_username: String,
     other_display_name: String,
     mutual_follow: bool,
@@ -136,6 +146,9 @@ async fn thread(
     if other.0 == user.user_id {
         return Err(AppError::BadRequest("cannot DM yourself".into()));
     }
+    if is_blocked(&state, user.user_id, other.0).await {
+        return Err(AppError::Forbidden);
+    }
     let (a, b) = canonical_pair(user.user_id, other.0);
     // 19 May 2026 — Tek query'de iki follow yonu cek (mutual + asimetrik state).
     let follow_state: Option<(bool, bool)> = sqlx::query_as(
@@ -154,34 +167,34 @@ async fn thread(
     let (is_following, is_followed_by) = follow_state.unwrap_or((false, false));
     let mutual = is_following && is_followed_by;
 
-    let thread_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO dm_threads (a_id, b_id) VALUES ($1, $2)
-        ON CONFLICT (a_id, b_id) DO UPDATE SET last_message_at = dm_threads.last_message_at
-        RETURNING id
-        "#,
+    let thread_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM dm_threads WHERE a_id = $1 AND b_id = $2",
     )
     .bind(a)
     .bind(b)
-    .fetch_one(&state.pg)
+    .fetch_optional(&state.pg)
     .await?;
 
     let limit = q.limit.clamp(1, 200);
     let before = q.before.unwrap_or_else(Utc::now);
-    let rows: Vec<DmMessage> = sqlx::query_as(
-        r#"
-        SELECT id, sender_id, body, body_html, read_at, created_at
-        FROM dm_messages
-        WHERE thread_id = $1 AND deleted_at IS NULL AND created_at < $2
-        ORDER BY created_at DESC
-        LIMIT $3
-        "#,
-    )
-    .bind(thread_id)
-    .bind(before)
-    .bind(limit)
-    .fetch_all(&state.pg)
-    .await?;
+    let rows: Vec<DmMessage> = if let Some(thread_id) = thread_id {
+        sqlx::query_as(
+            r#"
+            SELECT id, sender_id, body, body_html, read_at, created_at
+            FROM dm_messages
+            WHERE thread_id = $1 AND deleted_at IS NULL AND created_at < $2
+            ORDER BY created_at DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(thread_id)
+        .bind(before)
+        .bind(limit)
+        .fetch_all(&state.pg)
+        .await?
+    } else {
+        Vec::new()
+    };
 
     let next_before = rows.last().map(|r| r.created_at);
     let mut messages = rows;
@@ -224,16 +237,7 @@ async fn send(
     if other.0 == user.user_id {
         return Err(AppError::BadRequest("cannot DM yourself".into()));
     }
-    // Block check
-    let blocked: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1))",
-    )
-    .bind(user.user_id)
-    .bind(other.0)
-    .fetch_one(&state.pg)
-    .await
-    .unwrap_or(false);
-    if blocked {
+    if is_blocked(&state, user.user_id, other.0).await {
         return Err(AppError::Forbidden);
     }
     if !mutual_follow(&state, user.user_id, other.0).await {
@@ -282,15 +286,17 @@ async fn send(
     .fetch_one(&state.pg)
     .await
     .unwrap_or_default();
-    let _ = state.notif_tx.send(NotificationEvent {
-        user_id: other.0,
-        kind: "dm".into(),
-        actor_id: Some(user.user_id),
-        actor_username: Some(sender_username),
-        target_kind: "thread".into(),
-        target_id: thread_id,
-        created_at: Utc::now().to_rfc3339(),
-    });
+    if !is_muted(&state, other.0, user.user_id).await {
+        let _ = state.notif_tx.send(NotificationEvent {
+            user_id: other.0,
+            kind: "dm".into(),
+            actor_id: Some(user.user_id),
+            actor_username: Some(sender_username),
+            target_kind: "thread".into(),
+            target_id: thread_id,
+            created_at: Utc::now().to_rfc3339(),
+        });
+    }
 
     Ok((StatusCode::CREATED, Json(msg)))
 }
@@ -333,17 +339,29 @@ async fn delete_message(
     user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    let n = sqlx::query(
-        "UPDATE dm_messages SET deleted_at = NOW() WHERE id = $1 AND sender_id = $2 AND deleted_at IS NULL",
+    let thread_id: Option<Uuid> = sqlx::query_scalar(
+        "UPDATE dm_messages SET deleted_at = NOW() WHERE id = $1 AND sender_id = $2 AND deleted_at IS NULL RETURNING thread_id",
     )
     .bind(id)
     .bind(user.user_id)
-    .execute(&state.pg)
-    .await?
-    .rows_affected();
-    if n == 0 {
+    .fetch_optional(&state.pg)
+    .await?;
+    let Some(thread_id) = thread_id else {
         return Err(AppError::NotFound);
-    }
+    };
+    let _ = sqlx::query(
+        r#"
+        UPDATE dm_threads
+        SET last_message_at = COALESCE(
+            (SELECT MAX(created_at) FROM dm_messages WHERE thread_id = $1 AND deleted_at IS NULL),
+            created_at
+        )
+        WHERE id = $1
+        "#,
+    )
+    .bind(thread_id)
+    .execute(&state.pg)
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -375,4 +393,29 @@ async fn mutual_follow(state: &AppState, a: Uuid, b: Uuid) -> bool {
     .ok()
     .flatten();
     row.unwrap_or(false)
+}
+
+async fn is_blocked(state: &AppState, a: Uuid, b: Uuid) -> bool {
+    if a == b {
+        return false;
+    }
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1))",
+    )
+    .bind(a)
+    .bind(b)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false)
+}
+
+async fn is_muted(state: &AppState, muter: Uuid, muted: Uuid) -> bool {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM user_mutes WHERE muter_id = $1 AND muted_id = $2)",
+    )
+    .bind(muter)
+    .bind(muted)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false)
 }

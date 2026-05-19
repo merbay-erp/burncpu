@@ -120,6 +120,21 @@ async fn list(
         WHERE n.user_id = $1
           AND n.created_at < $2
           AND ($3 = false OR n.read_at IS NULL)
+          AND (
+              n.actor_id IS NULL
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $1 AND b.blocked_id = n.actor_id)
+                     OR (b.blocker_id = n.actor_id AND b.blocked_id = $1)
+              )
+          )
+          AND (
+              n.actor_id IS NULL
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_mutes m
+                  WHERE m.muter_id = $1 AND m.muted_id = n.actor_id
+              )
+          )
         ORDER BY n.created_at DESC
         LIMIT $4
         "#,
@@ -150,7 +165,26 @@ async fn unread_count(
     user: CurrentUser,
 ) -> Result<Json<CountResponse>, AppError> {
     let n: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND read_at IS NULL",
+        r#"
+        SELECT COUNT(*) FROM notifications n
+        WHERE n.user_id = $1
+          AND n.read_at IS NULL
+          AND (
+              n.actor_id IS NULL
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $1 AND b.blocked_id = n.actor_id)
+                     OR (b.blocker_id = n.actor_id AND b.blocked_id = $1)
+              )
+          )
+          AND (
+              n.actor_id IS NULL
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_mutes m
+                  WHERE m.muter_id = $1 AND m.muted_id = n.actor_id
+              )
+          )
+        "#,
     )
     .bind(user.user_id)
     .fetch_one(&state.pg)
@@ -212,6 +246,11 @@ pub async fn notify(
     if Some(user_id) == actor_id {
         return;
     }
+    if let Some(actor_id) = actor_id
+        && notification_suppressed(state, user_id, actor_id).await
+    {
+        return;
+    }
     let r = sqlx::query(
         r#"
         INSERT INTO notifications (user_id, kind, actor_id, target_kind, target_id, metadata)
@@ -266,4 +305,25 @@ pub async fn notify(
 
     crate::routes::webhooks::dispatch_event(state, user_id, kind, &payload).await;
     crate::routes::push::send_to_user(state, user_id, kind, actor_username_clone.as_deref(), target_kind, target_id).await;
+}
+
+async fn notification_suppressed(state: &AppState, user_id: Uuid, actor_id: Uuid) -> bool {
+    sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM user_blocks
+            WHERE (blocker_id = $1 AND blocked_id = $2)
+               OR (blocker_id = $2 AND blocked_id = $1)
+        )
+        OR EXISTS(
+            SELECT 1 FROM user_mutes
+            WHERE muter_id = $1 AND muted_id = $2
+        )
+        "#,
+    )
+    .bind(user_id)
+    .bind(actor_id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false)
 }

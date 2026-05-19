@@ -195,6 +195,7 @@ fn default_lookup_limit() -> i64 { 8 }
 
 async fn lookup_prefix(
     State(state): State<AppState>,
+    viewer: Option<CurrentUser>,
     Query(q): Query<LookupQuery>,
 ) -> Result<Json<Vec<UserBrief>>, AppError> {
     let p = q.prefix.trim().to_lowercase();
@@ -207,7 +208,25 @@ async fn lookup_prefix(
         r#"
         SELECT id, username, display_name, avatar_url
         FROM users
-        WHERE username LIKE $1 AND role <> 'suspended'
+        WHERE username LIKE $1
+          AND role <> 'suspended'
+          AND (
+              $4::uuid IS NULL
+              OR id = $4
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $4 AND b.blocked_id = id)
+                     OR (b.blocker_id = id AND b.blocked_id = $4)
+              )
+          )
+          AND (
+              $4::uuid IS NULL
+              OR id = $4
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_mutes m
+                  WHERE m.muter_id = $4 AND m.muted_id = id
+              )
+          )
         ORDER BY (CASE WHEN username = $2 THEN 0 ELSE 1 END), username ASC
         LIMIT $3
         "#,
@@ -215,6 +234,7 @@ async fn lookup_prefix(
     .bind(&pattern)
     .bind(&p)
     .bind(limit)
+    .bind(viewer.as_ref().map(|u| u.user_id))
     .fetch_all(&state.pg)
     .await?;
     Ok(Json(rows))
@@ -455,7 +475,7 @@ async fn get_profile(
             r#"
             SELECT id, username, display_name, bio, avatar_url, role, created_at, last_seen_at, pinned_post_id
             FROM users
-            WHERE username = $1
+            WHERE username = $1 AND role <> 'suspended'
             "#,
         )
         .bind(&username)
@@ -464,6 +484,22 @@ async fn get_profile(
 
     let (id, username, display_name, bio, avatar_url, role, created_at, last_seen_at, pinned_post_id) =
         row.ok_or(AppError::NotFound)?;
+
+    if let Some(ref v) = viewer
+        && v.user_id != id
+    {
+        let blocked: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1))",
+        )
+        .bind(v.user_id)
+        .bind(id)
+        .fetch_one(&state.pg)
+        .await
+        .unwrap_or(false);
+        if blocked {
+            return Err(AppError::NotFound);
+        }
+    }
 
     let posts: i64 = sqlx::query_scalar(
         r#"
@@ -478,14 +514,18 @@ async fn get_profile(
     .unwrap_or(0);
 
     let followers: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM follows WHERE followee_id = $1")
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.follower_id WHERE f.followee_id = $1 AND u.role <> 'suspended'",
+        )
             .bind(id)
             .fetch_one(&state.pg)
             .await
             .unwrap_or(0);
 
     let following: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM follows WHERE follower_id = $1")
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = $1 AND u.role <> 'suspended'",
+        )
             .bind(id)
             .fetch_one(&state.pg)
             .await
@@ -569,7 +609,8 @@ async fn user_posts(
     Path(username): Path<String>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Vec<PostBrief>>, AppError> {
-    let user_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
+    let user_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
         .bind(&username)
         .fetch_optional(&state.pg)
         .await?;
@@ -613,7 +654,8 @@ async fn followers(
     State(state): State<AppState>,
     Path(username): Path<String>,
 ) -> Result<Json<Vec<UserBrief>>, AppError> {
-    let user_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
+    let user_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
         .bind(&username)
         .fetch_optional(&state.pg)
         .await?;
@@ -623,7 +665,7 @@ async fn followers(
         SELECT u.id, u.username, u.display_name, u.avatar_url
         FROM follows f
         JOIN users u ON u.id = f.follower_id
-        WHERE f.followee_id = $1
+        WHERE f.followee_id = $1 AND u.role <> 'suspended'
         ORDER BY f.created_at DESC
         LIMIT 500
         "#,
@@ -638,7 +680,8 @@ async fn following(
     State(state): State<AppState>,
     Path(username): Path<String>,
 ) -> Result<Json<Vec<UserBrief>>, AppError> {
-    let user_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
+    let user_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
         .bind(&username)
         .fetch_optional(&state.pg)
         .await?;
@@ -648,7 +691,7 @@ async fn following(
         SELECT u.id, u.username, u.display_name, u.avatar_url
         FROM follows f
         JOIN users u ON u.id = f.followee_id
-        WHERE f.follower_id = $1
+        WHERE f.follower_id = $1 AND u.role <> 'suspended'
         ORDER BY f.created_at DESC
         LIMIT 500
         "#,
@@ -666,7 +709,8 @@ async fn follow(
     user: CurrentUser,
     Path(username): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    let target: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
+    let target: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
         .bind(&username)
         .fetch_optional(&state.pg)
         .await?;
@@ -753,8 +797,10 @@ async fn patch_me(
         }
     }
     if let Some(a) = &input.avatar_url {
-        if !(a.starts_with("https://") || a.is_empty()) {
-            return Err(AppError::BadRequest("avatar_url must be https://".into()));
+        if !(a.starts_with("https://") || a.starts_with("/media/") || a.is_empty()) {
+            return Err(AppError::BadRequest(
+                "avatar_url must be https:// or /media/".into(),
+            ));
         }
     }
 

@@ -10,17 +10,13 @@
 //   PATCH /notifications/read     → bulk mark-all-read
 //   PATCH /notifications/{id}/read
 
-use crate::{
-    errors::AppError,
-    middleware::session::CurrentUser,
-    state::AppState,
-};
+use crate::{errors::AppError, middleware::session::CurrentUser, state::AppState};
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
     routing::{get, patch},
-    Json, Router,
 };
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -55,8 +51,8 @@ async fn stream(
                     .json_data(&ev)
                     .ok()
                     .map(Ok),
-                Ok(_) => None,            // event for a different user
-                Err(_) => None,           // lagged — silently drop
+                Ok(_) => None,  // event for a different user
+                Err(_) => None, // lagged — silently drop
             }
         }
     });
@@ -199,12 +195,10 @@ async fn mark_all_read(
     State(state): State<AppState>,
     user: CurrentUser,
 ) -> Result<StatusCode, AppError> {
-    sqlx::query(
-        "UPDATE notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL",
-    )
-    .bind(user.user_id)
-    .execute(&state.pg)
-    .await?;
+    sqlx::query("UPDATE notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL")
+        .bind(user.user_id)
+        .execute(&state.pg)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -304,7 +298,15 @@ pub async fn notify(
     });
 
     crate::routes::webhooks::dispatch_event(state, user_id, kind, &payload).await;
-    crate::routes::push::send_to_user(state, user_id, kind, actor_username_clone.as_deref(), target_kind, target_id).await;
+    crate::routes::push::send_to_user(
+        state,
+        user_id,
+        kind,
+        actor_username_clone.as_deref(),
+        target_kind,
+        target_id,
+    )
+    .await;
 }
 
 async fn notification_suppressed(state: &AppState, user_id: Uuid, actor_id: Uuid) -> bool {

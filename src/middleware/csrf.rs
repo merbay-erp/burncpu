@@ -19,16 +19,12 @@ use crate::{auth::token::SESSION_COOKIE, state::AppState};
 use axum::{
     body::Body,
     extract::State,
-    http::{header, Method, Request, StatusCode},
+    http::{Method, Request, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 
-pub async fn layer(
-    State(state): State<AppState>,
-    req: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn layer(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
     if is_safe_method(req.method()) {
         return next.run(req).await;
     }

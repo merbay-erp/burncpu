@@ -1,8 +1,11 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
-use super::{admin, auth, bookmarks, dm, feed, invites, media, notifications, posts, push, relations, reports, search, tokens, trending, users, webhooks};
+use super::{
+    admin, auth, bookmarks, dm, feed, invites, media, notifications, posts, push, relations,
+    reports, search, tokens, trending, users, webhooks,
+};
 use crate::state::AppState;
-use axum::{routing::get, Router};
+use axum::{Router, routing::get};
 use serde_json::json;
 
 pub fn router(_state: AppState) -> Router<AppState> {
@@ -15,7 +18,8 @@ pub fn router(_state: AppState) -> Router<AppState> {
                     "version": env!("CARGO_PKG_VERSION"),
                     "endpoints": {
                         "POST   /api/v1/auth/request":         "request magic-link email",
-                        "GET    /api/v1/auth/verify/{token}":  "verify token + start session",
+                        "GET    /api/v1/auth/verify/{token}":  "scanner-safe redirect to confirmation page",
+                        "POST   /api/v1/auth/verify/{token}":  "consume token + start session",
                         "POST   /api/v1/auth/logout":          "revoke current session",
                         "POST   /api/v1/auth/2fa/enroll":      "enroll TOTP (returns otpauth URI + recovery codes)",
                         "POST   /api/v1/auth/2fa/confirm":     "verify first code to activate",
@@ -86,7 +90,7 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "POST   /api/v1/webhooks":             "create webhook (secret shown ONCE)",
                         "PATCH  /api/v1/webhooks/{id}":        "toggle active / events",
                         "DELETE /api/v1/webhooks/{id}":        "remove webhook",
-                        "AUTH":                                "Authorization: Bearer <token> works on every authenticated endpoint",
+                        "AUTH":                                "Authorization: Bearer <token> works on scoped non-session endpoints only",
                         "POST   /api/v1/users/{u}/block":      "block (drops mutual follow)",
                         "DELETE /api/v1/users/{u}/block":      "unblock",
                         "POST   /api/v1/users/{u}/mute":       "mute (silent on the other side)",

@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show, onMount } from 'solid-js';
+import { createResource, createSignal, For, Show, onMount, onCleanup } from 'solid-js';
 import { useParams, A } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
@@ -42,6 +42,18 @@ export default function DMThread() {
     if (me()) {
       void api.patch(`/dm/threads/${params.username}/read`).catch(() => {});
     }
+    // 19 May 2026 — Real-time: thread acikken yeni mesaj geldiginde otomatik
+    // refetch + read mark. Onceden sadece ↻ butonuna basinca yeni mesaj
+    // geliyordu, kullanici "mesaj akmiyor" zannediyordu.
+    const onNotif = (ev: Event) => {
+      const d = (ev as CustomEvent).detail as { kind?: string; actor_username?: string } | undefined;
+      if (d?.kind === 'dm' && d.actor_username === params.username) {
+        refetch();
+        void api.patch(`/dm/threads/${params.username}/read`).catch(() => {});
+      }
+    };
+    window.addEventListener('burncpu:notification', onNotif);
+    onCleanup(() => window.removeEventListener('burncpu:notification', onNotif));
   });
 
   const send = async () => {

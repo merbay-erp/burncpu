@@ -7,12 +7,12 @@
 //           key from BURNCPU_ENC_KEY (64 hex chars = 32 bytes).
 // - Recovery codes: 10 codes, sha256 hashed individually; consumed on use.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chacha20poly1305::{
-    aead::{Aead, KeyInit, OsRng},
     AeadCore, XChaCha20Poly1305, XNonce,
+    aead::{Aead, KeyInit, OsRng},
 };
-use rand::{rngs::OsRng as RandOsRng, RngCore};
+use rand::{RngCore, rngs::OsRng as RandOsRng};
 use sha2::{Digest, Sha256};
 use totp_rs::{Algorithm, Secret, TOTP};
 
@@ -86,7 +86,15 @@ pub fn verify_code(
     let secret = cipher
         .decrypt(nonce, secret_encrypted)
         .map_err(|e| anyhow!("decrypt: {e}"))?;
-    let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret, Some(ISSUER.into()), "u".into())?;
+    let totp = TOTP::new(
+        Algorithm::SHA1,
+        6,
+        1,
+        30,
+        secret,
+        Some(ISSUER.into()),
+        "u".into(),
+    )?;
 
     // Accept current step ± 1 (one 30s window of clock drift)
     let now = std::time::SystemTime::now()
@@ -95,10 +103,10 @@ pub fn verify_code(
     let current_step = (now / 30) as i64;
     for delta in [0i64, -1, 1] {
         let step = current_step + delta;
-        if let Some(last) = last_used_step {
-            if step <= last {
-                continue;
-            }
+        if let Some(last) = last_used_step
+            && step <= last
+        {
+            continue;
         }
         // totp-rs generate() takes a unix timestamp in *seconds*, not the
         // step counter. Convert: step * 30 = the start of that 30-second
@@ -141,11 +149,14 @@ fn random_code(n: usize) -> String {
     const ALPHA: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let mut buf = vec![0u8; n];
     RandOsRng.fill_bytes(&mut buf);
-    buf.iter().map(|b| ALPHA[(*b as usize) % ALPHA.len()] as char).collect()
+    buf.iter()
+        .map(|b| ALPHA[(*b as usize) % ALPHA.len()] as char)
+        .collect()
 }
 
 fn load_enc_key() -> Result<[u8; 32]> {
-    let hex_str = std::env::var("BURNCPU_ENC_KEY").context("BURNCPU_ENC_KEY not set (need 64 hex chars = 32 bytes)")?;
+    let hex_str = std::env::var("BURNCPU_ENC_KEY")
+        .context("BURNCPU_ENC_KEY not set (need 64 hex chars = 32 bytes)")?;
     if hex_str.len() != 64 {
         return Err(anyhow!("BURNCPU_ENC_KEY must be 64 hex chars"));
     }

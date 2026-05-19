@@ -17,10 +17,10 @@ use crate::{
     state::AppState,
 };
 use axum::{
-    extract::State,
-    http::{header, HeaderMap, StatusCode},
-    routing::post,
     Json, Router,
+    extract::State,
+    http::{HeaderMap, StatusCode, header},
+    routing::post,
 };
 use serde::{Deserialize, Serialize};
 
@@ -77,11 +77,10 @@ async fn enroll(
     user: SessionUser,
 ) -> Result<Json<EnrollResponse>, AppError> {
     // Look up username for QR label
-    let username: String =
-        sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
-            .bind(user.user_id)
-            .fetch_one(&state.pg)
-            .await?;
+    let username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+        .bind(user.user_id)
+        .fetch_one(&state.pg)
+        .await?;
 
     let e = totp::enroll(&username).map_err(AppError::Internal)?;
 
@@ -127,12 +126,28 @@ pub struct CodeBody {
     code: String,
 }
 
+type TotpConfirmRow = (
+    Vec<u8>,
+    Vec<u8>,
+    Option<i64>,
+    Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>,
+);
+type TotpChallengeRow = (
+    uuid::Uuid,
+    uuid::Uuid,
+    Vec<u8>,
+    Vec<u8>,
+    Option<i64>,
+    Vec<Vec<u8>>,
+    Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>,
+);
+
 async fn confirm(
     State(state): State<AppState>,
     user: SessionUser,
     Json(body): Json<CodeBody>,
 ) -> Result<StatusCode, AppError> {
-    let row: Option<(Vec<u8>, Vec<u8>, Option<i64>, Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>)> =
+    let row: Option<TotpConfirmRow> =
         sqlx::query_as(
             "SELECT secret_encrypted, secret_nonce, last_used_step, confirmed_at FROM user_totp WHERE user_id = $1",
         )
@@ -145,8 +160,8 @@ async fn confirm(
         return Err(AppError::BadRequest("already confirmed".into()));
     }
 
-    let step =
-        totp::verify_code(&secret, &nonce, &body.code, last_step).map_err(|_| AppError::Unauthorized)?;
+    let step = totp::verify_code(&secret, &nonce, &body.code, last_step)
+        .map_err(|_| AppError::Unauthorized)?;
 
     sqlx::query(
         "UPDATE user_totp SET confirmed_at = NOW(), last_used_step = $1 WHERE user_id = $2",
@@ -179,15 +194,7 @@ async fn challenge(
     let hash = hash_token(&raw);
 
     // Find session + user's secret
-    let row: Option<(
-        uuid::Uuid,
-        uuid::Uuid,
-        Vec<u8>,
-        Vec<u8>,
-        Option<i64>,
-        Vec<Vec<u8>>,
-        Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>,
-    )> =
+    let row: Option<TotpChallengeRow> =
         sqlx::query_as(
             r#"
             SELECT s.id, s.user_id, t.secret_encrypted, t.secret_nonce, t.last_used_step, t.recovery_codes, t.confirmed_at
@@ -214,10 +221,10 @@ async fn challenge(
     let ok = match totp::verify_code(&secret, &nonce, code, last_step) {
         Ok(step) => {
             let _ = sqlx::query("UPDATE user_totp SET last_used_step = $1 WHERE user_id = $2")
-            .bind(step)
-            .bind(user_id)
-            .execute(&state.pg)
-            .await;
+                .bind(step)
+                .bind(user_id)
+                .execute(&state.pg)
+                .await;
             true
         }
         Err(_) => {
@@ -263,7 +270,8 @@ async fn disable(
     .fetch_optional(&state.pg)
     .await?;
     let (secret, nonce, last_step) = row.ok_or(AppError::NotFound)?;
-    totp::verify_code(&secret, &nonce, &body.code, last_step).map_err(|_| AppError::Unauthorized)?;
+    totp::verify_code(&secret, &nonce, &body.code, last_step)
+        .map_err(|_| AppError::Unauthorized)?;
     sqlx::query("DELETE FROM user_totp WHERE user_id = $1")
         .bind(user.user_id)
         .execute(&state.pg)

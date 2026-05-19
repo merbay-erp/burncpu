@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { api, type Profile } from '../api';
 import { me, setCachedMe } from '../auth';
 import { locale, setLocale } from '../i18n';
+import { pushToast } from '../components/Toast';
 
 type Tab = 'profile' | 'security' | 'invites' | 'dev';
 
@@ -51,6 +52,35 @@ interface WebhookRow {
 }
 interface CreatedWebhook { id: string; url: string; events: string[]; secret: string; }
 
+const TOKEN_SCOPES = [
+  ['all', 'all (tam erişim)'],
+  ['read', 'read (salt okuma)'],
+  ['read:profile', 'read:profile'],
+  ['write:profile', 'write:profile'],
+  ['read:notifications', 'read:notifications'],
+  ['write:notifications', 'write:notifications'],
+  ['read:bookmarks', 'read:bookmarks'],
+  ['write:bookmarks', 'write:bookmarks'],
+  ['read:posts', 'read:posts'],
+  ['write:posts', 'write:posts'],
+  ['read:webhooks', 'read:webhooks'],
+  ['write:webhooks', 'write:webhooks'],
+  ['read:dm', 'read:dm'],
+  ['write:dm', 'write:dm'],
+  ['read:feed', 'read:feed'],
+  ['write:feed', 'write:feed'],
+  ['read:search', 'read:search'],
+  ['write:search', 'write:search'],
+  ['read:trending', 'read:trending'],
+  ['write:trending', 'write:trending'],
+  ['read:media', 'read:media'],
+  ['write:media', 'write:media'],
+  ['read:invites', 'read:invites'],
+  ['write:invites', 'write:invites'],
+  ['read:push', 'read:push'],
+  ['write:push', 'write:push'],
+];
+
 function DevTab() {
   const [tokens, { refetch: refetchTokens }] = createResource<TokenRow[]>(() =>
     api.get<TokenRow[]>('/tokens'),
@@ -97,7 +127,7 @@ function DevTab() {
       setHEvents([]);
       refetchHooks();
     } catch (err) {
-      alert((err as Error).message);
+      pushToast((err as Error).message, 'warn');
     }
   };
   const toggleHookActive = async (h: WebhookRow) => {
@@ -133,8 +163,9 @@ function DevTab() {
           onChange={(e) => setTScope(e.currentTarget.value)}
           style="background: var(--bg-2); border: 1px solid var(--border); padding: 8px; color: var(--fg); border-radius: var(--radius);"
         >
-          <option value="all">all (yazma+okuma)</option>
-          <option value="read">read (okuma)</option>
+          <For each={TOKEN_SCOPES}>
+            {([value, label]) => <option value={value}>{label}</option>}
+          </For>
         </select>
         <button type="submit" class="primary" disabled={!tName().trim()}>Oluştur</button>
       </form>

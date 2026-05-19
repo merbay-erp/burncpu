@@ -36,7 +36,6 @@ jobs:
       - run: cargo check --all-targets
       - run: cargo test --no-run
       - run: cargo clippy --all-targets -- -D warnings
-        continue-on-error: true  # warnings advisory until codebase matures
 
   secret-scan:
     name: gitleaks (committed secrets)

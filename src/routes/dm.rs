@@ -21,10 +21,10 @@ use crate::{
     state::{AppState, NotificationEvent},
 };
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{delete, get, patch, post},
-    Json, Router,
+    routing::{delete, get, patch},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
@@ -108,7 +108,9 @@ pub struct PageQuery {
     limit: i64,
     before: Option<DateTime<Utc>>,
 }
-fn default_limit() -> i64 { 50 }
+fn default_limit() -> i64 {
+    50
+}
 
 #[derive(Serialize)]
 pub struct ThreadView {
@@ -167,13 +169,12 @@ async fn thread(
     let (is_following, is_followed_by) = follow_state.unwrap_or((false, false));
     let mutual = is_following && is_followed_by;
 
-    let thread_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM dm_threads WHERE a_id = $1 AND b_id = $2",
-    )
-    .bind(a)
-    .bind(b)
-    .fetch_optional(&state.pg)
-    .await?;
+    let thread_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM dm_threads WHERE a_id = $1 AND b_id = $2")
+            .bind(a)
+            .bind(b)
+            .fetch_optional(&state.pg)
+            .await?;
 
     let limit = q.limit.clamp(1, 200);
     let before = q.before.unwrap_or_else(Utc::now);
@@ -230,7 +231,9 @@ async fn send(
         return Err(AppError::BadRequest("body required".into()));
     }
     if body.chars().count() > MAX_DM_LEN {
-        return Err(AppError::BadRequest(format!("body too long (max {MAX_DM_LEN})")));
+        return Err(AppError::BadRequest(format!(
+            "body too long (max {MAX_DM_LEN})"
+        )));
     }
 
     let other = lookup_user(&state, &username).await?;
@@ -279,13 +282,11 @@ async fn send(
         .await;
 
     // SSE signal to recipient (no body — they refetch from API to read)
-    let sender_username: String = sqlx::query_scalar(
-        "SELECT username FROM users WHERE id = $1",
-    )
-    .bind(user.user_id)
-    .fetch_one(&state.pg)
-    .await
-    .unwrap_or_default();
+    let sender_username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+        .bind(user.user_id)
+        .fetch_one(&state.pg)
+        .await
+        .unwrap_or_default();
     if !is_muted(&state, other.0, user.user_id).await {
         let _ = state.notif_tx.send(NotificationEvent {
             user_id: other.0,
@@ -310,13 +311,12 @@ async fn mark_read(
 ) -> Result<StatusCode, AppError> {
     let other = lookup_user(&state, &username).await?;
     let (a, b) = canonical_pair(user.user_id, other.0);
-    let tid: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM dm_threads WHERE a_id = $1 AND b_id = $2",
-    )
-    .bind(a)
-    .bind(b)
-    .fetch_optional(&state.pg)
-    .await?;
+    let tid: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM dm_threads WHERE a_id = $1 AND b_id = $2")
+            .bind(a)
+            .bind(b)
+            .fetch_optional(&state.pg)
+            .await?;
     if let Some(tid) = tid {
         sqlx::query(
             r#"

@@ -9,20 +9,19 @@
 // posts never leak via search.
 
 use crate::{
-    errors::AppError,
-    middleware::auth_extractor::AdminUser,
-    search::PostDoc,
-    state::AppState,
+    errors::AppError, middleware::auth_extractor::AdminUser, search::PostDoc, state::AppState,
 };
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     routing::{get, post},
-    Json, Router,
 };
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::types::chrono::{DateTime, Utc};
 use uuid::Uuid;
+
+type ReindexRow = (Uuid, Uuid, String, String, DateTime<Utc>, i32, i32);
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -94,7 +93,7 @@ async fn reindex(
 ) -> Result<Json<ReindexResult>, AppError> {
     // Pull all live + public posts; cap at 50k to avoid OOM. Above that
     // volume we'd want a paged background job — not yet needed.
-    let rows: Vec<(Uuid, Uuid, String, String, DateTime<Utc>, i32, i32)> = sqlx::query_as(
+    let rows: Vec<ReindexRow> = sqlx::query_as(
         r#"
         SELECT p.id, p.author_id, u.username, p.body, p.created_at,
                p.reactions_count, p.replies_count
@@ -102,6 +101,7 @@ async fn reindex(
         WHERE p.deleted_at IS NULL
           AND p.moderation_state = 'live'
           AND p.visibility = 'public'
+          AND u.role <> 'suspended'
         ORDER BY p.created_at DESC
         LIMIT 50000
         "#,
@@ -112,7 +112,9 @@ async fn reindex(
     let docs: Vec<PostDoc> = rows
         .into_iter()
         .map(|(id, author_id, username, body, created, rc, repc)| {
-            PostDoc::from_parts(id, author_id, &username, &body, "public", "live", rc, repc, created)
+            PostDoc::from_parts(
+                id, author_id, &username, &body, "public", "live", rc, repc, created,
+            )
         })
         .collect();
 

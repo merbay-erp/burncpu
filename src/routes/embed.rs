@@ -9,10 +9,10 @@
 // a real <a> tag pointing back to /posts/{id} so any crawler that *does*
 // follow the link lands on the real page.
 
-use crate::{errors::AppError, state::AppState};
+use crate::{content::excerpt, errors::AppError, state::AppState};
 use axum::{
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use sqlx::types::chrono::{DateTime, Utc};
@@ -28,6 +28,7 @@ pub async fn post_embed(
         FROM posts p JOIN users u ON u.id = p.author_id
         WHERE p.id = $1 AND p.deleted_at IS NULL
           AND p.moderation_state = 'live' AND p.visibility = 'public'
+          AND u.role <> 'suspended'
         "#,
     )
     .bind(id)
@@ -38,7 +39,7 @@ pub async fn post_embed(
     let site = state.config.site_origin.trim_end_matches('/').to_string();
     let canonical = format!("{site}/posts/{id}");
     let title = format!("@{username} — burncpu");
-    let excerpt: String = body.chars().take(180).collect();
+    let excerpt = excerpt(&body, 180);
 
     let html = format!(
         r#"<!doctype html>
@@ -80,8 +81,14 @@ pub async fn post_embed(
     );
 
     let mut h = HeaderMap::new();
-    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
-    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=600"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=600"),
+    );
     Ok((StatusCode::OK, h, html).into_response())
 }
 

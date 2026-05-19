@@ -12,23 +12,19 @@
 // service permanently removes the subscription; other failures bump
 // `failures` and trip a quiet auto-disable at >= 10.
 
-use crate::{
-    errors::AppError,
-    middleware::session::CurrentUser,
-    state::AppState,
-};
+use crate::{errors::AppError, middleware::session::CurrentUser, state::AppState};
 use axum::{
+    Json, Router,
     extract::State,
-    http::{header, HeaderMap, HeaderValue},
+    http::{HeaderMap, HeaderValue, header},
     response::IntoResponse,
     routing::{delete, get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use web_push::{
-    ContentEncoding, IsahcWebPushClient, SubscriptionInfo, SubscriptionKeys,
-    VapidSignatureBuilder, WebPushClient, WebPushMessageBuilder,
+    ContentEncoding, IsahcWebPushClient, SubscriptionInfo, SubscriptionKeys, VapidSignatureBuilder,
+    WebPushClient, WebPushMessageBuilder,
 };
 
 pub fn router() -> Router<AppState> {
@@ -39,10 +35,14 @@ pub fn router() -> Router<AppState> {
 }
 
 fn vapid_public_key() -> Option<String> {
-    std::env::var("VAPID_PUBLIC_KEY").ok().filter(|s| !s.trim().is_empty())
+    std::env::var("VAPID_PUBLIC_KEY")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
 }
 fn vapid_private_key() -> Option<String> {
-    std::env::var("VAPID_PRIVATE_KEY").ok().filter(|s| !s.trim().is_empty())
+    std::env::var("VAPID_PRIVATE_KEY")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
 }
 fn vapid_subject() -> String {
     std::env::var("VAPID_SUBJECT").unwrap_or_else(|_| "mailto:hi@burncpu.com".into())
@@ -51,8 +51,14 @@ fn vapid_subject() -> String {
 async fn vapid_public(State(_): State<AppState>) -> impl IntoResponse {
     let key = vapid_public_key().unwrap_or_default();
     let mut h = HeaderMap::new();
-    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
-    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=3600"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=3600"),
+    );
     (h, key)
 }
 
@@ -77,6 +83,12 @@ async fn subscribe(
     if b.endpoint.trim().is_empty() {
         return Err(AppError::BadRequest("endpoint required".into()));
     }
+    let endpoint = crate::net_safety::validate_public_http_url(&b.endpoint)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("endpoint is not public https: {e}")))?;
+    if endpoint.scheme() != "https" {
+        return Err(AppError::BadRequest("endpoint must be https".into()));
+    }
     let ua = headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
@@ -98,7 +110,7 @@ async fn subscribe(
         "#,
     )
     .bind(user.user_id)
-    .bind(&b.endpoint)
+    .bind(endpoint.as_str())
     .bind(&b.keys.p256dh)
     .bind(&b.keys.auth)
     .bind(&ua)
@@ -118,13 +130,11 @@ async fn unsubscribe(
     user: CurrentUser,
     Json(b): Json<UnsubBody>,
 ) -> Result<axum::http::StatusCode, AppError> {
-    sqlx::query(
-        "DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2",
-    )
-    .bind(&b.endpoint)
-    .bind(user.user_id)
-    .execute(&state.pg)
-    .await?;
+    sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2")
+        .bind(&b.endpoint)
+        .bind(user.user_id)
+        .execute(&state.pg)
+        .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -138,32 +148,42 @@ struct Payload<'a> {
     kind: &'a str,
 }
 
-pub async fn send_to_user(state: &AppState, user_id: Uuid, kind: &str, actor_username: Option<&str>, target_kind: &str, target_id: Uuid) {
-    let Some(priv_key) = vapid_private_key() else { return };
+pub async fn send_to_user(
+    state: &AppState,
+    user_id: Uuid,
+    kind: &str,
+    actor_username: Option<&str>,
+    target_kind: &str,
+    target_id: Uuid,
+) {
+    let Some(priv_key) = vapid_private_key() else {
+        return;
+    };
     let subject = vapid_subject();
 
     let who = actor_username.unwrap_or("biri");
     let title = match kind {
         "reaction" => format!("@{who} postuna tepki verdi"),
-        "reply"    => format!("@{who} yanıt verdi"),
-        "follow"   => format!("@{who} seni takip etti"),
-        "mention"  => format!("@{who} seni bahsetti"),
-        "dm"       => format!("@{who} mesaj attı"),
+        "reply" => format!("@{who} yanıt verdi"),
+        "follow" => format!("@{who} seni takip etti"),
+        "mention" => format!("@{who} seni bahsetti"),
+        "dm" => format!("@{who} mesaj attı"),
         _ => format!("@{who} → {kind}"),
     };
     let url = if target_kind == "post" {
         format!("/posts/{target_id}")
     } else if target_kind == "thread" {
-        format!("/dm")
+        "/dm".to_string()
     } else {
-        format!("/notifications")
+        "/notifications".to_string()
     };
     let payload = serde_json::to_string(&Payload {
         title: &title,
         body: "burncpu",
         url: &url,
         kind,
-    }).unwrap_or_default();
+    })
+    .unwrap_or_default();
 
     let subs: Vec<(Uuid, String, String, String)> = sqlx::query_as(
         "SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1 AND failures < 10",
@@ -186,23 +206,37 @@ pub async fn send_to_user(state: &AppState, user_id: Uuid, kind: &str, actor_use
     };
 
     for (id, endpoint, p256dh, auth) in subs {
+        let endpoint = match crate::net_safety::validate_public_http_url(&endpoint).await {
+            Ok(url) if url.scheme() == "https" => url.to_string(),
+            Ok(_) | Err(_) => {
+                let _ = sqlx::query("DELETE FROM push_subscriptions WHERE id = $1")
+                    .bind(id)
+                    .execute(&state.pg)
+                    .await;
+                continue;
+            }
+        };
         let info = SubscriptionInfo {
             endpoint: endpoint.clone(),
             keys: SubscriptionKeys { p256dh, auth },
         };
-        let sig = match VapidSignatureBuilder::from_base64(&priv_key, web_push::URL_SAFE_NO_PAD, &info) {
-            Ok(mut b) => {
-                b.add_claim("sub", subject.as_str());
-                match b.build() {
-                    Ok(s) => s,
-                    Err(e) => { tracing::warn!(?e, "vapid sign failed"); continue; }
+        let sig =
+            match VapidSignatureBuilder::from_base64(&priv_key, web_push::URL_SAFE_NO_PAD, &info) {
+                Ok(mut b) => {
+                    b.add_claim("sub", subject.as_str());
+                    match b.build() {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(?e, "vapid sign failed");
+                            continue;
+                        }
+                    }
                 }
-            }
-            Err(e) => {
-                tracing::warn!(?e, "vapid builder init failed");
-                continue;
-            }
-        };
+                Err(e) => {
+                    tracing::warn!(?e, "vapid builder init failed");
+                    continue;
+                }
+            };
 
         let mut builder = WebPushMessageBuilder::new(&info);
         builder.set_payload(ContentEncoding::Aes128Gcm, payload.as_bytes());
@@ -210,7 +244,10 @@ pub async fn send_to_user(state: &AppState, user_id: Uuid, kind: &str, actor_use
         builder.set_ttl(86_400);
         let msg = match builder.build() {
             Ok(m) => m,
-            Err(e) => { tracing::warn!(?e, "push build"); continue; }
+            Err(e) => {
+                tracing::warn!(?e, "push build");
+                continue;
+            }
         };
 
         let pg = state.pg.clone();
@@ -219,12 +256,10 @@ pub async fn send_to_user(state: &AppState, user_id: Uuid, kind: &str, actor_use
         tokio::spawn(async move {
             match client.send(msg).await {
                 Ok(_) => {
-                    let _ = sqlx::query(
-                        "UPDATE push_subscriptions SET failures = 0 WHERE id = $1",
-                    )
-                    .bind(id)
-                    .execute(&pg)
-                    .await;
+                    let _ = sqlx::query("UPDATE push_subscriptions SET failures = 0 WHERE id = $1")
+                        .bind(id)
+                        .execute(&pg)
+                        .await;
                 }
                 Err(e) => {
                     let gone = matches!(
@@ -233,12 +268,10 @@ pub async fn send_to_user(state: &AppState, user_id: Uuid, kind: &str, actor_use
                             | web_push::WebPushError::EndpointNotFound
                     );
                     if gone {
-                        let _ = sqlx::query(
-                            "DELETE FROM push_subscriptions WHERE id = $1",
-                        )
-                        .bind(id)
-                        .execute(&pg)
-                        .await;
+                        let _ = sqlx::query("DELETE FROM push_subscriptions WHERE id = $1")
+                            .bind(id)
+                            .execute(&pg)
+                            .await;
                         tracing::info!(%ep, "push subscription gone — pruned");
                     } else {
                         let _ = sqlx::query(

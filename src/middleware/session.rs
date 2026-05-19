@@ -19,12 +19,12 @@ use crate::{
     state::AppState,
 };
 use axum::{
+    Json,
     body::Body,
     extract::State,
-    http::{header, Request, StatusCode},
+    http::{Request, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde_json::json;
 use std::net::SocketAddr;
@@ -36,10 +36,29 @@ pub enum AuthKind {
     ApiToken,
 }
 
+type ApiTokenAuthRow = (
+    Uuid,
+    Uuid,
+    String,
+    String,
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<chrono::DateTime<chrono::Utc>>,
+);
+type SessionAuthRow = (
+    Uuid,
+    Uuid,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<chrono::DateTime<chrono::Utc>>,
+    bool,
+);
+
 #[derive(Clone, Debug)]
 pub struct CurrentUser {
     pub user_id: Uuid,
     pub role: String,
+    #[allow(dead_code)]
     pub session_id: Uuid,
     pub session_flagged: bool,
     pub pending_2fa: bool,
@@ -52,39 +71,27 @@ impl CurrentUser {
     }
 }
 
-pub async fn layer(
-    State(state): State<AppState>,
-    mut req: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn layer(State(state): State<AppState>, mut req: Request<Body>, next: Next) -> Response {
     // Prefer bearer token (API client); fall back to session cookie (browser).
     let bearer = read_bearer(req.headers());
     if let Some(token) = bearer {
         let hash = hash_token(&token);
-        let row: Option<(
-            uuid::Uuid,
-            uuid::Uuid,
-            String,
-            String,
-            Option<chrono::DateTime<chrono::Utc>>,
-            Option<chrono::DateTime<chrono::Utc>>,
-        )> =
-            sqlx::query_as(
-                r#"
+        let row: Option<ApiTokenAuthRow> = sqlx::query_as(
+            r#"
                 SELECT t.id, t.user_id, u.role, t.scope, t.expires_at, t.revoked_at
                 FROM api_tokens t JOIN users u ON u.id = t.user_id
                 WHERE t.token_hash = $1
                   AND u.role <> 'suspended'
                 "#,
-            )
-            .bind(&hash)
-            .fetch_optional(&state.pg)
-            .await
-            .ok()
-            .flatten();
+        )
+        .bind(&hash)
+        .fetch_optional(&state.pg)
+        .await
+        .ok()
+        .flatten();
         if let Some((_tid, user_id, role, scope, expires_at, revoked_at)) = row {
-            let alive = revoked_at.is_none()
-                && expires_at.map(|e| e > chrono::Utc::now()).unwrap_or(true);
+            let alive =
+                revoked_at.is_none() && expires_at.map(|e| e > chrono::Utc::now()).unwrap_or(true);
             if alive {
                 if !scope_allows(&scope, req.method(), req.uri().path()) {
                     return forbidden(
@@ -93,12 +100,11 @@ pub async fn layer(
                     );
                 }
                 // Bump last_used_at best-effort
-                let _ = sqlx::query(
-                    "UPDATE api_tokens SET last_used_at = NOW() WHERE token_hash = $1",
-                )
-                .bind(&hash)
-                .execute(&state.pg)
-                .await;
+                let _ =
+                    sqlx::query("UPDATE api_tokens SET last_used_at = NOW() WHERE token_hash = $1")
+                        .bind(&hash)
+                        .execute(&state.pg)
+                        .await;
                 req.extensions_mut().insert(CurrentUser {
                     user_id,
                     role,
@@ -130,9 +136,8 @@ pub async fn layer(
             .map(|i| i.to_string())
             .unwrap_or_default();
 
-        let row: Option<(Uuid, Uuid, String, Option<String>, Option<String>, Option<chrono::DateTime<chrono::Utc>>, bool)> =
-            sqlx::query_as(
-                r#"
+        let row: Option<SessionAuthRow> = sqlx::query_as(
+            r#"
                 SELECT s.id, s.user_id, u.role,
                        host(s.last_seen_ip)::text AS last_seen_ip,
                        s.last_seen_ua,
@@ -145,12 +150,12 @@ pub async fn layer(
                   AND s.expires_at > NOW()
                   AND u.role <> 'suspended'
                 "#,
-            )
-            .bind(&hash)
-            .fetch_optional(&state.pg)
-            .await
-            .ok()
-            .flatten();
+        )
+        .bind(&hash)
+        .fetch_optional(&state.pg)
+        .await
+        .ok()
+        .flatten();
 
         if let Some((session_id, user_id, role, last_ip, last_ua, flagged, pending_2fa)) = row {
             let ip_drift = last_ip.as_deref().unwrap_or("") != ip;

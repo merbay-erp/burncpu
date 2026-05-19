@@ -8,9 +8,9 @@
 
 use crate::{errors::AppError, state::AppState};
 use axum::{
+    Json, Router,
     extract::{Query, State},
     routing::get,
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
@@ -29,8 +29,12 @@ pub struct WindowQuery {
     #[serde(default = "default_limit")]
     limit: i64,
 }
-fn default_window() -> String { "24h".into() }
-fn default_limit() -> i64 { 20 }
+fn default_window() -> String {
+    "24h".into()
+}
+fn default_limit() -> i64 {
+    20
+}
 
 fn parse_window(s: &str) -> chrono::Duration {
     let s = s.trim().to_lowercase();
@@ -63,11 +67,13 @@ async fn hashtags(
         r#"
         SELECT tag, COUNT(*)::bigint AS count FROM (
             SELECT lower(unnest(regexp_matches(body, '(?<![[:alnum:]_])#([a-z0-9_]{2,32})', 'g'))) AS tag
-            FROM posts
-            WHERE deleted_at IS NULL
-              AND moderation_state = 'live'
-              AND visibility = 'public'
-              AND created_at > $1
+            FROM posts p
+            JOIN users u ON u.id = p.author_id
+            WHERE p.deleted_at IS NULL
+              AND p.moderation_state = 'live'
+              AND p.visibility = 'public'
+              AND p.created_at > $1
+              AND u.role <> 'suspended'
         ) m
         GROUP BY tag
         ORDER BY count DESC, tag ASC
@@ -111,6 +117,7 @@ async fn posts(
           AND p.moderation_state = 'live'
           AND p.visibility = 'public'
           AND p.created_at > $1
+          AND u.role <> 'suspended'
         ORDER BY (p.reactions_count + p.replies_count) DESC, p.created_at DESC
         LIMIT $2
         "#,

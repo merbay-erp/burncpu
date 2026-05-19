@@ -4,7 +4,7 @@
 use crate::{errors::AppError, state::AppState};
 use axum::{
     extract::State,
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use sqlx::types::chrono::{DateTime, Utc};
@@ -22,9 +22,14 @@ pub async fn handler(State(state): State<AppState>) -> Result<Response, AppError
 
     let posts: Vec<(Uuid, DateTime<Utc>)> = sqlx::query_as(
         r#"
-        SELECT id, COALESCE(edited_at, created_at) FROM posts
-        WHERE deleted_at IS NULL AND moderation_state = 'live' AND visibility = 'public'
-        ORDER BY created_at DESC LIMIT 5000
+        SELECT p.id, COALESCE(p.edited_at, p.created_at)
+        FROM posts p
+        JOIN users u ON u.id = p.author_id
+        WHERE p.deleted_at IS NULL
+          AND p.moderation_state = 'live'
+          AND p.visibility = 'public'
+          AND u.role <> 'suspended'
+        ORDER BY p.created_at DESC LIMIT 5000
         "#,
     )
     .fetch_all(&state.pg)
@@ -59,11 +64,19 @@ pub async fn handler(State(state): State<AppState>) -> Result<Response, AppError
     xml.push_str("</urlset>\n");
 
     let mut h = HeaderMap::new();
-    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/xml; charset=utf-8"));
-    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=3600"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/xml; charset=utf-8"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=3600"),
+    );
     Ok((StatusCode::OK, h, xml).into_response())
 }
 
 fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }

@@ -106,10 +106,22 @@ mod tests {
 
     #[test]
     fn granular_scopes_match_only_their_resource() {
-        assert!(scope_allows("write:posts", &Method::PATCH, "/api/v1/posts/abc"));
+        assert!(scope_allows(
+            "write:posts",
+            &Method::PATCH,
+            "/api/v1/posts/abc"
+        ));
         assert!(scope_allows("write:posts", &Method::GET, "/api/v1/posts"));
-        assert!(!scope_allows("write:posts", &Method::GET, "/api/v1/webhooks"));
-        assert!(scope_allows("read:notifications", &Method::GET, "/api/v1/notifications"));
+        assert!(!scope_allows(
+            "write:posts",
+            &Method::GET,
+            "/api/v1/webhooks"
+        ));
+        assert!(scope_allows(
+            "read:notifications",
+            &Method::GET,
+            "/api/v1/notifications"
+        ));
         assert!(!scope_allows(
             "read:notifications",
             &Method::POST,
@@ -119,8 +131,16 @@ mod tests {
 
     #[test]
     fn prefix_matching_requires_path_boundary() {
-        assert!(!scope_allows("read:posts", &Method::GET, "/api/v1/posts-old"));
-        assert!(scope_allows("read:posts", &Method::GET, "/api/v1/posts/abc"));
+        assert!(!scope_allows(
+            "read:posts",
+            &Method::GET,
+            "/api/v1/posts-old"
+        ));
+        assert!(scope_allows(
+            "read:posts",
+            &Method::GET,
+            "/api/v1/posts/abc"
+        ));
     }
 
     #[test]

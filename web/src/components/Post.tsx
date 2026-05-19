@@ -67,7 +67,7 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
     try {
       const u = await api.patch<PostView>(`/posts/${props.post.id}`, { body: editBody().trim() });
       setBody(u.body); setBodyHtml(u.body_html); setEdited(true); setEditing(false);
-    } catch (e) { alert((e as Error).message); }
+    } catch (e) { pushToast((e as Error).message, 'warn'); }
     finally { setBusy(false); }
   };
 

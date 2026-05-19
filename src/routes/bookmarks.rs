@@ -6,16 +6,12 @@
 //
 // No notification fired — bookmarks are private to the viewer.
 
-use crate::{
-    errors::AppError,
-    middleware::session::CurrentUser,
-    state::AppState,
-};
+use crate::{errors::AppError, middleware::session::CurrentUser, state::AppState};
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, post},
-    Json, Router,
+    routing::{get, post},
 };
 use serde::Serialize;
 use sqlx::types::chrono::{DateTime, Utc};
@@ -58,6 +54,23 @@ async fn list(
         WHERE b.user_id = $1
           AND p.deleted_at IS NULL
           AND p.moderation_state = 'live'
+          AND u.role <> 'suspended'
+          AND NOT EXISTS (
+            SELECT 1 FROM user_blocks ub
+            WHERE (ub.blocker_id = $1 AND ub.blocked_id = p.author_id)
+               OR (ub.blocker_id = p.author_id AND ub.blocked_id = $1)
+          )
+          AND (
+            p.visibility = 'public'
+            OR p.author_id = $1
+            OR (
+              p.visibility = 'followers'
+              AND EXISTS (
+                SELECT 1 FROM follows f
+                WHERE f.follower_id = $1 AND f.followee_id = p.author_id
+              )
+            )
+          )
         ORDER BY b.created_at DESC
         LIMIT 200
         "#,
@@ -74,21 +87,44 @@ async fn add(
     Path(post_id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
     let exists: Option<bool> = sqlx::query_scalar(
-        "SELECT TRUE FROM posts WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live'",
+        r#"
+        SELECT TRUE
+        FROM posts p
+        JOIN users u ON u.id = p.author_id
+        WHERE p.id = $1
+          AND p.deleted_at IS NULL
+          AND p.moderation_state = 'live'
+          AND u.role <> 'suspended'
+          AND NOT EXISTS (
+            SELECT 1 FROM user_blocks ub
+            WHERE (ub.blocker_id = $2 AND ub.blocked_id = p.author_id)
+               OR (ub.blocker_id = p.author_id AND ub.blocked_id = $2)
+          )
+          AND (
+            p.visibility = 'public'
+            OR p.author_id = $2
+            OR (
+              p.visibility = 'followers'
+              AND EXISTS (
+                SELECT 1 FROM follows f
+                WHERE f.follower_id = $2 AND f.followee_id = p.author_id
+              )
+            )
+          )
+        "#,
     )
     .bind(post_id)
+    .bind(user.user_id)
     .fetch_optional(&state.pg)
     .await?;
     if exists.is_none() {
         return Err(AppError::NotFound);
     }
-    sqlx::query(
-        "INSERT INTO bookmarks (user_id, post_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-    )
-    .bind(user.user_id)
-    .bind(post_id)
-    .execute(&state.pg)
-    .await?;
+    sqlx::query("INSERT INTO bookmarks (user_id, post_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(user.user_id)
+        .bind(post_id)
+        .execute(&state.pg)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -1,0 +1,66 @@
+name: Deploy to VPS3
+
+# 19 May 2026 — VPS3'un direkt outbound 443 GitHub'a kapali (firewall politikasi).
+# Manuel `git pull` calismiyor. GHA self-hosted runner ise GitHub'a baglaniyor
+# (runner kendi cikis bağlantısı varsa OK). Bu workflow runner workdir'inde
+# checkout yapar, sonra `/opt/burncpu/app`'e rsync + docker compose rebuild.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Dockerfile'
+      - 'migrations/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: burncpu-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, mustafaerbay]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync to /opt/burncpu/app
+        run: |
+          set -euo pipefail
+          # rsync runner workdir → /opt/burncpu/app, exclude .git/node_modules/target/dist
+          sudo rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='node_modules/' \
+            --exclude='target/' \
+            --exclude='web/dist/' \
+            --exclude='*.bak' \
+            "$GITHUB_WORKSPACE/" /opt/burncpu/app/
+          # Ownership: app klasoru root:root olabilir; build user docker
+          sudo chown -R root:root /opt/burncpu/app
+
+      - name: Docker compose rebuild app
+        run: |
+          cd /opt/burncpu
+          sudo docker compose build app
+          sudo docker compose up -d app
+          # Health bekle (max 60s)
+          for i in $(seq 1 30); do
+            if sudo docker compose exec -T app curl -fsS http://localhost:8080/health > /dev/null 2>&1; then
+              echo "App healthy ✓"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::warning::Health timeout (60s) — container loglarini kontrol et"
+          sudo docker compose logs --tail=20 app
+
+      - name: Verify deploy
+        run: |
+          # Public health endpoint
+          curl -fsS https://burncpu.com/health || echo "::warning::Public health fail (CF cache?)"

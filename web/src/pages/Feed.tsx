@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from 'solid-js';
+import { createSignal, For, Show, onMount, onCleanup } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api, type Timeline, type PostView } from '../api';
 import Post from '../components/Post';
@@ -37,6 +37,15 @@ export default function Feed() {
   };
 
   const prepend = (p: PostView) => setPosts((cur) => [p, ...cur]);
+  // Global compose FAB broadcasts new posts — your own show in your feed live.
+  onMount(() => {
+    const onPosted = (e: Event) => {
+      const p = (e as CustomEvent).detail as PostView;
+      if (p?.visibility !== 'private') prepend(p);
+    };
+    window.addEventListener('burncpu:posted', onPosted);
+    onCleanup(() => window.removeEventListener('burncpu:posted', onPosted));
+  });
   const reload = async () => {
     setPosts([]);
     setCursor(null);

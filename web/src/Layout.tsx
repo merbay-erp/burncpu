@@ -1,10 +1,12 @@
 import type { JSX } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
-import { Show, createEffect, onCleanup, onMount } from 'solid-js';
+import { Show, createSignal, createEffect, onCleanup, onMount } from 'solid-js';
 import { me, unread, refetchUnread, probeSession, logout } from './auth';
+import type { PostView } from './api';
 import { t } from './i18n';
 import { theme, toggleTheme } from './theme';
 import Logo from './components/Logo';
+import Compose from './components/Compose';
 import ToastStack, { pushToast } from './components/Toast';
 import Lightbox from './components/Lightbox';
 import HoverCard from './components/HoverCard';
@@ -65,6 +67,21 @@ export default function Layout(props: { children?: JSX.Element }) {
   const loc = useLocation();
   const is = (p: string) =>
     loc.pathname === p || (p !== '/' && loc.pathname.startsWith(p + '/'));
+
+  // Global compose: the floating turtle button opens this popup; on success
+  // we broadcast so the open timeline can prepend the new post.
+  const [composeOpen, setComposeOpen] = createSignal(false);
+  const onComposed = (p: PostView) => {
+    setComposeOpen(false);
+    pushToast(t('compose.posted'), 'ok');
+    window.dispatchEvent(new CustomEvent('burncpu:posted', { detail: p }));
+  };
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setComposeOpen(false); };
+  onMount(() => {
+    window.addEventListener('keydown', onKey);
+    onCleanup(() => window.removeEventListener('keydown', onKey));
+  });
+
   let es: EventSource | undefined;
   let reconnectTimer: number | undefined;
   let backoff = 1000;
@@ -165,10 +182,7 @@ export default function Layout(props: { children?: JSX.Element }) {
             </button>
             <Show when={me()}>
               <button
-                onClick={() => {
-                  const ta = document.querySelector<HTMLTextAreaElement>('.composer textarea');
-                  if (ta) ta.focus(); else window.location.assign('/');
-                }}
+                onClick={() => setComposeOpen(true)}
                 class="p-2 text-on-surface-variant hover:text-primary transition-colors"
                 title={t('nav.new_post')}
               >
@@ -243,27 +257,28 @@ export default function Layout(props: { children?: JSX.Element }) {
             </nav>
             <Show when={me()}>
               {(u) => (
-                <>
-                  <div class="mt-auto pt-6 border-t border-outline-variant/30 px-4">
-                    <div class="font-mono text-[12px] text-on-surface-variant truncate">@{u().username}</div>
+                <div class="mt-auto pt-4 border-t border-outline-variant/30">
+                  <div class="flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-surface-container-low transition-colors">
+                    <A
+                      href={`/u/${u().username}`}
+                      class="flex items-center gap-2.5 min-w-0 flex-1"
+                      title={`@${u().username}`}
+                    >
+                      <div class="w-9 h-9 rounded-lg bg-surface-container-highest flex items-center justify-center text-[18px] shrink-0">🐢</div>
+                      <div class="min-w-0 leading-tight">
+                        <div class="font-bold text-[13px] text-on-background truncate">{u().display_name}</div>
+                        <div class="font-mono text-[11px] text-on-surface-variant truncate">@{u().username}</div>
+                      </div>
+                    </A>
                     <button
                       onClick={() => logout()}
-                      class="font-mono text-[11px] text-on-surface-variant hover:text-primary mt-1"
+                      title={t('nav.logout')}
+                      class="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors shrink-0"
                     >
-                      {t('nav.logout')}
+                      <span class="material-symbols-outlined" style="font-size:18px;">logout</span>
                     </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      const ta = document.querySelector<HTMLTextAreaElement>('.composer textarea');
-                      if (ta) ta.focus(); else window.location.assign('/');
-                    }}
-                    class="w-full bg-primary text-on-primary font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all"
-                  >
-                    <span class="material-symbols-outlined">add</span>
-                    {t('nav.post_signal')}
-                  </button>
-                </>
+                </div>
               )}
             </Show>
           </aside>
@@ -294,6 +309,48 @@ export default function Layout(props: { children?: JSX.Element }) {
           </Show>
         </div>
       </footer>
+
+      {/* Floating "turtle writes a signal" compose button — over everything */}
+      <Show when={me()}>
+        <button
+          onClick={() => setComposeOpen(true)}
+          title={t('nav.post_signal')}
+          aria-label={t('nav.post_signal')}
+          class="group fixed right-5 bottom-20 lg:bottom-6 z-[60] w-14 h-14 rounded-full bg-primary text-on-primary shadow-lg shadow-black/30 flex items-center justify-center text-[26px] leading-none hover:scale-105 active:scale-90 transition-transform"
+        >
+          <span class="transition-transform group-hover:-rotate-12">🐢</span>
+          <span class="absolute -bottom-0.5 -right-0.5 w-[19px] h-[19px] rounded-full bg-background text-primary flex items-center justify-center border border-primary/30 shadow">
+            <span class="material-symbols-outlined" style="font-size: 12px;">edit</span>
+          </span>
+          <span class="pointer-events-none absolute right-[120%] px-2.5 py-1 rounded-lg bg-surface-container-high text-on-surface text-[12px] font-mono whitespace-nowrap border border-outline-variant opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all">
+            {t('nav.post_signal')}
+          </span>
+        </button>
+      </Show>
+
+      {/* Compose popup */}
+      <Show when={composeOpen()}>
+        <div
+          class="fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4 pt-20 sm:pt-4 overflow-y-auto"
+          onClick={(e) => { if (e.target === e.currentTarget) setComposeOpen(false); }}
+        >
+          <div class="w-full max-w-[600px]">
+            <div class="flex items-center justify-between mb-2 px-1">
+              <h3 class="text-on-background font-bold flex items-center gap-2">
+                <span>🐢</span> {t('nav.post_signal')}
+              </h3>
+              <button
+                onClick={() => setComposeOpen(false)}
+                aria-label="close"
+                class="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+              >
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <Compose autofocus onPosted={onComposed} />
+          </div>
+        </div>
+      </Show>
 
       <ToastStack />
       <Lightbox />

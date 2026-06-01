@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from 'solid-js';
+import { createSignal, For, Show, onMount, onCleanup } from 'solid-js';
 import { api, type Timeline, type PostView } from '../api';
 import Post from '../components/Post';
 import Compose from '../components/Compose';
@@ -34,6 +34,15 @@ export default function Home() {
   };
 
   const prepend = (p: PostView) => setPosts((cur) => [p, ...cur]);
+  // The global compose FAB broadcasts new posts — show public ones live here.
+  onMount(() => {
+    const onPosted = (e: Event) => {
+      const p = (e as CustomEvent).detail as PostView;
+      if (p?.visibility === 'public') prepend(p);
+    };
+    window.addEventListener('burncpu:posted', onPosted);
+    onCleanup(() => window.removeEventListener('burncpu:posted', onPosted));
+  });
   const reload = async () => {
     setPosts([]); setCursor(null); setCursorId(null); setDone(false); setInitialized(false);
     await loadMore();

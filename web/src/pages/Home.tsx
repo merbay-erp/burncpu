@@ -4,6 +4,7 @@ import Post from '../components/Post';
 import Compose from '../components/Compose';
 import InfiniteList from '../components/InfiniteList';
 import { me } from '../auth';
+import { t } from '../i18n';
 
 export default function Home() {
   const [posts, setPosts] = createSignal<PostView[]>([]);
@@ -42,10 +43,10 @@ export default function Home() {
     <>
       <header class="mb-8 border-b border-outline-variant pb-4">
         <h1 class="font-headline-lg text-[28px] md:text-[32px] font-semibold tracking-tight text-on-background">
-          Public Timeline
+          {t('home.title')}
         </h1>
         <p class="text-on-surface-variant font-mono text-[14px] mt-1">
-          Real-time processing from the high-performance grid.
+          {t('home.subtitle')}
         </p>
       </header>
 
@@ -60,7 +61,7 @@ export default function Home() {
             fallback={
               initialized() ? (
                 <div class="p-6 border border-dashed border-outline-variant rounded-xl text-on-surface-variant font-mono text-[14px] text-center">
-                  Signal silent. First transmission is yours.
+                  {t('home.empty')}
                 </div>
               ) : null
             }

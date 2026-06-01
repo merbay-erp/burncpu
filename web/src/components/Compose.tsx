@@ -1,6 +1,7 @@
 import { createSignal, Show, For, onMount } from 'solid-js';
 import { api, type PostView } from '../api';
 import { visibleLength } from '../util';
+import { t } from '../i18n';
 import EmojiPicker from './EmojiPicker';
 
 const MAX = 5000;
@@ -158,7 +159,7 @@ export default function Compose(props: {
           </Show>
           <textarea
             ref={textarea}
-            placeholder={props.placeholder ?? 'Transmit a new signal…'}
+            placeholder={props.placeholder ?? t('compose.placeholder')}
             value={body()}
             onInput={onInput}
             onKeyDown={onKeyDown}
@@ -232,7 +233,7 @@ export default function Compose(props: {
                 disabled={busy() || !body().trim() || visibleLength(body()) > MAX}
                 class="px-6 py-2 bg-primary text-on-primary font-bold rounded-lg font-mono text-[14px] active:scale-95 transition-all hover:opacity-90 disabled:opacity-50"
               >
-                {busy() ? 'Transmitting…' : (props.replyToId ? 'Reply' : 'Transmit')}
+                {busy() ? t('compose.sending') : (props.replyToId ? t('compose.reply') : t('compose.send'))}
               </button>
             </div>
           </div>

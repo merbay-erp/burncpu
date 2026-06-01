@@ -113,6 +113,9 @@ export default function ProfilePage() {
                   <button onClick={follow} disabled={busy()}>
                     {following() ? 'Takipten çık' : 'Takip et'}
                   </button>
+                  <A href={`/dm/${p().username}`} class="primary" style="text-decoration: none;">
+                    💬 Mesaj
+                  </A>
                   {/* 19 May 2026 — Mute butonu state-aware: zaten mute ise "Mute kaldır"
                       gosterir, alert() yerine pushToast kullanir, refetch ile UI guncel kalir. */}
                   <button

@@ -2,6 +2,7 @@ import type { JSX } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
 import { Show, createEffect, onCleanup, onMount } from 'solid-js';
 import { me, unread, refetchUnread, probeSession, logout } from './auth';
+import { t } from './i18n';
 import ToastStack, { pushToast } from './components/Toast';
 import Lightbox from './components/Lightbox';
 import HoverCard from './components/HoverCard';
@@ -149,7 +150,7 @@ export default function Layout(props: { children?: JSX.Element }) {
               <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" style="font-size: 20px;">search</span>
               <input
                 type="text"
-                placeholder="Search the signal..."
+                placeholder={t('nav.search_placeholder')}
                 class="w-full bg-surface-container border border-outline-variant pl-10 pr-3 py-2 rounded-lg font-mono text-[14px] focus:outline-none focus:border-primary transition-colors"
               />
             </form>
@@ -218,20 +219,20 @@ export default function Layout(props: { children?: JSX.Element }) {
               </div>
             </div>
             <nav class="flex flex-col gap-1">
-              <SideLink href="/"              icon="timeline"      label="Timeline"      active={loc.pathname === '/'} />
-              <SideLink href="/feed"          icon="rss_feed"      label="Feed"          active={is('/feed')} />
-              <SideLink href="/search"        icon="search"        label="Search"        active={is('/search')} />
-              <SideLink href="/notifications" icon="notifications" label="Notifications" active={is('/notifications')} />
+              <SideLink href="/"              icon="timeline"      label={t('nav.timeline')}      active={loc.pathname === '/'} />
+              <SideLink href="/feed"          icon="rss_feed"      label={t('nav.feed')}          active={is('/feed')} />
+              <SideLink href="/search"        icon="search"        label={t('nav.search')}        active={is('/search')} />
+              <SideLink href="/notifications" icon="notifications" label={t('nav.notifications')} active={is('/notifications')} />
               <Show when={me()}>
                 {(u) => (
                   <>
-                    <SideLink href="/dm"                       icon="mail"     label="DM"       active={is('/dm')} />
-                    <SideLink href={`/u/${u().username}`}      icon="person"   label="Profile"  active={is(`/u/${u().username}`)} />
-                    <SideLink href="/bookmarks"                icon="bookmark" label="Saved"    active={is('/bookmarks')} />
-                    <SideLink href="/trash"                    icon="delete"   label="Trash"    active={is('/trash')} />
-                    <SideLink href="/settings"                 icon="settings" label="Settings" active={is('/settings')} />
+                    <SideLink href="/dm"                       icon="mail"     label={t('nav.dm')}        active={is('/dm')} />
+                    <SideLink href={`/u/${u().username}`}      icon="person"   label={t('nav.profile')}   active={is(`/u/${u().username}`)} />
+                    <SideLink href="/bookmarks"                icon="bookmark" label={t('nav.bookmarks')} active={is('/bookmarks')} />
+                    <SideLink href="/trash"                    icon="delete"   label={t('nav.trash')}     active={is('/trash')} />
+                    <SideLink href="/settings"                 icon="settings" label={t('nav.settings')}  active={is('/settings')} />
                     <Show when={u().role === 'admin'}>
-                      <SideLink href="/admin" icon="shield" label="Admin" active={is('/admin')} />
+                      <SideLink href="/admin" icon="shield" label={t('nav.admin')} active={is('/admin')} />
                     </Show>
                   </>
                 )}
@@ -246,7 +247,7 @@ export default function Layout(props: { children?: JSX.Element }) {
                       onClick={() => logout()}
                       class="font-mono text-[11px] text-on-surface-variant hover:text-primary mt-1"
                     >
-                      Çıkış
+                      {t('nav.logout')}
                     </button>
                   </div>
                   <button
@@ -257,7 +258,7 @@ export default function Layout(props: { children?: JSX.Element }) {
                     class="w-full bg-primary text-on-primary font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all"
                   >
                     <span class="material-symbols-outlined">add</span>
-                    Post Signal
+                    {t('nav.post_signal')}
                   </button>
                 </>
               )}

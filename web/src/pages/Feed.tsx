@@ -5,6 +5,7 @@ import Post from '../components/Post';
 import Compose from '../components/Compose';
 import InfiniteList from '../components/InfiniteList';
 import { me } from '../auth';
+import { t } from '../i18n';
 
 export default function Feed() {
   const [posts, setPosts] = createSignal<PostView[]>([]);
@@ -48,13 +49,13 @@ export default function Feed() {
   return (
     <>
       <h2 class="page-title">
-        Feed <small>takip ettiklerin + sen</small>
+        {t('feed.title')} <small>{t('feed.subtitle')}</small>
       </h2>
       <Show
         when={me()}
         fallback={
           <p class="muted">
-            Feed'i görmek için <A href="/login">giriş yap</A>.
+            <A href="/login">{t('feed.login_required')}</A>
           </p>
         }
       >
@@ -64,9 +65,7 @@ export default function Feed() {
             each={posts()}
             fallback={
               initialized() ? (
-                <div class="muted">
-                  Sessiz. <A href="/">Public timeline'a</A> bak ya da birini takip et.
-                </div>
+                <div class="muted">{t('feed.empty')}</div>
               ) : null
             }
           >

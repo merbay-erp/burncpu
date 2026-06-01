@@ -5,7 +5,8 @@ import { api } from '../api';
 import { me } from '../auth';
 import { pushToast } from './Toast';
 import Compose from './Compose';
-import { relTime, visibleLength } from '../util';
+import LinkCard from './LinkCard';
+import { relTime, visibleLength, firstUrl } from '../util';
 import { t } from '../i18n';
 
 // "Yaşlı mühendis kulübü" pact: single-emoji react (the brand turtle).
@@ -246,7 +247,12 @@ export default function Post(props: {
               <Show
                 when={props.post.content_warning && !cwOpen()}
                 fallback={
-                  <div class="post-body mt-2 text-on-surface text-body-md" innerHTML={bodyHtml() || body()} />
+                  <>
+                    <div class="post-body mt-2 text-on-surface text-body-md" innerHTML={bodyHtml() || body()} />
+                    <Show when={firstUrl(body())}>
+                      {(u) => <LinkCard url={u()} />}
+                    </Show>
+                  </>
                 }
               >
                 <div class="mt-3 p-3 bg-surface-container border border-outline-variant rounded-lg">

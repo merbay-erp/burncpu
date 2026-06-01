@@ -1,8 +1,9 @@
-import { createSignal, Show, For, onMount } from 'solid-js';
+import { createSignal, createMemo, Show, For, onMount } from 'solid-js';
 import { api, type PostView } from '../api';
-import { visibleLength } from '../util';
+import { visibleLength, firstUrl } from '../util';
 import { t } from '../i18n';
 import EmojiPicker from './EmojiPicker';
+import LinkCard from './LinkCard';
 
 const MAX = 5000;
 
@@ -22,6 +23,15 @@ export default function Compose(props: {
   const [err, setErr] = createSignal<string | null>(null);
   const [mentions, setMentions] = createSignal<UserBrief[]>([]);
   const [mentionIdx, setMentionIdx] = createSignal(0);
+  // Live link preview: debounced URL the user has typed, plus a dismissal so an
+  // unwanted card stays gone until the URL actually changes.
+  const [previewUrl, setPreviewUrl] = createSignal<string | null>(null);
+  const [dismissedUrl, setDismissedUrl] = createSignal<string | null>(null);
+  const livePreview = createMemo(() => {
+    const u = previewUrl();
+    return u && u !== dismissedUrl() ? u : null;
+  });
+  let previewTimer: ReturnType<typeof setTimeout> | undefined;
   let textarea: HTMLTextAreaElement | undefined;
   let fileInput: HTMLInputElement | undefined;
 
@@ -46,6 +56,7 @@ export default function Compose(props: {
         content_warning: cw().trim() || null,
       });
       setBody(''); setCw(''); setMentions([]);
+      setPreviewUrl(null); setDismissedUrl(null);
       props.onPosted?.(p);
     } catch (e) { setErr((e as Error).message || t('compose.error')); }
     finally { setBusy(false); }
@@ -87,6 +98,9 @@ export default function Compose(props: {
 
   const onInput = (e: InputEvent) => {
     setBody((e.currentTarget as HTMLTextAreaElement).value);
+    // Debounce the unfurl so we don't fetch on every keystroke mid-URL.
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => setPreviewUrl(firstUrl(body())), 500);
     const token = currentMentionToken();
     if (lookupTimer) clearTimeout(lookupTimer);
     if (token == null || token.length === 0) { setMentions([]); return; }
@@ -196,6 +210,13 @@ export default function Compose(props: {
 
           <Show when={err()}>
             <div class="error">{err()}</div>
+          </Show>
+
+          {/* Live preview of the first link in the draft */}
+          <Show when={livePreview()}>
+            {(u) => (
+              <LinkCard url={u()} interactive={false} onRemove={() => setDismissedUrl(previewUrl())} />
+            )}
           </Show>
 
           <div class="flex justify-between items-center mt-4 pt-4 border-t border-outline-variant/30">

@@ -36,6 +36,23 @@ export const api = {
   del: <T>(path: string) => call<T>('DELETE', path),
 };
 
+export interface LinkPreview {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  site_name?: string;
+  favicon?: string;
+}
+
+// Open Graph unfurl for a URL. The server resolves + caches it; a `null`
+// preview means "nothing worth showing" (the card simply isn't rendered).
+export function fetchLinkPreview(url: string) {
+  return api.get<{ preview: LinkPreview | null }>(
+    `/link_preview?url=${encodeURIComponent(url)}`,
+  );
+}
+
 // ─── Types ──────────────────────────────────────────────────────
 
 export interface Author {

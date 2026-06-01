@@ -42,8 +42,10 @@ sha2 = { version = "0.10", features = ["oid"] }
 hmac = "0.12"
 signature = "2"
 
-# HTTP client (AI moderation, federation)
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+# HTTP client (AI moderation, federation, link previews)
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
+# Bounded streaming body read for link-preview fetches (hard byte cap)
+futures-util = "0.3"
 
 # Config
 dotenvy = "0.15"
@@ -53,6 +55,9 @@ pulldown-cmark = "0.12"
 
 # HTML sanitization (XSS protection)
 ammonia = "4.0"
+
+# Open Graph / meta extraction for link previews (lightweight, no extra HTML stack)
+regex = "1"
 
 # Image processing (EXIF strip + re-encode)
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }

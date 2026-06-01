@@ -1,8 +1,8 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
 use super::{
-    admin, auth, bookmarks, dm, feed, invites, media, notifications, posts, push, relations,
-    reports, search, tokens, trending, users, webhooks,
+    admin, auth, bookmarks, dm, feed, invites, link_preview, media, notifications, posts, push,
+    relations, reports, search, tokens, trending, users, webhooks,
 };
 use crate::state::AppState;
 use axum::{Router, routing::get};
@@ -35,6 +35,7 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "GET    /api/v1/posts/{id}/replies":   "direct replies (paginated)",
                         "GET    /api/v1/posts/{id}/thread":    "full conversation (root + descendants, max depth 6)",
                         "GET    /api/v1/feed":                 "personal home timeline (auth)",
+                        "GET    /api/v1/link_preview ?url=":   "Open Graph link preview (auth, cached)",
                         "GET    /api/v1/users/{username}":     "profile",
                         "GET    /api/v1/users/{username}/posts":     "author posts",
                         "GET    /api/v1/users/{username}/followers": "followers list",
@@ -109,6 +110,7 @@ pub fn router(_state: AppState) -> Router<AppState> {
         .nest("/posts", posts::router())
         .nest("/users", users::router())
         .nest("/feed", feed::router())
+        .nest("/link_preview", link_preview::router())
         .nest("/invites", invites::router())
         .nest("/admin", admin::router())
         .nest("/search", search::router())

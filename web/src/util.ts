@@ -13,6 +13,35 @@ export function relTime(iso: string): string {
   return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
 }
 
+/// First http(s) URL in a chunk of text, with trailing prose punctuation
+/// trimmed (but balanced parens kept, e.g. Wikipedia links). Returns null when
+/// there's nothing link-preview-worthy. Used to drive the unfurl card.
+export function firstUrl(text: string): string | null {
+  if (!text) return null;
+  const m = text.match(/https?:\/\/[^\s<]+/i);
+  if (!m) return null;
+  let u = m[0];
+  for (;;) {
+    const last = u[u.length - 1];
+    if (last === ')') {
+      const opens = (u.match(/\(/g) || []).length;
+      const closes = (u.match(/\)/g) || []).length;
+      if (closes > opens) {
+        u = u.slice(0, -1);
+        continue;
+      }
+      break;
+    }
+    if (last && '.,;:!?\'"»>]}'.includes(last)) {
+      u = u.slice(0, -1);
+      continue;
+    }
+    break;
+  }
+  // Needs a dotted host to be worth unfurling (filters "http://localhost"-ish).
+  return u.length > 10 && /^https?:\/\/[^/]+\.[^/]/i.test(u) ? u : null;
+}
+
 /// Visible character count (Intl.Segmenter — counts grapheme clusters,
 /// not UTF-16 code units, so emoji and combining marks don't lie).
 let _seg: Intl.Segmenter | null = null;

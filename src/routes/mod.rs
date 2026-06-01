@@ -9,6 +9,7 @@ pub mod feed;
 pub mod health;
 pub mod index;
 pub mod invites;
+pub mod link_preview;
 pub mod media;
 pub mod notifications;
 pub mod posts;

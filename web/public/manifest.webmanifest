@@ -11,7 +11,7 @@
   "categories": ["social"],
   "icons": [
     {
-      "src": "/favicon.svg",
+      "src": "/favicon.svg?v=flame",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"

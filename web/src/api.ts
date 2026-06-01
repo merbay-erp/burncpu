@@ -102,6 +102,7 @@ export interface Notification {
   kind: 'reaction' | 'reply' | 'follow' | 'mention' | 'mod_action';
   actor_id: string | null;
   actor_username: string | null;
+  actor_avatar_url: string | null;
   target_kind: string;
   target_id: string;
   metadata: Record<string, unknown> | null;

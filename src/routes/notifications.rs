@@ -84,6 +84,7 @@ pub struct NotificationView {
     kind: String,
     actor_id: Option<Uuid>,
     actor_username: Option<String>,
+    actor_avatar_url: Option<String>,
     target_kind: String,
     target_id: Uuid,
     metadata: Option<JsonValue>,
@@ -110,6 +111,7 @@ async fn list(
         r#"
         SELECT
             n.id, n.kind, n.actor_id, u.username AS actor_username,
+            u.avatar_url AS actor_avatar_url,
             n.target_kind, n.target_id, n.metadata, n.read_at, n.created_at
         FROM notifications n
         LEFT JOIN users u ON u.id = n.actor_id

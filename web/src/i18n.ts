@@ -63,8 +63,11 @@ const dict: Record<Locale, Record<string, string>> = {
     'dm.search_user': 'Kullanıcı ara…',
     'dm.no_user': 'Kullanıcı bulunamadı.',
     'dm.mutual_required': 'DM atabilmek için iki tarafın da birbirini takip etmesi gerekiyor.',
-    'dm.empty': 'Henüz mesajın yok. Yukarıdan yeni bir konuşma başlat.',
+    'dm.empty': 'Henüz mesajın yok. Yeni bir konuşma başlat.',
     'dm.new_count': 'yeni',
+    'dm.you': 'Sen',
+    'dm.filter': 'Sohbetlerde ara…',
+    'dm.no_match': 'Eşleşen sohbet yok.',
   },
   en: {
     'nav.timeline': 'Timeline',
@@ -101,8 +104,11 @@ const dict: Record<Locale, Record<string, string>> = {
     'dm.search_user': 'Search a user…',
     'dm.no_user': 'No user found.',
     'dm.mutual_required': 'Both people must follow each other to exchange DMs.',
-    'dm.empty': 'No messages yet. Start a new conversation above.',
+    'dm.empty': 'No messages yet. Start a new conversation.',
     'dm.new_count': 'new',
+    'dm.you': 'You',
+    'dm.filter': 'Search conversations…',
+    'dm.no_match': 'No matching conversation.',
   },
 };
 

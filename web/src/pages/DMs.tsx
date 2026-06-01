@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show, onMount, onCleanup } from 'solid-js';
+import { createMemo, createResource, createSignal, For, Show, onMount, onCleanup } from 'solid-js';
 import { A, useNavigate } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
@@ -10,6 +10,7 @@ interface ThreadSummary {
   other_id: string;
   other_username: string;
   other_display_name: string;
+  other_avatar_url: string | null;
   last_body: string | null;
   last_sender_id: string | null;
   last_message_at: string;
@@ -23,6 +24,21 @@ interface UserBrief {
   avatar_url: string | null;
 }
 
+function Avatar(props: { url: string | null; size?: string }) {
+  return (
+    <div
+      class={`${props.size ?? 'w-12 h-12'} rounded-xl bg-surface-container-highest flex items-center justify-center text-[22px] text-primary overflow-hidden shrink-0 border border-outline-variant/40`}
+    >
+      <Show when={props.url} fallback={<>🐢</>}>
+        <img src={props.url!} alt="" class="w-full h-full object-cover" />
+      </Show>
+    </div>
+  );
+}
+
+const NEW_BTN =
+  'flex items-center gap-1.5 px-4 py-2 bg-primary text-on-primary font-bold rounded-lg font-mono text-[13px] hover:opacity-90 active:scale-95 transition-all';
+
 export default function DMs() {
   const navigate = useNavigate();
   const [list, { refetch }] = createResource<ThreadSummary[] | null>(async () => {
@@ -30,10 +46,12 @@ export default function DMs() {
     return api.get<ThreadSummary[]>('/dm/threads');
   });
 
-  // New-message composer: pick a user via typeahead → open their thread.
+  // New-message composer
   const [composing, setComposing] = createSignal(false);
   const [query, setQuery] = createSignal('');
   const [results, setResults] = createSignal<UserBrief[]>([]);
+  // Conversation filter
+  const [filter, setFilter] = createSignal('');
   let lookupTimer: ReturnType<typeof setTimeout> | undefined;
 
   const onQuery = (v: string) => {
@@ -48,17 +66,21 @@ export default function DMs() {
       } catch { setResults([]); }
     }, 150);
   };
+  const openCompose = () => { setComposing((v) => !v); setQuery(''); setResults([]); };
 
-  const openCompose = () => {
-    setComposing((v) => !v);
-    setQuery('');
-    setResults([]);
-  };
+  const totalUnread = createMemo(() => (list() ?? []).reduce((n, x) => n + x.unread_count, 0));
+  const filtered = createMemo(() => {
+    const rows = list() ?? [];
+    const f = filter().trim().toLowerCase();
+    if (!f) return rows;
+    return rows.filter(
+      (x) => x.other_display_name.toLowerCase().includes(f) || x.other_username.toLowerCase().includes(f),
+    );
+  });
 
-  // 19 May 2026 — Real-time: yeni DM event geldiginde listeyi refetch et.
   const onNotif = (ev: Event) => {
-    const detail = (ev as CustomEvent).detail as { kind?: string } | undefined;
-    if (detail?.kind === 'dm') refetch();
+    const d = (ev as CustomEvent).detail as { kind?: string } | undefined;
+    if (d?.kind === 'dm') refetch();
   };
   onMount(() => window.addEventListener('burncpu:notification', onNotif));
   onCleanup(() => {
@@ -67,42 +89,63 @@ export default function DMs() {
   });
 
   return (
-    <div class="legacy">
-      <div class="flex" style="align-items: center; justify-content: space-between;">
-        <h2 class="page-title" style="margin: 0;">{t('dm.title')}</h2>
+    <>
+      {/* Header */}
+      <div class="flex items-center justify-between gap-3 mb-1">
+        <h1 class="font-headline-lg text-[26px] md:text-[28px] font-semibold tracking-tight text-on-background flex items-center gap-2">
+          {t('dm.title')}
+          <Show when={totalUnread() > 0}>
+            <span class="text-[12px] font-mono font-bold bg-primary text-on-primary rounded-full px-2 py-0.5 leading-none">
+              {totalUnread()}
+            </span>
+          </Show>
+        </h1>
         <Show when={me()}>
-          <button class="primary" onClick={openCompose}>
-            {composing() ? t('common.cancel') : `+ ${t('dm.new')}`}
+          <button onClick={openCompose} class={NEW_BTN}>
+            <span class="material-symbols-outlined" style="font-size:18px;">
+              {composing() ? 'close' : 'edit_square'}
+            </span>
+            {composing() ? t('common.cancel') : t('dm.new')}
           </button>
         </Show>
       </div>
+      <p class="text-on-surface-variant font-mono text-[12px] mb-5">{t('dm.mutual_required')}</p>
 
-      <Show when={me()} fallback={<p class="muted">Önce <A href="/login">{t('nav.login')}</A>.</p>}>
+      <Show
+        when={me()}
+        fallback={<p class="text-on-surface-variant">Önce <A href="/login" class="text-primary">{t('nav.login')}</A>.</p>}
+      >
+        {/* New-message composer */}
         <Show when={composing()}>
-          <div style="margin: 14px 0; position: relative;">
-            <input
-              type="text"
-              placeholder={t('dm.search_user')}
-              value={query()}
-              onInput={(e) => onQuery(e.currentTarget.value)}
-              autofocus
-            />
+          <div class="mb-5 p-4 bg-surface-container-low border border-outline-variant rounded-xl">
+            <div class="relative">
+              <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" style="font-size:18px;">
+                search
+              </span>
+              <input
+                type="text"
+                placeholder={t('dm.search_user')}
+                value={query()}
+                onInput={(e) => onQuery(e.currentTarget.value)}
+                autofocus
+                class="w-full bg-surface-container border border-outline-variant pl-10 pr-3 py-2.5 rounded-lg font-mono text-[14px] text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
             <Show when={results().length > 0}>
-              <div style="margin-top: 6px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-2);">
+              <div class="mt-2 space-y-1">
                 <For each={results()}>
                   {(u) => (
                     <button
                       onClick={() => navigate(`/dm/${u.username}`)}
-                      style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: none; border-radius: 0; background: transparent; text-align: left;"
+                      class="flex items-center gap-3 w-full p-2.5 rounded-lg hover:bg-surface-container-high text-left transition-colors group"
                     >
-                      <span style="width: 32px; height: 32px; border-radius: 8px; background: var(--bg-3); display: inline-flex; align-items: center; justify-content: center; font-size: 16px; overflow: hidden;">
-                        <Show when={u.avatar_url} fallback={<>🐢</>}>
-                          <img src={u.avatar_url!} alt="" style="width: 100%; height: 100%; object-fit: cover;" />
-                        </Show>
-                      </span>
-                      <span style="min-width: 0;">
-                        <strong style="display: block;">{u.display_name}</strong>
-                        <span class="muted tiny">@{u.username}</span>
+                      <Avatar url={u.avatar_url} size="w-9 h-9" />
+                      <div class="min-w-0">
+                        <div class="font-semibold text-on-background truncate text-[14px]">{u.display_name}</div>
+                        <div class="text-on-surface-variant font-mono text-[12px] truncate">@{u.username}</div>
+                      </div>
+                      <span class="material-symbols-outlined ml-auto text-on-surface-variant group-hover:text-primary transition-colors" style="font-size:18px;">
+                        arrow_forward
                       </span>
                     </button>
                   )}
@@ -110,43 +153,92 @@ export default function DMs() {
               </div>
             </Show>
             <Show when={query().trim().length > 0 && results().length === 0}>
-              <p class="muted tiny" style="margin-top: 6px;">{t('dm.no_user')}</p>
+              <p class="text-on-surface-variant text-[13px] mt-3">{t('dm.no_user')}</p>
             </Show>
           </div>
         </Show>
 
-        <p class="tiny muted">{t('dm.mutual_required')}</p>
-        <Show when={list()} fallback={<p class="muted">{t('loading')}</p>}>
-          {(rows) => (
-            <For each={rows()} fallback={<p class="muted">{t('dm.empty')}</p>}>
-              {(thread) => (
-                <A
-                  href={`/dm/${thread.other_username}`}
-                  style="text-decoration: none; color: inherit; display: block; padding: 12px 0; border-bottom: 1px solid var(--border);"
-                >
-                  <div class="flex" style="align-items: baseline;">
-                    <strong>{thread.other_display_name}</strong>
-                    <span class="muted tiny">@{thread.other_username}</span>
-                    <span class="time muted" style="margin-left: auto; font-family: var(--mono); font-size: 11px;">
-                      {relTime(thread.last_message_at)}
-                    </span>
-                  </div>
-                  <div
-                    style={`color: ${thread.unread_count > 0 ? 'var(--fg)' : 'var(--fg-2)'}; font-size: 13px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;`}
-                  >
-                    {thread.last_body ?? '—'}
-                  </div>
-                  <Show when={thread.unread_count > 0}>
-                    <span class="tiny" style="color: var(--accent); font-weight: 600;">
-                      {thread.unread_count} {t('dm.new_count')}
-                    </span>
-                  </Show>
-                </A>
-              )}
-            </For>
-          )}
+        {/* Conversation filter (only when there are several) */}
+        <Show when={(list()?.length ?? 0) > 4}>
+          <div class="relative mb-3">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" style="font-size:18px;">
+              filter_list
+            </span>
+            <input
+              type="text"
+              placeholder={t('dm.filter')}
+              value={filter()}
+              onInput={(e) => setFilter(e.currentTarget.value)}
+              class="w-full bg-surface-container-low border border-outline-variant pl-10 pr-3 py-2 rounded-lg font-mono text-[13px] focus:outline-none focus:border-primary transition-colors"
+            />
+          </div>
+        </Show>
+
+        {/* Thread list */}
+        <Show
+          when={list()}
+          fallback={
+            <p class="text-on-surface-variant font-mono text-[14px]"><span class="spinner mr-2" />SCANNING…</p>
+          }
+        >
+          <Show
+            when={(list()?.length ?? 0) > 0}
+            fallback={
+              <div class="flex flex-col items-center justify-center text-center py-16 px-6">
+                <div class="w-16 h-16 rounded-2xl bg-surface-container-low border border-outline-variant flex items-center justify-center text-[30px] mb-4">💬</div>
+                <p class="text-on-surface-variant font-mono text-[14px] mb-4 max-w-[280px]">{t('dm.empty')}</p>
+                <button onClick={() => setComposing(true)} class={NEW_BTN}>
+                  <span class="material-symbols-outlined" style="font-size:18px;">edit_square</span>
+                  {t('dm.new')}
+                </button>
+              </div>
+            }
+          >
+            <div class="space-y-1">
+              <For each={filtered()} fallback={<p class="text-on-surface-variant text-[13px] py-4">{t('dm.no_match')}</p>}>
+                {(th) => {
+                  const mine = () => th.last_sender_id === me()?.user_id;
+                  const unread = () => th.unread_count > 0;
+                  return (
+                    <A
+                      href={`/dm/${th.other_username}`}
+                      class="flex items-center gap-3 p-3 rounded-xl border border-transparent hover:bg-surface-container-low hover:border-outline-variant transition-colors"
+                    >
+                      <Avatar url={th.other_avatar_url} />
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                          <span class={`truncate text-on-background ${unread() ? 'font-bold' : 'font-semibold'}`}>
+                            {th.other_display_name}
+                          </span>
+                          <span class="text-on-surface-variant font-mono text-[12px] truncate hidden sm:inline">
+                            @{th.other_username}
+                          </span>
+                          <span class="ml-auto shrink-0 text-on-surface-variant font-mono text-[11px]">
+                            {relTime(th.last_message_at)}
+                          </span>
+                        </div>
+                        <div class="flex items-center gap-2 mt-0.5">
+                          <span class={`flex-1 truncate text-[13px] ${unread() ? 'text-on-surface' : 'text-on-surface-variant'}`}>
+                            <Show when={mine()}>
+                              <span class="text-on-surface-variant">{t('dm.you')}: </span>
+                            </Show>
+                            {th.last_body ?? '—'}
+                          </span>
+                          <Show when={unread()}>
+                            <span class="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-on-primary text-[11px] font-bold flex items-center justify-center leading-none">
+                              {th.unread_count}
+                            </span>
+                          </Show>
+                        </div>
+                      </div>
+                    </A>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
         </Show>
       </Show>
-    </div>
+    </>
   );
 }

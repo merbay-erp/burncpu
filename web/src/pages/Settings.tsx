@@ -7,33 +7,53 @@ import { pushToast } from '../components/Toast';
 
 type Tab = 'profile' | 'security' | 'invites' | 'dev';
 
+const TAB_META: { id: Tab; icon: string; key: string }[] = [
+  { id: 'profile', icon: 'person', key: 'settings.tab.profile' },
+  { id: 'security', icon: 'security', key: 'settings.tab.security' },
+  { id: 'invites', icon: 'mail', key: 'settings.tab.invites' },
+  { id: 'dev', icon: 'code', key: 'settings.tab.dev' },
+];
+
 export default function Settings() {
   const [tab, setTab] = createSignal<Tab>('profile');
 
   return (
-    <div class="legacy">
-      <h2 class="page-title">{t('settings.title')}</h2>
-      <Show when={me()} fallback={<p class="muted">{t('settings.login_required')}</p>}>
-        <div class="flex" style="border-bottom: 1px solid var(--border); margin-bottom: 16px; gap: 4px;">
-          <TabBtn label={t('settings.tab.profile')} active={tab() === 'profile'} onClick={() => setTab('profile')} />
-          <TabBtn label={t('settings.tab.security')} active={tab() === 'security'} onClick={() => setTab('security')} />
-          <TabBtn label={t('settings.tab.invites')} active={tab() === 'invites'} onClick={() => setTab('invites')} />
-          <TabBtn label={t('settings.tab.dev')} active={tab() === 'dev'} onClick={() => setTab('dev')} />
+    <>
+      <h1 class="font-headline-lg text-[26px] md:text-[28px] font-semibold tracking-tight text-on-background mb-5">
+        {t('settings.title')}
+      </h1>
+      <Show
+        when={me()}
+        fallback={<p class="text-on-surface-variant">{t('settings.login_required')}</p>}
+      >
+        {/* Segmented tab control */}
+        <div class="flex gap-1 p-1 bg-surface-container-low border border-outline-variant rounded-xl mb-6 overflow-x-auto">
+          <For each={TAB_META}>
+            {(tb) => (
+              <button
+                onClick={() => setTab(tb.id)}
+                class={`flex items-center justify-center gap-2 flex-1 min-w-fit px-4 py-2 rounded-lg font-mono text-[13px] whitespace-nowrap transition-colors ${
+                  tab() === tb.id
+                    ? 'bg-primary text-on-primary font-bold'
+                    : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
+                }`}
+              >
+                <span class="material-symbols-outlined" style="font-size:18px;">{tb.icon}</span>
+                {t(tb.key)}
+              </button>
+            )}
+          </For>
         </div>
-        <Show when={tab() === 'profile'}>
-          <ProfileTab />
-        </Show>
-        <Show when={tab() === 'security'}>
-          <SecurityTab />
-        </Show>
-        <Show when={tab() === 'invites'}>
-          <InvitesTab />
-        </Show>
-        <Show when={tab() === 'dev'}>
-          <DevTab />
-        </Show>
+
+        {/* Tab content (still uses the legacy form vocabulary) */}
+        <div class="legacy">
+          <Show when={tab() === 'profile'}><ProfileTab /></Show>
+          <Show when={tab() === 'security'}><SecurityTab /></Show>
+          <Show when={tab() === 'invites'}><InvitesTab /></Show>
+          <Show when={tab() === 'dev'}><DevTab /></Show>
+        </div>
       </Show>
-    </div>
+    </>
   );
 }
 
@@ -218,19 +238,21 @@ function DevTab() {
           value={hUrl()}
           onInput={(e) => setHUrl(e.currentTarget.value)}
         />
-        <div class="flex" style="margin-top: 8px; gap: 8px; flex-wrap: wrap;">
+        <div class="flex" style="margin-top: 10px; gap: 8px; flex-wrap: wrap;">
           <For each={['reaction', 'reply', 'follow', 'mention', 'dm']}>
             {(ev) => (
               <label
-                class="flex tiny"
-                style={`gap: 4px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: ${hEvents().includes(ev) ? 'var(--bg-3)' : 'transparent'}; color: ${hEvents().includes(ev) ? 'var(--accent)' : 'var(--fg)'}; cursor: pointer;`}
+                style={`display: inline-flex; align-items: center; gap: 5px; margin: 0; padding: 6px 12px; border-radius: 999px; font-family: var(--mono); font-size: 12px; cursor: pointer; transition: all .15s; border: 1px solid ${hEvents().includes(ev) ? 'var(--accent)' : 'var(--border)'}; background: ${hEvents().includes(ev) ? 'rgba(156,225,109,0.12)' : 'transparent'}; color: ${hEvents().includes(ev) ? 'var(--accent)' : 'var(--fg-2)'};`}
               >
                 <input
                   type="checkbox"
                   checked={hEvents().includes(ev)}
                   onChange={() => toggleEvent(ev)}
-                  style="margin: 0;"
+                  style="display: none;"
                 />
+                <span class="material-symbols-outlined" style="font-size: 15px;">
+                  {hEvents().includes(ev) ? 'check_circle' : 'add_circle'}
+                </span>
                 {ev}
               </label>
             )}
@@ -283,19 +305,6 @@ function DevTab() {
         </Show>
       </div>
     </>
-  );
-}
-
-function TabBtn(props: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={props.onClick}
-      style={`background: transparent; border: none; border-bottom: 2px solid ${
-        props.active ? 'var(--accent)' : 'transparent'
-      }; border-radius: 0; color: ${props.active ? 'var(--accent)' : 'var(--fg-2)'}; padding: 8px 14px; font-weight: ${props.active ? '600' : '400'};`}
-    >
-      {props.label}
-    </button>
   );
 }
 

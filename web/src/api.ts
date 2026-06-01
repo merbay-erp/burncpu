@@ -71,6 +71,9 @@ export interface PostView {
 export interface Timeline {
   posts: PostView[];
   next_before: string | null;
+  // Composite keyset tie-breaker — echoed back as `before_id` so pagination
+  // never skips posts that share an identical `created_at` timestamp.
+  next_before_id?: string | null;
 }
 
 export interface Profile {

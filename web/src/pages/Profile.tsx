@@ -38,27 +38,33 @@ export default function ProfilePage() {
     refetchProfile();
     refetchPinned();
   };
-  const [following, setFollowing] = createSignal<boolean | null>(null);
+  // 19 May 2026 — Follow state: backend (profile.is_following) authoritative on
+  // load, but once the user toggles, the optimistic override wins so a trailing
+  // refetchProfile() (read-after-write lag, or out-of-order double-click) can't
+  // snap the button back to the stale pre-click value. Override resets to null
+  // when we navigate to a *different* profile so it re-derives from that user.
+  const [followOverride, setFollowOverride] = createSignal<boolean | null>(null);
   const [busy, setBusy] = createSignal(false);
 
-  // 19 May 2026 — Sayfa yuklendiginde profile.is_following backend'den geldiginde
-  // local state'e push et. Onceden setFollowing(null) hep null kaliyordu →
-  // refresh sonrasi UI "Takip Et" gosteriyordu (zaten takip ediyor olsa bile).
-  createEffect(() => {
-    const p = profile();
-    if (p) setFollowing(p.is_following);
+  createEffect<string | undefined>((prevUser) => {
+    const u = params.username;
+    if (prevUser !== undefined && prevUser !== u) setFollowOverride(null);
+    return u;
   });
+
+  const following = () => followOverride() ?? profile()?.is_following ?? false;
 
   const follow = async () => {
     if (busy()) return;
     setBusy(true);
+    const wasFollowing = following();
     try {
-      if (following()) {
+      if (wasFollowing) {
         await api.del(`/users/${params.username}/follow`);
-        setFollowing(false);
+        setFollowOverride(false);
       } else {
         await api.post(`/users/${params.username}/follow`);
-        setFollowing(true);
+        setFollowOverride(true);
       }
       refetchProfile();
     } finally {

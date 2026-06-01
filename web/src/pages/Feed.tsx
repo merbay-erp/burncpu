@@ -9,6 +9,7 @@ import { me } from '../auth';
 export default function Feed() {
   const [posts, setPosts] = createSignal<PostView[]>([]);
   const [cursor, setCursor] = createSignal<string | null>(null);
+  const [cursorId, setCursorId] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
   const [done, setDone] = createSignal(false);
   const [initialized, setInitialized] = createSignal(false);
@@ -17,11 +18,14 @@ export default function Feed() {
     if (!me() || loading() || done()) return;
     setLoading(true);
     try {
-      const qs = cursor() ? `?limit=30&before=${encodeURIComponent(cursor()!)}` : '?limit=30';
+      const qs = cursor()
+        ? `?limit=30&before=${encodeURIComponent(cursor()!)}${cursorId() ? `&before_id=${encodeURIComponent(cursorId()!)}` : ''}`
+        : '?limit=30';
       const page = await api.get<Timeline>(`/feed${qs}`);
       setPosts((cur) => [...cur, ...page.posts]);
       if (page.next_before && page.posts.length > 0) {
         setCursor(page.next_before);
+        setCursorId(page.next_before_id ?? null);
       } else {
         setDone(true);
       }
@@ -35,6 +39,7 @@ export default function Feed() {
   const reload = async () => {
     setPosts([]);
     setCursor(null);
+    setCursorId(null);
     setDone(false);
     setInitialized(false);
     await loadMore();

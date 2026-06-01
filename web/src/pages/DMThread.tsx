@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show, onMount, onCleanup } from 'solid-js';
+import { createResource, createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { useParams, A } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
@@ -37,11 +37,16 @@ export default function DMThread() {
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
 
+  // Mark read whenever we open OR switch threads. @solidjs/router reuses the
+  // same component instance across /dm/alice → /dm/bob, so an onMount one-shot
+  // would only ever mark the first thread read (the new thread's badge would
+  // stay stuck). A createEffect on params.username re-fires on every switch.
+  createEffect(() => {
+    const u = params.username;
+    if (me() && u) void api.patch(`/dm/threads/${u}/read`).catch(() => {});
+  });
+
   onMount(() => {
-    // Mark read whenever we open the thread
-    if (me()) {
-      void api.patch(`/dm/threads/${params.username}/read`).catch(() => {});
-    }
     // 19 May 2026 — Real-time: thread acikken yeni mesaj geldiginde otomatik
     // refetch + read mark. Onceden sadece ↻ butonuna basinca yeni mesaj
     // geliyordu, kullanici "mesaj akmiyor" zannediyordu.

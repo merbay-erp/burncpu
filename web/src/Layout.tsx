@@ -63,35 +63,64 @@ export default function Layout(props: { children?: JSX.Element }) {
   const is = (p: string) =>
     loc.pathname === p || (p !== '/' && loc.pathname.startsWith(p + '/'));
   let es: EventSource | undefined;
+  let reconnectTimer: number | undefined;
+  let backoff = 1000;
 
   onMount(async () => {
     const ok = await probeSession();
     if (ok) refetchUnread();
   });
 
-  createEffect(() => {
-    if (me()) {
-      if (!es) {
-        es = new EventSource('/api/v1/notifications/stream', { withCredentials: true });
-        es.addEventListener('notification', (msg) => {
-          try {
-            const ev = JSON.parse((msg as MessageEvent).data) as NotificationEvent;
-            pushToast(eventText(ev));
-            if (ev.kind !== 'dm') refetchUnread();
-            // 19 May 2026 — Sayfa-spesifik real-time refetch icin global event.
-            // DMs.tsx ve DMThread.tsx listener ile aktif sayfasi otomatik refresh
-            // edebilir. Onceden sadece toast gosteriliyor, liste/thread eski kaliyordu.
-            window.dispatchEvent(new CustomEvent('burncpu:notification', { detail: ev }));
-          } catch { /* ignore */ }
-        });
+  const connect = () => {
+    if (es || !me()) return;
+    const src = new EventSource('/api/v1/notifications/stream', { withCredentials: true });
+    es = src;
+    src.addEventListener('open', () => { backoff = 1000; });
+    src.addEventListener('notification', (msg) => {
+      try {
+        const ev = JSON.parse((msg as MessageEvent).data) as NotificationEvent;
+        pushToast(eventText(ev));
+        if (ev.kind !== 'dm') refetchUnread();
+        // 19 May 2026 — Sayfa-spesifik real-time refetch icin global event.
+        // DMs.tsx ve DMThread.tsx listener ile aktif sayfasi otomatik refresh
+        // edebilir. Onceden sadece toast gosteriliyor, liste/thread eski kaliyordu.
+        window.dispatchEvent(new CustomEvent('burncpu:notification', { detail: ev }));
+      } catch { /* ignore */ }
+    });
+    // The browser auto-retries transient drops, but once the stream enters
+    // CLOSED (server ended it / non-retryable status) it stays dead — and all
+    // real-time toasts + DM/notification refetch silently stop. Reconnect with
+    // exponential backoff so the live surface survives a server restart.
+    src.onerror = () => {
+      if (src.readyState === EventSource.CLOSED) {
+        src.close();
+        if (es === src) es = undefined;
+        if (me() && reconnectTimer === undefined) {
+          reconnectTimer = window.setTimeout(() => {
+            reconnectTimer = undefined;
+            backoff = Math.min(backoff * 2, 30000);
+            connect();
+          }, backoff);
+        }
       }
-    } else {
-      es?.close();
-      es = undefined;
+    };
+  };
+
+  const disconnect = () => {
+    es?.close();
+    es = undefined;
+    if (reconnectTimer !== undefined) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = undefined;
     }
+  };
+
+  createEffect(() => {
+    if (me()) connect();
+    else disconnect();
   });
 
-  onCleanup(() => es?.close());
+  onCleanup(disconnect);
 
   return (
     <div class="min-h-screen bg-background text-on-background">

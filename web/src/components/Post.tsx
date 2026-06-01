@@ -4,6 +4,7 @@ import type { PostView } from '../api';
 import { api } from '../api';
 import { me } from '../auth';
 import { pushToast } from './Toast';
+import Compose from './Compose';
 import { relTime, visibleLength } from '../util';
 
 // "Yaşlı mühendis kulübü" pact: single-emoji react (the brand turtle).
@@ -13,7 +14,18 @@ const MAX_LEN = 5000;
 
 const ACTION_BTN = 'flex items-center gap-1.5 text-on-surface-variant hover:text-primary transition-colors';
 
-export default function Post(props: { post: PostView; onChange?: () => void }) {
+export default function Post(props: {
+  post: PostView;
+  onChange?: () => void;
+  // Thread view: when set, the reply action triggers an inline reply box for
+  // THIS post instead of navigating to its conversation page.
+  onReply?: () => void;
+  // Thread view renders parentage via nesting, so the inline parent excerpt is
+  // redundant noise there.
+  hideParent?: boolean;
+  // Highlight the post the viewer navigated to within a thread.
+  highlight?: boolean;
+}) {
   if (!props.post || !props.post.author) return null;
 
   const [reactionsTotal, setReactionsTotal] = createSignal(props.post.reactions_count);
@@ -23,11 +35,34 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
   const [reacted, setReacted] = createSignal(props.post.viewer_reacted ?? false);
   const [busy, setBusy] = createSignal(false);
   const [bookmarked, setBookmarked] = createSignal(props.post.viewer_bookmarked ?? false);
+  // Inline reply box (timeline/feed/profile). In thread view the parent owns
+  // the reply box via `onReply`, so this stays closed there.
+  const [replyOpen, setReplyOpen] = createSignal(false);
+  const [repliesTotal, setRepliesTotal] = createSignal(props.post.replies_count);
 
   createEffect(() => {
     if (typeof props.post.viewer_reacted === 'boolean') setReacted(props.post.viewer_reacted);
     if (typeof props.post.viewer_bookmarked === 'boolean') setBookmarked(props.post.viewer_bookmarked);
+    // Reconcile the counts too — otherwise fresh server data (another user's
+    // concurrent reaction, a refetch) leaves the displayed number stale while
+    // the reacted/bookmarked icons update. The optimistic +1/-1 is preserved
+    // between fetches because this effect only re-runs when props.post.*
+    // actually changes.
+    setReactionsTotal(props.post.reactions_count);
+    setRepliesTotal(props.post.replies_count);
   });
+
+  // Reply icon: in thread view delegate to the parent (tree placement);
+  // otherwise toggle an inline box right under this post.
+  const onReplyClick = () => {
+    if (props.onReply) props.onReply();
+    else setReplyOpen((v) => !v);
+  };
+  const onInlineReplied = () => {
+    setReplyOpen(false);
+    setRepliesTotal((n) => n + 1);
+    pushToast('Yanıt gönderildi', 'ok');
+  };
   const [editing, setEditing] = createSignal(false);
   const [editBody, setEditBody] = createSignal(props.post.body);
   const [body, setBody] = createSignal(props.post.body);
@@ -128,9 +163,13 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
   }
 
   return (
-    <article class="p-6 bg-surface-container-low border border-outline-variant rounded-xl hover:border-primary/50 transition-colors">
+    <article
+      class={`p-6 bg-surface-container-low border rounded-xl hover:border-primary/50 transition-colors ${
+        props.highlight ? 'border-primary ring-2 ring-primary/40' : 'border-outline-variant'
+      }`}
+    >
       {/* parent quote (reply context) */}
-      <Show when={props.post.parent}>
+      <Show when={!props.hideParent && props.post.parent}>
         {(p) => (
           <A href={`/posts/${p().id}`} class="block mb-4">
             <div class="bg-surface-container border-l-2 border-primary px-3 py-2 rounded-r text-[13px]">
@@ -242,16 +281,28 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
 
           {/* Footer actions */}
           <div class="flex gap-6 mt-6 items-center">
-            <A
-              href={`/posts/${props.post.id}`}
-              class={ACTION_BTN}
-              title="Yanıt"
+            <Show
+              when={props.onReply || me()}
+              fallback={
+                <A href={`/posts/${props.post.id}`} class={ACTION_BTN} title="Yanıt">
+                  <span class="material-symbols-outlined" style="font-size: 18px;">chat_bubble</span>
+                  <Show when={repliesTotal() > 0}>
+                    <span class="font-mono text-[12px]">{repliesTotal()}</span>
+                  </Show>
+                </A>
+              }
             >
-              <span class="material-symbols-outlined" style="font-size: 18px;">chat_bubble</span>
-              <Show when={props.post.replies_count > 0}>
-                <span class="font-mono text-[12px]">{props.post.replies_count}</span>
-              </Show>
-            </A>
+              <button
+                class={ACTION_BTN + (replyOpen() ? ' text-primary' : '')}
+                onClick={onReplyClick}
+                title="Yanıtla"
+              >
+                <span class="material-symbols-outlined" style="font-size: 18px;">reply</span>
+                <Show when={repliesTotal() > 0}>
+                  <span class="font-mono text-[12px]">{repliesTotal()}</span>
+                </Show>
+              </button>
+            </Show>
             <button
               class={ACTION_BTN + (reacted() ? ' text-primary' : '')}
               onClick={toggleReact}
@@ -274,6 +325,19 @@ export default function Post(props: { post: PostView; onChange?: () => void }) {
               <span class="material-symbols-outlined" style="font-size: 18px;">share</span>
             </button>
           </div>
+
+          {/* Inline reply box — opens right under the post (timeline / feed /
+              profile) instead of bouncing to a separate page. */}
+          <Show when={!props.onReply && replyOpen() && me()}>
+            <div class="mt-4">
+              <Compose
+                replyToId={props.post.id}
+                placeholder={`@${props.post.author.username} yanıtla…`}
+                autofocus
+                onPosted={onInlineReplied}
+              />
+            </div>
+          </Show>
         </div>
       </div>
     </article>

@@ -1,4 +1,4 @@
-import { createSignal, Show, For } from 'solid-js';
+import { createSignal, Show, For, onMount } from 'solid-js';
 import { api, type PostView } from '../api';
 import { visibleLength } from '../util';
 import EmojiPicker from './EmojiPicker';
@@ -11,6 +11,7 @@ interface UserBrief { id: string; username: string; display_name: string; avatar
 export default function Compose(props: {
   replyToId?: string;
   placeholder?: string;
+  autofocus?: boolean;
   onPosted?: (p: PostView) => void;
 }) {
   const [body, setBody] = createSignal('');
@@ -22,6 +23,16 @@ export default function Compose(props: {
   const [mentionIdx, setMentionIdx] = createSignal(0);
   let textarea: HTMLTextAreaElement | undefined;
   let fileInput: HTMLInputElement | undefined;
+
+  // When opened as an inline reply box, drop the cursor straight into the
+  // textarea so the user can just start typing.
+  onMount(() => {
+    if (props.autofocus && textarea) {
+      textarea.focus();
+      const end = textarea.value.length;
+      textarea.setSelectionRange(end, end);
+    }
+  });
 
   const submit = async () => {
     const text = body().trim();

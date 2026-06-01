@@ -5,7 +5,9 @@
 //   - hashed assets (/assets/*): cache-first (immutable per filename)
 //   - HTML navigations: network-first with shell fallback for offline
 
-const CACHE = 'burncpu-shell-v1';
+// Bump this on any sw.js change so `activate` drops the previous cache and
+// clients pick up the fresh shell instead of an old precache.
+const CACHE = 'burncpu-shell-v2';
 const SHELL = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
@@ -73,10 +75,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // HTML / navigation — network-first, fall back to cached shell on offline
+  // HTML / navigation — network-first so a deploy is picked up on reload;
+  // refresh the cached shell each time and fall back to it only when offline.
   if (req.mode === 'navigate' || req.destination === 'document') {
     event.respondWith(
-      fetch(req).catch(() => caches.match('/index.html')),
+      fetch(req)
+        .then((resp) => {
+          const copy = resp.clone();
+          caches.open(CACHE).then((c) => c.put('/index.html', copy));
+          return resp;
+        })
+        .catch(() => caches.match('/index.html')),
     );
   }
 });

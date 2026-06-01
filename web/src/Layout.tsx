@@ -3,6 +3,7 @@ import { A, useLocation } from '@solidjs/router';
 import { Show, createEffect, onCleanup, onMount } from 'solid-js';
 import { me, unread, refetchUnread, probeSession, logout } from './auth';
 import { t } from './i18n';
+import Logo from './components/Logo';
 import ToastStack, { pushToast } from './components/Toast';
 import Lightbox from './components/Lightbox';
 import HoverCard from './components/HoverCard';
@@ -128,11 +129,8 @@ export default function Layout(props: { children?: JSX.Element }) {
       {/* ─── Top Nav (full viewport, glassmorphic) ─────── */}
       <nav class="fixed top-0 inset-x-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-outline-variant">
         <div class="max-w-[1300px] mx-auto h-full px-4 md:px-6 flex justify-between items-center">
-          <A href="/" class="flex items-center gap-3 group" title="burncpu — 1 vps yeter">
-            <span class="relative flex items-center justify-center w-2.5 h-2.5 shrink-0">
-              <span class="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping"></span>
-              <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary"></span>
-            </span>
+          <A href="/" class="flex items-center gap-2.5 group" title="burncpu — 1 vps yeter">
+            <Logo size={26} class="text-primary shrink-0 transition-transform duration-300 group-hover:-rotate-6" />
             <span class="font-bold text-[20px] md:text-[22px] tracking-tight leading-none text-on-background">
               burncpu
             </span>
@@ -208,10 +206,7 @@ export default function Layout(props: { children?: JSX.Element }) {
           <aside class="hidden lg:flex sticky top-16 h-[calc(100vh-4rem)] flex-col py-8 px-4 gap-base border-r border-outline-variant">
             <div class="mb-6 px-4">
               <div class="flex items-center gap-3">
-                <span class="relative flex items-center justify-center w-3 h-3 shrink-0">
-                  <span class="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping"></span>
-                  <span class="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
-                </span>
+                <Logo size={32} class="text-primary shrink-0" />
                 <div class="leading-tight">
                   <div class="font-bold text-[16px] tracking-tight text-on-background">burncpu</div>
                   <div class="text-[10px] text-on-surface-variant font-mono tracking-wider">1 vps yeter</div>

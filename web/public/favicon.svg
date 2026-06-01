@@ -1,4 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="12" fill="#0d0d0d"/>
-  <text x="32" y="42" font-family="ui-monospace, monospace" font-size="32" fill="#9ce16d" text-anchor="middle" font-weight="700">b</text>
+  <rect width="64" height="64" rx="13" fill="#0d0d0d"/>
+  <g transform="translate(8,9)">
+    <g fill="none" stroke="#9ce16d" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M16.5 15 11.5 10 M31.5 15 36.5 10 M16.5 33 11.5 38 M31.5 33 36.5 38"/>
+      <path d="M24 13 V8 M24 35 V40"/>
+      <rect x="13" y="13" width="22" height="22" rx="5.5"/>
+      <path d="M13 19 H9 M13 24 H9 M13 29 H9 M35 19 H39 M35 24 H39 M35 29 H39"/>
+      <rect x="19" y="19" width="10" height="10" rx="2.5"/>
+    </g>
+    <circle cx="24" cy="6.4" r="2.6" fill="#9ce16d"/>
+    <circle cx="24" cy="24" r="2.3" fill="#9ce16d"/>
+  </g>
 </svg>

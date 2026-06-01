@@ -99,12 +99,16 @@ pub async fn layer(State(state): State<AppState>, mut req: Request<Body>, next: 
                         "API token scope does not permit this request",
                     );
                 }
-                // Bump last_used_at best-effort
-                let _ =
-                    sqlx::query("UPDATE api_tokens SET last_used_at = NOW() WHERE token_hash = $1")
-                        .bind(&hash)
-                        .execute(&state.pg)
-                        .await;
+                // Bump last_used_at best-effort, throttled to at most once per
+                // minute. Writing on *every* API request turns a read path
+                // into a per-request row UPDATE (WAL + row lock + vacuum
+                // churn) that serializes concurrent calls on the same token.
+                let _ = sqlx::query(
+                    "UPDATE api_tokens SET last_used_at = NOW() WHERE token_hash = $1 AND (last_used_at IS NULL OR last_used_at < NOW() - interval '60 seconds')",
+                )
+                .bind(&hash)
+                .execute(&state.pg)
+                .await;
                 req.extensions_mut().insert(CurrentUser {
                     user_id,
                     role,

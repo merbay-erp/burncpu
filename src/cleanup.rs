@@ -66,10 +66,6 @@ async fn run_once(pg: &PgPool) {
             "invites",
             "DELETE FROM invites WHERE redeemed_at IS NULL AND expires_at < NOW() - interval '30 days'",
         ),
-        (
-            "posts_trashed",
-            "DELETE FROM posts WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - interval '30 days'",
-        ),
     ];
 
     let mut total_removed = 0u64;
@@ -87,6 +83,46 @@ async fn run_once(pg: &PgPool) {
             }
         }
     }
+
+    // Trashed-post purge — handled separately because it must cascade to rows
+    // that reference a post by a bare UUID (no FK): `notifications.target_id`
+    // and `reports.target_id`. Without this, purging a post leaves dangling
+    // notifications/reports that 404 when opened. We also skip any post that
+    // still has a *live* reply, so the `reply_to_id … ON DELETE SET NULL`
+    // never silently re-parents a live reply into a root post (thread
+    // corruption). All three deletes run in one statement (atomic snapshot).
+    match sqlx::query(
+        r#"
+        WITH purged AS (
+            DELETE FROM posts p
+            WHERE p.deleted_at IS NOT NULL
+              AND p.deleted_at < NOW() - interval '30 days'
+              AND NOT EXISTS (
+                  SELECT 1 FROM posts c
+                  WHERE c.reply_to_id = p.id AND c.deleted_at IS NULL
+              )
+            RETURNING id
+        ),
+        del_notifs AS (
+            DELETE FROM notifications
+            WHERE target_kind = 'post' AND target_id IN (SELECT id FROM purged)
+            RETURNING 1
+        )
+        DELETE FROM reports
+        WHERE target_kind = 'post' AND target_id IN (SELECT id FROM purged)
+        "#,
+    )
+    .execute(pg)
+    .await
+    {
+        Ok(r) => {
+            total_removed += r.rows_affected();
+        }
+        Err(e) => {
+            tracing::warn!(?e, "cleanup posts_trashed purge failed");
+        }
+    }
+
     tracing::debug!(
         total = total_removed,
         ms = started.elapsed().as_millis() as u64,

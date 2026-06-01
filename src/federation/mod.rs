@@ -310,7 +310,13 @@ pub async fn fetch_actor(state: &AppState, uri: &str) -> Result<RemoteActor> {
         .send()
         .await?
         .error_for_status()?;
-    let body: serde_json::Value = resp.json().await?;
+    // Cap the actor document — a hostile (or compromised) peer shouldn't be
+    // able to stream an unbounded body into memory.
+    let raw = resp.bytes().await?;
+    if raw.len() > 256 * 1024 {
+        return Err(anyhow!("actor document too large"));
+    }
+    let body: serde_json::Value = serde_json::from_slice(&raw)?;
     let inbox = body
         .get("inbox")
         .and_then(|v| v.as_str())

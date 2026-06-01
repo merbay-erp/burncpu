@@ -210,38 +210,47 @@ async fn challenge(
         .bind(&hash)
         .fetch_optional(&state.pg)
         .await?;
-    let (session_id, user_id, secret, nonce, last_step, recovery_codes, confirmed_at) =
+    let (session_id, user_id, secret, nonce, last_step, _recovery_codes, confirmed_at) =
         row.ok_or(AppError::Unauthorized)?;
     if confirmed_at.is_none() {
         return Err(AppError::BadRequest("2FA not confirmed".into()));
     }
 
     let code = body.code.trim();
-    // Try TOTP first, then fall back to recovery code.
+    // Try TOTP first, then fall back to recovery code. Both paths consume the
+    // factor atomically in the DB and only count as success if exactly one row
+    // changed — so two concurrent requests can't both spend the same TOTP step
+    // or the same recovery code (single-use invariant).
     let ok = match totp::verify_code(&secret, &nonce, code, last_step) {
         Ok(step) => {
-            let _ = sqlx::query("UPDATE user_totp SET last_used_step = $1 WHERE user_id = $2")
-                .bind(step)
-                .bind(user_id)
-                .execute(&state.pg)
-                .await;
-            true
+            // Authoritative step advance. Conditional so a concurrent request
+            // that already advanced past `step` makes this a no-op (0 rows →
+            // treated as replay and rejected), and so a dropped write never
+            // silently reopens the replay window.
+            sqlx::query(
+                "UPDATE user_totp SET last_used_step = $1 WHERE user_id = $2 AND (last_used_step IS NULL OR last_used_step < $1)",
+            )
+            .bind(step)
+            .bind(user_id)
+            .execute(&state.pg)
+            .await
+            .map(|r| r.rows_affected() == 1)
+            .unwrap_or(false)
         }
         Err(_) => {
-            // recovery code path: hash and find in user's array; if hit, remove it.
+            // Recovery-code path: remove-if-present in one statement. The
+            // `$1 = ANY(...)` guard means only the request that actually
+            // removes the code (rows_affected == 1) succeeds.
             let h = totp::hash_recovery(code);
-            if recovery_codes.iter().any(|c| c == &h) {
-                let _ = sqlx::query(
-                    "UPDATE user_totp SET recovery_codes = array_remove(recovery_codes, $1) WHERE user_id = $2",
-                )
-                .bind(&h)
-                .bind(user_id)
-                .execute(&state.pg)
-                .await;
-                true
-            } else {
-                false
-            }
+            sqlx::query(
+                "UPDATE user_totp SET recovery_codes = array_remove(recovery_codes, $1) WHERE user_id = $2 AND $1 = ANY(recovery_codes)",
+            )
+            .bind(&h)
+            .bind(user_id)
+            .execute(&state.pg)
+            .await
+            .map(|r| r.rows_affected() == 1)
+            .unwrap_or(false)
         }
     };
     if !ok {

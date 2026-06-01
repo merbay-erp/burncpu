@@ -106,14 +106,55 @@ pub fn verify_request(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| anyhow!("no Signature header"))?;
     let parts = parse_signature_header(sig_header);
+    // The signer must declare which headers it covered — no permissive
+    // default. An attacker who controls `headers=` could otherwise sign a
+    // minimal set, omit digest, and swap the body.
     let headers_list = parts
         .get("headers")
         .cloned()
-        .unwrap_or_else(|| "(request-target) host date".into());
+        .ok_or_else(|| anyhow!("signature must declare a headers= set"))?;
     let sig_b64 = parts
         .get("signature")
         .cloned()
         .ok_or_else(|| anyhow!("no signature= param"))?;
+
+    let signed: Vec<String> = headers_list
+        .split_whitespace()
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
+    let signs = |h: &str| signed.iter().any(|s| s == h);
+
+    // Require coverage of the request line, Host and Date always, and Digest
+    // whenever there's a body — so the signature binds the target, freshness,
+    // and the payload. Without the digest requirement the JSON body is
+    // unauthenticated and forgeable.
+    if !signs("(request-target)") || !signs("host") || !signs("date") {
+        return Err(anyhow!(
+            "signature must cover (request-target), host, and date"
+        ));
+    }
+    if !body.is_empty() && !signs("digest") {
+        return Err(anyhow!(
+            "signature must cover digest when a body is present"
+        ));
+    }
+
+    // Freshness window: reject a signature whose Date is more than 5 minutes
+    // from now (either direction), so a captured signature can't be replayed
+    // indefinitely.
+    let date_str = headers
+        .get("date")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| anyhow!("no Date header"))?;
+    let sent = httpdate::parse_http_date(date_str).map_err(|e| anyhow!("bad Date: {e}"))?;
+    let now = std::time::SystemTime::now();
+    let skew = now
+        .duration_since(sent)
+        .or_else(|_| sent.duration_since(now))
+        .map_err(|e| anyhow!("clock: {e}"))?;
+    if skew > std::time::Duration::from_secs(300) {
+        return Err(anyhow!("signature date outside freshness window"));
+    }
 
     // Build signing string
     let mut signing_lines = Vec::<String>::new();
@@ -136,11 +177,9 @@ pub fn verify_request(
     }
     let signing_string = signing_lines.join("\n");
 
-    // If digest header is in the sig list, verify it matches body
-    if headers_list
-        .split_whitespace()
-        .any(|h| h.eq_ignore_ascii_case("digest"))
-    {
+    // Verify the digest matches the actual body (presence already enforced
+    // above when a body exists).
+    if signs("digest") {
         let claimed = headers
             .get("digest")
             .and_then(|v| v.to_str().ok())

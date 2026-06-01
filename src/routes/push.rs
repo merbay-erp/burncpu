@@ -34,6 +34,28 @@ pub fn router() -> Router<AppState> {
         .route("/unsubscribe", delete(unsubscribe))
 }
 
+// Known Web Push provider host suffixes. `validate_public_http_url` blocks
+// internal IPs at validation time, but the web-push (isahc/curl) client
+// re-resolves the hostname at send time — a DNS-rebinding TOCTOU. Pinning the
+// endpoint host to a real push provider closes that hole: an attacker host
+// (which would rebind to an internal IP) is rejected at subscribe time and
+// never stored. These are all public CDN domains, so they can't resolve to
+// an internal target.
+const PUSH_HOST_SUFFIXES: &[&str] = &[
+    "googleapis.com",            // Chrome / Edge / Brave / Opera / Samsung (FCM)
+    "push.services.mozilla.com", // Firefox (autopush)
+    "push.apple.com",            // Safari (macOS / iOS 16.4+)
+    "notify.windows.com",        // Windows / legacy Edge (WNS)
+    "push.microsoft.com",
+];
+
+fn is_known_push_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    PUSH_HOST_SUFFIXES
+        .iter()
+        .any(|s| host == *s || host.ends_with(&format!(".{s}")))
+}
+
 fn vapid_public_key() -> Option<String> {
     std::env::var("VAPID_PUBLIC_KEY")
         .ok()
@@ -88,6 +110,11 @@ async fn subscribe(
         .map_err(|e| AppError::BadRequest(format!("endpoint is not public https: {e}")))?;
     if endpoint.scheme() != "https" {
         return Err(AppError::BadRequest("endpoint must be https".into()));
+    }
+    if !is_known_push_host(endpoint.host_str().unwrap_or("")) {
+        return Err(AppError::BadRequest(
+            "endpoint host is not a recognized push service".into(),
+        ));
     }
     let ua = headers
         .get(header::USER_AGENT)
@@ -207,7 +234,11 @@ pub async fn send_to_user(
 
     for (id, endpoint, p256dh, auth) in subs {
         let endpoint = match crate::net_safety::validate_public_http_url(&endpoint).await {
-            Ok(url) if url.scheme() == "https" => url.to_string(),
+            Ok(url)
+                if url.scheme() == "https" && is_known_push_host(url.host_str().unwrap_or("")) =>
+            {
+                url.to_string()
+            }
             Ok(_) | Err(_) => {
                 let _ = sqlx::query("DELETE FROM push_subscriptions WHERE id = $1")
                     .bind(id)

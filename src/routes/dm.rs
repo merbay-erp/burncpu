@@ -26,6 +26,7 @@ use axum::{
     http::StatusCode,
     routing::{delete, get, patch},
 };
+use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -39,6 +40,11 @@ pub fn router() -> Router<AppState> {
 }
 
 const MAX_DM_LEN: usize = 5000;
+// Per-sender DM throttle. Each accepted message fans out an SSE event +
+// push to the recipient, so an unbounded send rate is a message/push-bomb
+// vector even between mutual followers.
+const DM_RATE_LIMIT_MAX: u32 = 20;
+const DM_RATE_LIMIT_WINDOW_SECS: u64 = 60;
 
 fn canonical_pair(a: Uuid, b: Uuid) -> (Uuid, Uuid) {
     if a < b { (a, b) } else { (b, a) }
@@ -246,6 +252,20 @@ async fn send(
     if !mutual_follow(&state, user.user_id, other.0).await {
         return Err(AppError::Forbidden);
     }
+
+    // Anti-spam throttle (per sender, fixed window).
+    {
+        let mut redis = state.redis.clone();
+        let key = format!("rl:dm:send:{}", user.user_id);
+        let count: u32 = redis.incr(&key, 1u32).await?;
+        if count == 1 {
+            let _: () = redis.expire(&key, DM_RATE_LIMIT_WINDOW_SECS as i64).await?;
+        }
+        if count > DM_RATE_LIMIT_MAX {
+            return Err(AppError::RateLimited);
+        }
+    }
+
     let (a, b) = canonical_pair(user.user_id, other.0);
 
     let thread_id: Uuid = sqlx::query_scalar(
@@ -310,6 +330,11 @@ async fn mark_read(
     Path(username): Path<String>,
 ) -> Result<StatusCode, AppError> {
     let other = lookup_user(&state, &username).await?;
+    // Match the block enforcement that thread()/send() apply — don't let a
+    // blocked relationship still flip read-receipts across the boundary.
+    if is_blocked(&state, user.user_id, other.0).await {
+        return Err(AppError::Forbidden);
+    }
     let (a, b) = canonical_pair(user.user_id, other.0);
     let tid: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM dm_threads WHERE a_id = $1 AND b_id = $2")

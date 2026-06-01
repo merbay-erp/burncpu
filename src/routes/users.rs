@@ -749,7 +749,8 @@ async fn follow(
     if target == user.user_id {
         return Err(AppError::BadRequest("cannot follow yourself".into()));
     }
-    // Block check (either direction kills the follow attempt)
+    // Block check (either direction kills the follow attempt) — early-return
+    // for a clear 403 in the common case.
     let blocked: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1))",
     )
@@ -762,9 +763,19 @@ async fn follow(
         return Err(AppError::Forbidden);
     }
 
+    // Re-check the block inside the INSERT itself. Without this, a block that
+    // lands between the SELECT above and this INSERT would still produce a
+    // follow row that contradicts the block (TOCTOU). The `SELECT ... WHERE
+    // NOT EXISTS` makes "no follow may coexist with a block" atomic.
     let inserted = sqlx::query(
         r#"
-        INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2)
+        INSERT INTO follows (follower_id, followee_id)
+        SELECT $1, $2
+        WHERE NOT EXISTS (
+            SELECT 1 FROM user_blocks
+            WHERE (blocker_id = $1 AND blocked_id = $2)
+               OR (blocker_id = $2 AND blocked_id = $1)
+        )
         ON CONFLICT DO NOTHING
         "#,
     )

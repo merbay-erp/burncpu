@@ -15,12 +15,14 @@ use crate::{
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
@@ -281,6 +283,7 @@ async fn following(
 
 async fn inbox(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path(username): Path<String>,
     headers: HeaderMap,
     bytes: Bytes,
@@ -288,6 +291,28 @@ async fn inbox(
     if !state.config.federation_enabled {
         return Ok(fed_off());
     }
+
+    // Require a signature *before* doing any outbound work. The inbox triggers
+    // an outbound actor fetch, so an unsigned request must never reach it —
+    // otherwise any anonymous client can make us GET an arbitrary URL.
+    let key_id = sign::signature_key_id(&headers).ok_or(AppError::Unauthorized)?;
+
+    // Per-source rate limit (the fetch is the amplification vector).
+    let ip = crate::middleware::client_ip::extract(&headers, Some(&peer))
+        .map(|i| i.to_string())
+        .unwrap_or_default();
+    if !ip.is_empty() {
+        let mut redis = state.redis.clone();
+        let rkey = format!("rl:ap:inbox:{ip}");
+        let count: u32 = redis.incr(&rkey, 1u32).await.unwrap_or(0);
+        if count == 1 {
+            let _: () = redis.expire(&rkey, 60).await.unwrap_or(());
+        }
+        if count > 60 {
+            return Err(AppError::RateLimited);
+        }
+    }
+
     let user_id: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
             .bind(&username)
@@ -298,12 +323,19 @@ async fn inbox(
     let activity: IncomingActivity = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::BadRequest(format!("invalid AS2: {e}")))?;
 
+    // The signing key must live on the same origin as the claimed actor, so a
+    // request can't point keyId at one host and actor at another to make us
+    // fetch an unrelated target.
+    if !same_origin(&key_id, &activity.actor) {
+        return Err(AppError::BadRequest(
+            "signature keyId / actor host mismatch".into(),
+        ));
+    }
+
     let actor = fetch_actor(&state, &activity.actor)
         .await
         .map_err(|e| AppError::BadRequest(format!("fetch actor: {e}")))?;
-    if let Some(key_id) = sign::signature_key_id(&headers)
-        && key_id != actor.public_key_id
-    {
+    if key_id != actor.public_key_id {
         return Err(AppError::BadRequest("signature keyId mismatch".into()));
     }
     let path = format!("/ap/users/{username}/inbox");
@@ -314,6 +346,18 @@ async fn inbox(
         tracing::warn!(?e, "inbox dispatch failed");
     }
     Ok((StatusCode::ACCEPTED, "ok").into_response())
+}
+
+/// Same scheme + host + effective port for two URLs (origin equality).
+fn same_origin(a: &str, b: &str) -> bool {
+    match (url::Url::parse(a), url::Url::parse(b)) {
+        (Ok(ua), Ok(ub)) => {
+            ua.scheme() == ub.scheme()
+                && ua.host_str() == ub.host_str()
+                && ua.port_or_known_default() == ub.port_or_known_default()
+        }
+        _ => false,
+    }
 }
 
 // ─── Webfinger ─────────────────────────────────────────────────

@@ -122,6 +122,22 @@ fn is_forbidden_ipv6(ip: Ipv6Addr) -> bool {
         return is_forbidden_ipv4(mapped);
     }
     let s = ip.segments();
+    // Re-map any embedded IPv4 and apply the v4 rules, otherwise an internal
+    // target can be reached through an IPv6 wrapper:
+    //   - IPv4-compatible ::a.b.c.d  (high 96 bits zero, deprecated)
+    //   - NAT64           64:ff9b::a.b.c.d
+    let high96_zero = s[0] == 0 && s[1] == 0 && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0;
+    let nat64 =
+        s[0] == 0x0064 && s[1] == 0xff9b && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0;
+    if high96_zero || nat64 {
+        let v4 = Ipv4Addr::new(
+            (s[6] >> 8) as u8,
+            (s[6] & 0xff) as u8,
+            (s[7] >> 8) as u8,
+            (s[7] & 0xff) as u8,
+        );
+        return is_forbidden_ipv4(v4);
+    }
     ip.is_loopback()
         || ip.is_unspecified()
         || ip.is_multicast()
@@ -147,6 +163,16 @@ mod tests {
             "https://user:pass@example.com/",
         ] {
             assert!(validate_public_http_url(raw).await.is_err(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn forbids_ipv6_embedded_ipv4() {
+        // IPv4-compatible ::a.b.c.d and NAT64 64:ff9b::a.b.c.d wrappers around
+        // the cloud-metadata address must still be rejected.
+        for raw in ["::169.254.169.254", "64:ff9b::a9fe:a9fe", "::127.0.0.1"] {
+            let ip: IpAddr = raw.parse().unwrap();
+            assert!(is_forbidden_ip(ip), "{raw}");
         }
     }
 }

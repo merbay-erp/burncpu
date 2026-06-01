@@ -39,7 +39,10 @@ fn default_limit() -> i64 {
 fn parse_window(s: &str) -> chrono::Duration {
     let s = s.trim().to_lowercase();
     let (num, unit) = s.split_at(s.len().saturating_sub(1));
-    let n: i64 = num.parse().unwrap_or(24);
+    // Clamp the magnitude: an unbounded value (e.g. `window=999999999d`) makes
+    // `Utc::now() - Duration` overflow chrono's representable range, which
+    // panics the handler. 1..=8760 of any unit stays comfortably in range.
+    let n: i64 = num.parse().unwrap_or(24).clamp(1, 8760);
     match unit {
         "m" => chrono::Duration::minutes(n),
         "h" => chrono::Duration::hours(n),
@@ -61,12 +64,13 @@ async fn hashtags(
     let since = Utc::now() - parse_window(&q.window);
     let limit = q.limit.clamp(1, 100);
     // Postgres regex extraction. Same rules as the Rust extractor: 2-32
-    // chars, lowercase, alphanumeric or _. The `[a-z0-9_]{2,32}` regex
-    // makes the same character-class commitment.
+    // chars, lowercase, alphanumeric or _. Lowercase the body first so a tag
+    // typed `#News` matches as `news` (the `[a-z0-9_]` class would otherwise
+    // miss the capital N entirely and silently truncate the tag).
     let rows: Vec<TagCount> = sqlx::query_as(
         r#"
         SELECT tag, COUNT(*)::bigint AS count FROM (
-            SELECT lower(unnest(regexp_matches(body, '(?<![[:alnum:]_])#([a-z0-9_]{2,32})', 'g'))) AS tag
+            SELECT unnest(regexp_matches(lower(body), '(?<![[:alnum:]_])#([a-z0-9_]{2,32})', 'g')) AS tag
             FROM posts p
             JOIN users u ON u.id = p.author_id
             WHERE p.deleted_at IS NULL

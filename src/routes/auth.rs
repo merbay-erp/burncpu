@@ -92,6 +92,13 @@ pub async fn request_handler(
     }
 
     // ── Invite gating (only when INVITES_REQUIRED and email is new)
+    //
+    // Enumeration-safe: the externally observable response must NOT differ
+    // based on whether the email already has an account. A new email with no
+    // valid invite returns exactly the same 204 as the success path — we just
+    // don't issue/send a magic link. That also means we never email a
+    // non-invited address (no mail-spam vector). A signup UI can pre-check a
+    // code via `GET /invites/{code}`.
     if state.config.invites_required {
         let user_exists: Option<bool> =
             sqlx::query_scalar("SELECT TRUE FROM users WHERE email = $1")
@@ -101,7 +108,21 @@ pub async fn request_handler(
         if user_exists.is_none() {
             // New email → must present a valid, unredeemed, unexpired invite
             let code = body.invite.as_deref().unwrap_or("").trim();
-            if code.is_empty() {
+            let valid = if code.is_empty() {
+                false
+            } else {
+                sqlx::query_scalar::<_, bool>(
+                    r#"
+                    SELECT TRUE FROM invites
+                    WHERE code = $1 AND redeemed_at IS NULL AND expires_at > NOW()
+                    "#,
+                )
+                .bind(code)
+                .fetch_optional(&state.pg)
+                .await?
+                .unwrap_or(false)
+            };
+            if !valid {
                 log_attempt(
                     &state,
                     Some(&email),
@@ -112,29 +133,7 @@ pub async fn request_handler(
                     None,
                 )
                 .await;
-                return Err(AppError::BadRequest("invite code required".into()));
-            }
-            let valid: Option<bool> = sqlx::query_scalar(
-                r#"
-                SELECT TRUE FROM invites
-                WHERE code = $1 AND redeemed_at IS NULL AND expires_at > NOW()
-                "#,
-            )
-            .bind(code)
-            .fetch_optional(&state.pg)
-            .await?;
-            if valid.is_none() {
-                log_attempt(
-                    &state,
-                    Some(&email),
-                    "request",
-                    "invalid",
-                    &ip_str,
-                    &ua,
-                    None,
-                )
-                .await;
-                return Err(AppError::BadRequest("invite invalid or expired".into()));
+                return Ok(StatusCode::NO_CONTENT);
             }
         }
     }
@@ -344,8 +343,16 @@ pub async fn verify_handler(
     .await;
 
     // ── Set cookie + return JSON so the SPA can navigate client-side.
+    // `Secure` is keyed off the public scheme: production (https site_origin)
+    // gets it; local HTTP dev would otherwise have the browser silently drop
+    // the cookie, making login appear to succeed but no session stored.
+    let secure = if state.config.site_origin.starts_with("https://") {
+        "; Secure"
+    } else {
+        ""
+    };
     let cookie = format!(
-        "{SESSION_COOKIE}={session_raw}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={}",
+        "{SESSION_COOKIE}={session_raw}; HttpOnly{secure}; SameSite=Lax; Path=/; Max-Age={}",
         SESSION_TTL.as_secs()
     );
 
@@ -380,7 +387,12 @@ pub async fn logout_handler(
         .await?;
     }
 
-    let cookie = format!("{SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0");
+    let secure = if state.config.site_origin.starts_with("https://") {
+        "; Secure"
+    } else {
+        ""
+    };
+    let cookie = format!("{SESSION_COOKIE}=; HttpOnly{secure}; SameSite=Lax; Path=/; Max-Age=0");
     let mut response = StatusCode::NO_CONTENT.into_response();
     let cookie_value =
         HeaderValue::from_str(&cookie).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
@@ -439,9 +451,11 @@ fn _t(_d: DateTime<Utc>) {}
 fn is_email_shaped(s: &str) -> bool {
     let bytes = s.as_bytes();
     let at = bytes.iter().position(|&b| b == b'@');
+    // `i + 3 < len` (not `i < len - 3`) so a short input like "a@" can't
+    // underflow `len - 3` — that panics in debug builds on attacker input.
     matches!(
         at,
-        Some(i) if i > 0 && i < bytes.len() - 3 && bytes[i + 1..].contains(&b'.')
+        Some(i) if i > 0 && i + 3 < bytes.len() && bytes[i + 1..].contains(&b'.')
     )
 }
 

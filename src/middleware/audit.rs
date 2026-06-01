@@ -27,7 +27,7 @@ pub async fn layer(State(state): State<AppState>, req: Request<Body>, next: Next
     let request_id = Uuid::new_v4();
 
     let method = req.method().clone();
-    let path = req.uri().path().to_string();
+    let path = redact_sensitive_path(req.uri().path());
     let ua = req
         .headers()
         .get(header::USER_AGENT)
@@ -96,7 +96,50 @@ pub async fn layer(State(state): State<AppState>, req: Request<Body>, next: Next
     response
 }
 
+/// Magic-link tokens travel in the URL *path* on the verify/confirm routes
+/// (e.g. `GET /api/v1/auth/verify/{token}`). That token is a single-use
+/// secret with a 15-minute TTL, and the GET bounce does NOT consume it — so
+/// logging the raw path would persist a still-valid credential into
+/// `audit_log` (readable via `/admin/audit`) and into tracing output. Strip
+/// the token segment before it is ever recorded.
+fn redact_sensitive_path(path: &str) -> String {
+    for prefix in ["/api/v1/auth/verify/", "/auth/confirm/", "/auth/verify/"] {
+        if path
+            .strip_prefix(prefix)
+            .is_some_and(|rest| !rest.is_empty())
+        {
+            return format!("{prefix}[redacted]");
+        }
+    }
+    path.to_string()
+}
+
 #[allow(dead_code)]
 fn _status_help(s: StatusCode) -> bool {
     s.is_success()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_sensitive_path;
+
+    #[test]
+    fn redacts_magic_link_tokens() {
+        assert_eq!(
+            redact_sensitive_path("/api/v1/auth/verify/abc123SECRET"),
+            "/api/v1/auth/verify/[redacted]"
+        );
+        assert_eq!(
+            redact_sensitive_path("/auth/confirm/abc123SECRET"),
+            "/auth/confirm/[redacted]"
+        );
+        // Untouched paths pass through verbatim.
+        assert_eq!(redact_sensitive_path("/api/v1/posts"), "/api/v1/posts");
+        assert_eq!(redact_sensitive_path("/healthz"), "/healthz");
+        // Bare prefix with no token is left alone (nothing to leak).
+        assert_eq!(
+            redact_sensitive_path("/api/v1/auth/verify"),
+            "/api/v1/auth/verify"
+        );
+    }
 }

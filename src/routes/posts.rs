@@ -72,6 +72,14 @@ async fn restore(
     }
     let post = fetch_post(&state, id, Some(user.user_id)).await?;
 
+    // Undo the decrement that delete_post applied to the parent's reply count.
+    if let Some(parent) = post.reply_to_id {
+        let _ = sqlx::query("UPDATE posts SET replies_count = replies_count + 1 WHERE id = $1")
+            .bind(parent)
+            .execute(&state.pg)
+            .await;
+    }
+
     // Re-add to search if public+live
     if post.visibility == "public" {
         let doc = PostDoc::from_parts(
@@ -355,6 +363,11 @@ pub struct TimelineQuery {
     #[serde(default = "default_limit")]
     limit: i64,
     before: Option<DateTime<Utc>>,
+    // Composite keyset cursor tie-breaker: when several posts share the exact
+    // same `created_at`, paginating on the timestamp alone silently skips the
+    // ones past the page boundary. The client echoes back the last row's id so
+    // we can compare on `(created_at, id)`.
+    before_id: Option<Uuid>,
 }
 
 fn default_limit() -> i64 {
@@ -363,10 +376,12 @@ fn default_limit() -> i64 {
 
 async fn timeline(
     State(state): State<AppState>,
+    viewer_opt: Option<CurrentUser>,
     Query(q): Query<TimelineQuery>,
 ) -> Result<Json<TimelineResponse>, AppError> {
     let limit = q.limit.clamp(1, 100);
     let before = q.before.unwrap_or_else(Utc::now);
+    let viewer_id = viewer_opt.as_ref().map(|u| u.user_id);
 
     let rows: Vec<PostRow> = sqlx::query_as(
         r#"
@@ -386,26 +401,43 @@ async fn timeline(
           AND p.moderation_state = 'live'
           AND p.deleted_at IS NULL
           AND u.role <> 'suspended'
-          AND p.created_at < $1
-        ORDER BY p.created_at DESC
+          AND ((p.created_at < $1) OR (p.created_at = $1 AND p.id < $4))
+          AND (
+              $3::uuid IS NULL
+              OR p.author_id = $3
+              OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $3 AND b.blocked_id = p.author_id)
+                     OR (b.blocker_id = p.author_id AND b.blocked_id = $3)
+              )
+          )
+        ORDER BY p.created_at DESC, p.id DESC
         LIMIT $2
         "#,
     )
     .bind(before)
     .bind(limit)
+    .bind(viewer_id)
+    .bind(q.before_id.unwrap_or(Uuid::nil()))
     .fetch_all(&state.pg)
     .await?;
 
-    let next_before = rows.last().map(|r| r.created_at);
+    let next = rows.last().map(|r| (r.created_at, r.id));
     let posts = rows.into_iter().map(PostRow::into_view).collect();
 
-    Ok(Json(TimelineResponse { posts, next_before }))
+    Ok(Json(TimelineResponse {
+        posts,
+        next_before: next.map(|(t, _)| t),
+        next_before_id: next.map(|(_, id)| id),
+    }))
 }
 
 #[derive(Serialize)]
 pub struct TimelineResponse {
     posts: Vec<PostView>,
     next_before: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_before_id: Option<Uuid>,
 }
 
 // ── GET /posts/:id ──────────────────────────────────────────────
@@ -426,21 +458,41 @@ async fn delete_post(
     user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    let author_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1 AND deleted_at IS NULL")
-            .bind(id)
-            .fetch_optional(&state.pg)
-            .await?;
+    let row: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+        "SELECT author_id, reply_to_id FROM posts WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .fetch_optional(&state.pg)
+    .await?;
 
-    let author_id = author_id.ok_or(AppError::NotFound)?;
-    if author_id != user.user_id && (user.role != "admin" || user.is_api_token()) {
+    let (author_id, reply_to_id) = row.ok_or(AppError::NotFound)?;
+    // Author, or an admin acting through a browser session (never an API
+    // token — those must not wield admin moderation power).
+    let is_admin_session = user.role == "admin" && !user.is_api_token();
+    if author_id != user.user_id && !is_admin_session {
         return Err(AppError::Forbidden);
     }
 
-    sqlx::query("UPDATE posts SET deleted_at = NOW() WHERE id = $1")
-        .bind(id)
+    let affected =
+        sqlx::query("UPDATE posts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL")
+            .bind(id)
+            .execute(&state.pg)
+            .await?
+            .rows_affected();
+
+    // Keep the parent's denormalized replies_count honest. It's only ever
+    // incremented on reply create, so without this it inflates forever as
+    // replies are deleted. GREATEST clamps against underflow.
+    if affected > 0
+        && let Some(parent) = reply_to_id
+    {
+        let _ = sqlx::query(
+            "UPDATE posts SET replies_count = GREATEST(replies_count - 1, 0) WHERE id = $1",
+        )
+        .bind(parent)
         .execute(&state.pg)
-        .await?;
+        .await;
+    }
 
     let search = state.search.clone();
     tokio::spawn(async move { search.delete_post(id).await });
@@ -538,9 +590,9 @@ async fn repost(
     Path(id): Path<Uuid>,
     Json(input): Json<RepostBody>,
 ) -> Result<(StatusCode, Json<PostView>), AppError> {
-    let target: Option<(Uuid, Uuid, String)> = sqlx::query_as(
+    let target: Option<(Uuid, Uuid, String, Option<Uuid>)> = sqlx::query_as(
         r#"
-        SELECT p.id, p.author_id, p.visibility
+        SELECT p.id, p.author_id, p.visibility, p.repost_of_id
         FROM posts p JOIN users u ON u.id = p.author_id
         WHERE p.id = $1
           AND p.deleted_at IS NULL
@@ -551,11 +603,46 @@ async fn repost(
     .bind(id)
     .fetch_optional(&state.pg)
     .await?;
-    let (target_id, target_author, target_vis) = target.ok_or(AppError::NotFound)?;
+    let (target_id, target_author, target_vis, target_repost_of) =
+        target.ok_or(AppError::NotFound)?;
     if target_vis != "public"
         || !can_view_post_author(&state, target_author, &target_vis, Some(user.user_id)).await
     {
         return Err(AppError::Forbidden);
+    }
+    // No repost-of-repost chains — always boost the original.
+    if target_repost_of.is_some() {
+        return Err(AppError::BadRequest(
+            "repost the original post, not a repost".into(),
+        ));
+    }
+    // Idempotency: a user can repost a given target once. Re-reposting would
+    // otherwise let one account flood the public timeline with copies.
+    let already_reposted: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM posts WHERE author_id = $1 AND repost_of_id = $2 AND deleted_at IS NULL)",
+    )
+    .bind(user.user_id)
+    .bind(target_id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false);
+    if already_reposted {
+        return Err(AppError::BadRequest("already reposted".into()));
+    }
+    // Reposts are posts — they draw from the same per-user create budget so
+    // they can't bypass the anti-spam rate limit that create_post enforces.
+    {
+        let mut redis = state.redis.clone();
+        let user_key = format!("rl:post:create:user:{}", user.user_id);
+        let user_count: u32 = redis.incr(&user_key, 1u32).await?;
+        if user_count == 1 {
+            let _: () = redis
+                .expire(&user_key, POST_RATE_LIMIT_WINDOW_SECS as i64)
+                .await?;
+        }
+        if user_count > POST_RATE_LIMIT_MAX_USER {
+            return Err(AppError::RateLimited);
+        }
     }
 
     let body_raw = input.body.trim();
@@ -651,10 +738,23 @@ async fn react(
         return Err(AppError::NotFound);
     }
 
+    // Did the viewer already have a reaction on this post? Only a *brand-new*
+    // reaction should notify the author — toggling 🔥→🐢 (the ON CONFLICT
+    // UPDATE path) must NOT re-ping them, or a single user can spam the author
+    // with notifications by flipping their emoji on one post.
+    let had_reaction: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM reactions WHERE post_id = $1 AND user_id = $2)",
+    )
+    .bind(id)
+    .bind(user.user_id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false);
+
     // Upsert reaction. If user already had a reaction, replace it. Either
     // way reactions_count increments by 0 or 1; do a final recount to stay
     // consistent.
-    let inserted: u64 = sqlx::query(
+    sqlx::query(
         r#"
         INSERT INTO reactions (post_id, user_id, emoji)
         VALUES ($1, $2, $3)
@@ -665,19 +765,14 @@ async fn react(
     .bind(user.user_id)
     .bind(emoji)
     .execute(&state.pg)
-    .await?
-    .rows_affected();
-    let _ = inserted; // suppress unused-warn
+    .await?;
 
     refresh_reactions_count(&state, id).await?;
 
-    // Notify the post author (skip if reacting to own post — handled by notify())
-    let author_id: Option<Uuid> = sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.pg)
-        .await
-        .unwrap_or(None);
-    if let Some(author_id) = author_id {
+    // Notify the post author on first reaction only. `author_id` was already
+    // resolved (and visibility-checked) above — no need to re-query. notify()
+    // skips self-reactions and blocked/muted actors.
+    if !had_reaction {
         notify(
             &state,
             author_id,
@@ -770,7 +865,7 @@ async fn refresh_reactions_count(state: &AppState, post_id: Uuid) -> Result<(), 
 // ── helpers ─────────────────────────────────────────────────────
 
 #[derive(sqlx::FromRow)]
-struct PostRow {
+pub(crate) struct PostRow {
     id: Uuid,
     author_id: Uuid,
     username: String,
@@ -791,7 +886,13 @@ struct PostRow {
 }
 
 impl PostRow {
-    fn into_view(self) -> PostView {
+    /// Keyset cursor for this row: `(created_at, id)`. Used as the
+    /// pagination tie-breaker so rows sharing a timestamp aren't skipped.
+    pub(crate) fn cursor(&self) -> (DateTime<Utc>, Uuid) {
+        (self.created_at, self.id)
+    }
+
+    pub(crate) fn into_view(self) -> PostView {
         PostView {
             id: self.id,
             author: AuthorView {
@@ -1081,7 +1182,7 @@ async fn replies(
         WHERE p.reply_to_id = $1
           AND p.moderation_state = 'live'
           AND p.deleted_at IS NULL
-          AND p.created_at < $2
+          AND ((p.created_at < $2) OR (p.created_at = $2 AND p.id < $5))
           AND u.role <> 'suspended'
           AND (
               p.visibility = 'public'
@@ -1104,7 +1205,7 @@ async fn replies(
                      OR (b.blocker_id = p.author_id AND b.blocked_id = $3)
               )
           )
-        ORDER BY p.created_at DESC
+        ORDER BY p.created_at DESC, p.id DESC
         LIMIT $4
         "#,
     )
@@ -1112,12 +1213,17 @@ async fn replies(
     .bind(before)
     .bind(viewer_id)
     .bind(limit)
+    .bind(q.before_id.unwrap_or(Uuid::nil()))
     .fetch_all(&state.pg)
     .await?;
 
-    let next_before = rows.last().map(|r| r.created_at);
+    let next = rows.last().map(|r| (r.created_at, r.id));
     let posts = rows.into_iter().map(PostRow::into_view).collect();
-    Ok(Json(TimelineResponse { posts, next_before }))
+    Ok(Json(TimelineResponse {
+        posts,
+        next_before: next.map(|(t, _)| t),
+        next_before_id: next.map(|(_, id)| id),
+    }))
 }
 
 // ── GET /posts/{id}/thread ──────────────────────────────────────

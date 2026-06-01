@@ -15,9 +15,15 @@ use axum::{
     http::StatusCode,
     routing::{get, patch, post},
 };
+use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
 use uuid::Uuid;
+
+// Per-reporter throttle: dedupe stops same-target floods, this caps how many
+// distinct targets one account can report per hour.
+const REPORT_RATE_LIMIT_MAX: u32 = 30;
+const REPORT_RATE_LIMIT_WINDOW_SECS: u64 = 3600;
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/", post(create))
@@ -54,10 +60,31 @@ async fn create(
             REASONS.join(", ")
         )));
     }
+
+    // Per-reporter rate limit (distinct-target floods).
+    {
+        let mut redis = state.redis.clone();
+        let key = format!("rl:report:create:{}", user.user_id);
+        let count: u32 = redis.incr(&key, 1u32).await?;
+        if count == 1 {
+            let _: () = redis
+                .expire(&key, REPORT_RATE_LIMIT_WINDOW_SECS as i64)
+                .await?;
+        }
+        if count > REPORT_RATE_LIMIT_MAX {
+            return Err(AppError::RateLimited);
+        }
+    }
+
+    // Dedupe: one open report per (reporter, target). A repeat is an
+    // idempotent no-op (the reports_dedupe_idx partial unique index backs
+    // the ON CONFLICT), so a buggy/abusive client can't multiply rows.
     sqlx::query(
         r#"
         INSERT INTO reports (reporter_id, target_kind, target_id, reason, note)
         VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (reporter_id, target_kind, target_id) WHERE resolved_at IS NULL
+        DO NOTHING
         "#,
     )
     .bind(user.user_id)

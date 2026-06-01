@@ -5,6 +5,7 @@
 // blockquote. No images embedded inline (use post_media), no raw HTML.
 
 use pulldown_cmark::{Options, Parser, html};
+use std::borrow::Cow;
 use std::sync::OnceLock;
 
 pub fn render_markdown(src: &str) -> String {
@@ -20,7 +21,26 @@ pub fn render_markdown(src: &str) -> String {
     let mut html_out = String::with_capacity(pre.len() + 64);
     html::push_html(&mut html_out, parser);
 
-    scrub_remote_images(sanitizer().clean(&html_out).to_string())
+    // Image src is constrained inside the sanitizer via an attribute filter
+    // (see `sanitizer()`), so no fragile post-pass over already-encoded HTML.
+    sanitizer().clean(&html_out).to_string()
+}
+
+/// True only for a flat local media path: `/media/<name>` where `<name>` is a
+/// content-addressed filename (alphanumeric + `.`/`_`/`-`, no `/`, no `..`).
+/// Everything else — remote URLs, protocol-relative `//host`, `/media/../x`
+/// traversal — is rejected.
+fn is_local_media_src(v: &str) -> bool {
+    match v.strip_prefix("/media/") {
+        Some(rest) => {
+            !rest.is_empty()
+                && !rest.contains("..")
+                && rest
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        }
+        None => false,
+    }
 }
 
 /// Pre-pass: rewrite `@username` tokens into markdown link
@@ -176,63 +196,20 @@ fn sanitizer() -> &'static ammonia::Builder<'static> {
         let mut tag_attrs = b.clone_tag_attributes();
         tag_attrs.insert("img", ["src", "alt", "title"].iter().copied().collect());
         b.tag_attributes(tag_attrs);
+        // Constrain <img src> to local /media/ during sanitization. ammonia's
+        // url_schemes would otherwise happily keep remote https images (a
+        // tracking-pixel + path-traversal surface). Invalid sources collapse
+        // to an empty src rather than dropping the tag.
+        b.attribute_filter(|element, attribute, value| {
+            if element == "img" && attribute == "src" && !is_local_media_src(value) {
+                return Some(Cow::Borrowed(""));
+            }
+            Some(Cow::Borrowed(value))
+        });
         // No <iframe>, <script>, <object>, etc. — those stay rejected by
         // ammonia's defaults.
         b
     })
-}
-
-fn scrub_remote_images(html: String) -> String {
-    let bytes = html.as_bytes();
-    let mut out = String::with_capacity(html.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        let is_img = bytes.len() >= i + 5
-            && bytes[i] == b'<'
-            && bytes[i + 1].eq_ignore_ascii_case(&b'i')
-            && bytes[i + 2].eq_ignore_ascii_case(&b'm')
-            && bytes[i + 3].eq_ignore_ascii_case(&b'g')
-            && matches!(bytes[i + 4], b' ' | b'\t' | b'>' | b'/');
-        if !is_img {
-            let start = i;
-            let mut end = start + 1;
-            while end < bytes.len() && (bytes[end] & 0xC0) == 0x80 {
-                end += 1;
-            }
-            out.push_str(&html[start..end]);
-            i = end;
-            continue;
-        }
-
-        let mut end = i + 4;
-        while end < bytes.len() && bytes[end] != b'>' {
-            end += 1;
-        }
-        let tag_slice = &html[i..end.min(bytes.len())];
-        let kept = if let Some(src_at) = tag_slice.find("src=\"") {
-            let val_start = src_at + 5;
-            if let Some(val_end_rel) = tag_slice[val_start..].find('"') {
-                let val = &tag_slice[val_start..val_start + val_end_rel];
-                if val.starts_with("/media/") {
-                    tag_slice.to_string()
-                } else {
-                    tag_slice.replacen(&format!("src=\"{val}\""), "src=\"\"", 1)
-                }
-            } else {
-                tag_slice.to_string()
-            }
-        } else {
-            tag_slice.to_string()
-        };
-        out.push_str(&kept);
-        if end < bytes.len() {
-            out.push('>');
-            i = end + 1;
-        } else {
-            i = end;
-        }
-    }
-    out
 }
 
 /// First N characters of plain text, used for previews / timeline meta.
@@ -322,5 +299,10 @@ mod tests {
         let protocol_relative = render_markdown("![x](//example.com/pixel.png)");
         assert!(!protocol_relative.contains("//example.com"));
         assert!(protocol_relative.contains("src=\"\""));
+
+        // Path traversal dressed up as a local media path must be rejected.
+        let traversal = render_markdown("![x](/media/../../etc/passwd)");
+        assert!(!traversal.contains(".."));
+        assert!(traversal.contains("src=\"\""));
     }
 }

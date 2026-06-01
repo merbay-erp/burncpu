@@ -34,18 +34,35 @@ const eventText = (e: NotificationEvent): string => {
   }
 };
 
-function SideLink(props: { href: string; icon: string; label: string; active: boolean }) {
+function SideLink(props: {
+  href: string;
+  icon: string;
+  label: string;
+  active: boolean;
+  badge?: number;
+}) {
   return (
     <A
       href={props.href}
       class={
-        props.active
-          ? 'flex items-center gap-3 px-4 py-3 text-primary border-r-2 border-primary bg-surface-container-low font-bold transition-all duration-200'
-          : 'flex items-center gap-3 px-4 py-3 text-on-secondary-container hover:bg-surface-container-highest hover:text-primary transition-all duration-200'
+        'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 ' +
+        (props.active
+          ? 'bg-primary/10 text-primary font-semibold'
+          : 'text-on-secondary-container hover:bg-surface-container-high/60 hover:text-on-background')
       }
     >
-      <span class="material-symbols-outlined">{props.icon}</span>
-      <span class="font-mono text-[14px] tracking-wide">{props.label}</span>
+      <span
+        class="material-symbols-outlined text-[21px] shrink-0 transition-transform duration-200 group-hover:scale-110"
+        style={props.active ? "font-variation-settings: 'FILL' 1;" : ''}
+      >
+        {props.icon}
+      </span>
+      <span class="font-mono text-[13.5px] tracking-tight flex-1 min-w-0 truncate">{props.label}</span>
+      <Show when={(props.badge ?? 0) > 0}>
+        <span class="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-on-primary text-[10px] font-bold flex items-center justify-center leading-none">
+          {(props.badge ?? 0) > 99 ? '99+' : props.badge}
+        </span>
+      </Show>
     </A>
   );
 }
@@ -163,11 +180,11 @@ export default function Layout(props: { children?: JSX.Element }) {
                 if (v) window.location.assign(`/search?q=${encodeURIComponent(v)}`);
               }}
             >
-              <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" style="font-size: 20px;">search</span>
+              <span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant" style="font-size: 19px;">search</span>
               <input
                 type="text"
                 placeholder={t('nav.search_placeholder')}
-                class="w-full bg-surface-container border border-outline-variant pl-10 pr-3 py-2 rounded-lg font-mono text-[14px] focus:outline-none focus:border-primary transition-colors"
+                class="w-full bg-surface-container/70 border border-outline-variant/70 pl-10 pr-4 py-2 rounded-full font-mono text-[13.5px] text-on-background placeholder:text-on-surface-variant/60 focus:outline-none focus:border-primary focus:bg-surface-container focus:ring-2 focus:ring-primary/15 transition-all"
               />
             </form>
           </div>
@@ -175,7 +192,7 @@ export default function Layout(props: { children?: JSX.Element }) {
           <div class="flex items-center gap-2">
             <button
               onClick={toggleTheme}
-              class="p-2 text-on-surface-variant hover:text-primary transition-colors"
+              class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
               title={theme() === 'dark' ? t('theme.light') : t('theme.dark')}
             >
               <span class="material-symbols-outlined">{theme() === 'dark' ? 'light_mode' : 'dark_mode'}</span>
@@ -183,7 +200,7 @@ export default function Layout(props: { children?: JSX.Element }) {
             <Show when={me()}>
               <button
                 onClick={() => setComposeOpen(true)}
-                class="p-2 text-on-surface-variant hover:text-primary transition-colors"
+                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
                 title={t('nav.new_post')}
               >
                 <span class="material-symbols-outlined">add_box</span>
@@ -191,7 +208,7 @@ export default function Layout(props: { children?: JSX.Element }) {
             </Show>
             <A
               href="/notifications"
-              class="p-2 text-on-surface-variant hover:text-primary transition-colors relative"
+              class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors relative"
               title="Bildirimler"
             >
               <span class="material-symbols-outlined">notifications</span>
@@ -202,7 +219,7 @@ export default function Layout(props: { children?: JSX.Element }) {
             <Show
               when={me()}
               fallback={
-                <A href="/login" class="p-2 text-on-surface-variant hover:text-primary">
+                <A href="/login" class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors">
                   <span class="material-symbols-outlined">login</span>
                 </A>
               }
@@ -210,7 +227,7 @@ export default function Layout(props: { children?: JSX.Element }) {
               {(u) => (
                 <A
                   href={`/u/${u().username}`}
-                  class="p-2 text-on-surface-variant hover:text-primary transition-colors"
+                  class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
                   title={`@${u().username}`}
                 >
                   <span class="material-symbols-outlined">account_circle</span>
@@ -225,25 +242,25 @@ export default function Layout(props: { children?: JSX.Element }) {
       <div class="max-w-[1300px] mx-auto pt-16 min-h-screen">
         <div class="grid grid-cols-1 lg:grid-cols-[256px_minmax(0,1fr)] xl:grid-cols-[256px_minmax(0,1fr)_320px]">
           {/* Left side nav — sticky inside shell */}
-          <aside class="hidden lg:flex sticky top-16 h-[calc(100vh-4rem)] flex-col py-8 px-4 gap-base border-r border-outline-variant">
-            <div class="mb-6 px-4">
-              <div class="flex items-center gap-3">
-                <Logo size={32} class="text-primary shrink-0" />
-                <div class="leading-tight">
-                  <div class="font-bold text-[16px] tracking-tight text-on-background">burncpu</div>
-                  <div class="text-[10px] text-on-surface-variant font-mono tracking-wider">1 vps yeter</div>
-                </div>
+          <aside class="hidden lg:flex sticky top-16 h-[calc(100vh-4rem)] flex-col py-6 px-3 border-r border-outline-variant">
+            <A href="/" class="group mb-4 px-2 flex items-center gap-2.5">
+              <Logo size={30} class="shrink-0 transition-transform duration-500 group-hover:rotate-[10deg]" />
+              <div class="leading-none">
+                <div class="font-bold text-[17px] tracking-tight text-on-background">burncpu</div>
+                <div class="text-[9px] text-on-surface-variant font-mono tracking-[0.22em] uppercase mt-1">1 vps yeter</div>
               </div>
-            </div>
-            <nav class="flex flex-col gap-1">
+            </A>
+            <nav class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5 -mr-1 pr-1">
+              <p class="px-3 pt-1 pb-1 text-[10px] font-mono uppercase tracking-[0.16em] text-on-surface-variant/45">{t('nav.group.explore')}</p>
               <SideLink href="/"              icon="timeline"      label={t('nav.timeline')}      active={loc.pathname === '/'} />
               <SideLink href="/feed"          icon="rss_feed"      label={t('nav.feed')}          active={is('/feed')} />
               <SideLink href="/search"        icon="search"        label={t('nav.search')}        active={is('/search')} />
-              <SideLink href="/notifications" icon="notifications" label={t('nav.notifications')} active={is('/notifications')} />
+              <SideLink href="/notifications" icon="notifications" label={t('nav.notifications')} active={is('/notifications')} badge={unread() ?? 0} />
               <SideLink href="/docs"          icon="menu_book"     label={t('nav.docs')}          active={is('/docs')} />
               <Show when={me()}>
                 {(u) => (
                   <>
+                    <p class="px-3 pt-4 pb-1 text-[10px] font-mono uppercase tracking-[0.16em] text-on-surface-variant/45">{t('nav.group.account')}</p>
                     <SideLink href="/dm"                       icon="mail"     label={t('nav.dm')}        active={is('/dm')} />
                     <SideLink href={`/u/${u().username}`}      icon="person"   label={t('nav.profile')}   active={is(`/u/${u().username}`)} />
                     <SideLink href="/bookmarks"                icon="bookmark" label={t('nav.bookmarks')} active={is('/bookmarks')} />

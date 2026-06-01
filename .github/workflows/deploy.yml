@@ -30,51 +30,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sync to /opt/burncpu/app
-        run: |
-          set -euo pipefail
-          # rsync runner workdir → /opt/burncpu/app, exclude .git/node_modules/target/dist
-          sudo rsync -a --delete \
-            --exclude='.git/' \
-            --exclude='node_modules/' \
-            --exclude='target/' \
-            --exclude='web/dist/' \
-            --exclude='*.bak' \
-            "$GITHUB_WORKSPACE/" /opt/burncpu/app/
-          # Ownership: app klasoru root:root olabilir; build user docker
-          sudo chown -R root:root /opt/burncpu/app
-
-      - name: Build + deploy frontend (SPA)
-        run: |
-          set -euo pipefail
-          # The SPA is NOT in the Docker image — nginx serves it as static files
-          # from /opt/burncpu/web (see sites-available/burncpu `root`). Build the
-          # bundle on the runner and publish it there. Without this step, web/**
-          # changes never reach production.
-          cd "$GITHUB_WORKSPACE/web"
-          npm ci
-          npm run build
-          sudo rsync -a --delete dist/ /opt/burncpu/web/
-          sudo nginx -t && sudo systemctl reload nginx
-          echo "frontend published → /opt/burncpu/web ✓"
-
-      - name: Docker compose rebuild app
-        run: |
-          cd /opt/burncpu
-          sudo docker compose build app
-          # Recreate the container — startup runs pending sqlx migrations.
-          sudo docker compose up -d app
-          # Health bekle (max 60s). App dinler: 3050 /healthz (container içi).
-          for i in $(seq 1 30); do
-            if sudo docker compose exec -T app curl -fsS http://localhost:3050/healthz > /dev/null 2>&1; then
-              echo "App healthy ✓"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "::warning::Health timeout (60s) — container loglarini kontrol et"
-          sudo docker compose logs --tail=30 app
-          exit 1
+      # All deploy logic lives in /usr/local/bin/deploy-burncpu.sh on the host
+      # (root-owned, allowlisted for the runner via sudoers — same least-privilege
+      # pattern as the mustafaerbay deploy). It rsyncs the backend to
+      # /opt/burncpu/app, builds the SPA into the nginx root /opt/burncpu/web,
+      # rebuilds the app container (migrations run on startup) and health-gates.
+      - name: Deploy (backend + frontend + migrations)
+        run: sudo /usr/local/bin/deploy-burncpu.sh "$GITHUB_WORKSPACE"
 
       - name: Verify deploy
         run: |

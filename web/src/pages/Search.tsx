@@ -1,12 +1,16 @@
 import { createSignal, createResource, For, Show } from 'solid-js';
-import { A } from '@solidjs/router';
+import { A, useSearchParams } from '@solidjs/router';
 import { api, type SearchResponse, type SearchHit } from '../api';
 import { relTime, linkifyTags } from '../util';
 import { t } from '../i18n';
 
 export default function Search() {
-  const [q, setQ] = createSignal('');
-  const [trigger, setTrigger] = createSignal('');
+  // Read the initial query from the URL so the top-nav search (which routes to
+  // /search?q=…) and deep links land on results, not an empty box.
+  const [searchParams, setSearchParams] = useSearchParams<{ q?: string }>();
+  const initialQ = (searchParams.q ?? '').trim();
+  const [q, setQ] = createSignal(initialQ);
+  const [trigger, setTrigger] = createSignal(initialQ);
   const [results] = createResource<SearchResponse, string>(
     () => trigger() || (null as unknown as string),
     (qs: string) => api.get<SearchResponse>(`/search?q=${encodeURIComponent(qs)}`),
@@ -16,7 +20,11 @@ export default function Search() {
   const onInput = (v: string) => {
     setQ(v);
     if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(() => setTrigger(v.trim()), 300);
+    debounce = setTimeout(() => {
+      const term = v.trim();
+      setTrigger(term);
+      setSearchParams({ q: term || undefined });
+    }, 300);
   };
   const snippet = (hit: SearchHit) =>
     (hit._formatted?.body ?? hit.body).replaceAll('<mark>', '').replaceAll('</mark>', '');

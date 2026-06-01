@@ -262,7 +262,6 @@ export default function Layout(props: { children?: JSX.Element }) {
                     <A
                       href={`/u/${u().username}`}
                       class="flex items-center gap-2.5 min-w-0 flex-1"
-                      title={`@${u().username}`}
                     >
                       <div class="w-9 h-9 rounded-lg bg-surface-container-highest flex items-center justify-center text-[18px] shrink-0">🐢</div>
                       <div class="min-w-0 leading-tight">

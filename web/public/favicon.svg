@@ -1,17 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="flame" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#ff3d2e"/>
+      <stop offset="0.5" stop-color="#ff8a1a"/>
+      <stop offset="1" stop-color="#ffd24a"/>
+    </linearGradient>
+  </defs>
   <rect width="64" height="64" rx="13" fill="#0d0d0d"/>
-  <g transform="translate(8,7)">
-    <path fill="#9ce16d" fill-rule="evenodd"
-      d="M24 2.5 C27 8 30 10.6 29.6 15.4 C29.3 19 27.2 20.6 28 23.8
-         C29 28 26.4 30.5 24 30.5 C20.2 30.5 17 27.6 17.9 22.9
-         C18.4 19.7 20.7 18.4 20.3 14.8 C19.9 10.8 18.2 12.2 19.4 8
-         C20.5 4.6 22 5.4 24 2.5 Z
-         M24 17 C25.8 19.9 26.9 21.8 26.3 24.9 C25.9 27.4 24 28.1 22.8 27.6
-         C21.1 27 20.7 24.8 21.4 22.6 C22 20.4 22.8 19.8 24 17 Z"/>
-    <g fill="none" stroke="#9ce16d" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="15.5" y="29" width="17" height="12.5" rx="3"/>
-      <path d="M15.5 33.5 H11.5 M15.5 38 H11.5 M32.5 33.5 H36.5 M32.5 38 H36.5 M20 41.5 V45 M24 41.5 V45 M28 41.5 V45"/>
-    </g>
-    <circle cx="24" cy="35.3" r="2.1" fill="#9ce16d"/>
+  <g transform="translate(10.5,11) scale(1.92)">
+    <path fill="url(#flame)"
+      d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
   </g>
 </svg>

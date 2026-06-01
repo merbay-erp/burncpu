@@ -310,15 +310,15 @@ export default function Layout(props: { children?: JSX.Element }) {
         </div>
       </footer>
 
-      {/* Floating "turtle writes a signal" compose button — over everything */}
+      {/* Floating "ignite a signal" compose button — over everything */}
       <Show when={me()}>
         <button
           onClick={() => setComposeOpen(true)}
           title={t('nav.post_signal')}
           aria-label={t('nav.post_signal')}
-          class="group fixed right-5 bottom-20 lg:bottom-6 z-[60] w-14 h-14 rounded-full bg-primary text-on-primary shadow-lg shadow-black/30 flex items-center justify-center text-[26px] leading-none hover:scale-105 active:scale-90 transition-transform"
+          class="group fixed right-5 bottom-20 lg:bottom-6 z-[60] w-14 h-14 rounded-full bg-primary shadow-lg shadow-black/30 flex items-center justify-center hover:scale-105 active:scale-90 transition-transform"
         >
-          <span class="transition-transform group-hover:-rotate-12">🐢</span>
+          <Logo size={28} class="transition-transform duration-300 group-hover:scale-110 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]" />
           <span class="absolute -bottom-0.5 -right-0.5 w-[19px] h-[19px] rounded-full bg-background text-primary flex items-center justify-center border border-primary/30 shadow">
             <span class="material-symbols-outlined" style="font-size: 12px;">edit</span>
           </span>
@@ -337,7 +337,7 @@ export default function Layout(props: { children?: JSX.Element }) {
           <div class="w-full max-w-[600px]">
             <div class="flex items-center justify-between mb-2 px-1">
               <h3 class="text-on-background font-bold flex items-center gap-2">
-                <span>🐢</span> {t('nav.post_signal')}
+                <Logo size={18} /> {t('nav.post_signal')}
               </h3>
               <button
                 onClick={() => setComposeOpen(false)}

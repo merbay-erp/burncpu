@@ -151,7 +151,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(156, 225, 109, 0); }
 }
 
-/* ─── Brand logo core pulse (the turtle-CPU "signal") ─────── */
+/* ─── Brand logo core pulse (the flame-CPU "signal") ─────── */
 .burncpu-logo-core { animation: burncpu-core 2.6s ease-in-out infinite; }
 @keyframes burncpu-core {
   0%, 100% { opacity: 0.5; }

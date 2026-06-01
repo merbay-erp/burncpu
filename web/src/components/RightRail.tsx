@@ -120,6 +120,9 @@ export default function RightRail() {
             <span>burncpu.com</span>
           </div>
         </div>
+        <A href="/docs" class="block mt-3 text-center text-primary text-[12px] font-mono hover:underline">
+          {t('nav.docs')} →
+        </A>
       </section>
     </aside>
   );

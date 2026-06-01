@@ -24,6 +24,7 @@ const DMThread = lazy(() => import('./pages/DMThread'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Trash = lazy(() => import('./pages/Trash'));
 const Activity = lazy(() => import('./pages/Activity'));
+const Docs = lazy(() => import('./pages/Docs'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const root = document.getElementById('root');
@@ -67,6 +68,7 @@ render(
       <Route path="/settings" component={Settings} />
       <Route path="/trending" component={Trending} />
       <Route path="/activity" component={Activity} />
+      <Route path="/docs" component={Docs} />
       <Route path="/search" component={Search} />
       {/* `@` gets URL-encoded to %40 by browsers, which then doesn't match
           a literal `@` in the route. Use /u/:username and redirect @links. */}

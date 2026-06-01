@@ -240,6 +240,7 @@ export default function Layout(props: { children?: JSX.Element }) {
               <SideLink href="/feed"          icon="rss_feed"      label={t('nav.feed')}          active={is('/feed')} />
               <SideLink href="/search"        icon="search"        label={t('nav.search')}        active={is('/search')} />
               <SideLink href="/notifications" icon="notifications" label={t('nav.notifications')} active={is('/notifications')} />
+              <SideLink href="/docs"          icon="menu_book"     label={t('nav.docs')}          active={is('/docs')} />
               <Show when={me()}>
                 {(u) => (
                   <>

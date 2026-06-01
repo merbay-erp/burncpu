@@ -158,6 +158,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   50%      { opacity: 1; }
 }
 
+/* Hide scrollbar but keep scrolling (docs section pills, etc.) */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 /* ─── Spinner ──────────────────────────────────────────────── */
 .spinner {
   display: inline-block;

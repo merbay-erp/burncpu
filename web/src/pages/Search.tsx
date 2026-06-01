@@ -1,7 +1,7 @@
 import { createSignal, createResource, For, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api, type SearchResponse, type SearchHit } from '../api';
-import { relTime } from '../util';
+import { relTime, linkifyTags } from '../util';
 import { t } from '../i18n';
 
 export default function Search() {
@@ -55,7 +55,7 @@ export default function Search() {
                         {relTime(new Date(h.created_at * 1000).toISOString())}
                       </A>
                     </div>
-                    <div class="post-body">{snippet(h)}</div>
+                    <div class="post-body" innerHTML={linkifyTags(snippet(h))} />
                   </article>
                 )}
               </For>

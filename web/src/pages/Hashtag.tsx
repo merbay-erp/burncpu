@@ -1,7 +1,7 @@
 import { createResource, For, Show } from 'solid-js';
 import { useParams, A } from '@solidjs/router';
 import { api, type SearchResponse, type SearchHit } from '../api';
-import { relTime } from '../util';
+import { relTime, linkifyTags } from '../util';
 import { t } from '../i18n';
 
 export default function Hashtag() {
@@ -33,7 +33,7 @@ export default function Hashtag() {
                     {relTime(new Date(h.created_at * 1000).toISOString())}
                   </A>
                 </div>
-                <div class="post-body">{h.body}</div>
+                <div class="post-body" innerHTML={linkifyTags(h.body)} />
               </article>
             )}
           </For>

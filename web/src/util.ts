@@ -42,6 +42,30 @@ export function firstUrl(text: string): string | null {
   return u.length > 10 && /^https?:\/\/[^/]+\.[^/]/i.test(u) ? u : null;
 }
 
+/// Lightweight linkifier for snippet / search-result views that only have the
+/// raw post body (Meilisearch hits carry `body`, not the server-rendered
+/// `body_html`). HTML-escapes first, then turns @mentions and #hashtags into
+/// links — mirroring the server's linkify rules closely enough for previews.
+/// Bare URLs are intentionally left plain (the site never autolinks them in
+/// body_html either; the unfurl card carries the link). Output is safe HTML:
+/// escaping happens before any tag insertion and link targets are constrained
+/// to [A-Za-z0-9_], so nothing user-controlled reaches an attribute unescaped.
+export function linkifyTags(raw: string): string {
+  if (!raw) return '';
+  const escaped = raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  return escaped
+    // @mentions → /u/<name> (all-lowercase 3–32, same boundary as the server)
+    .replace(/(^|[\s.,!?([])@([a-z0-9_]{3,32})/g, (_m, pre, name) =>
+      `${pre}<a href="/u/${name}">@${name}</a>`)
+    // #hashtags → /hashtag/<lower>, visible text keeps the author's casing
+    .replace(/(^|[\s.,!?([])#([A-Za-z0-9_]{3,32})/g, (_m, pre, name) =>
+      `${pre}<a href="/hashtag/${name.toLowerCase()}">#${name}</a>`);
+}
+
 /// Visible character count (Intl.Segmenter — counts grapheme clusters,
 /// not UTF-16 code units, so emoji and combining marks don't lie).
 let _seg: Intl.Segmenter | null = null;

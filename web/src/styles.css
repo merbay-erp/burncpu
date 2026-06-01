@@ -214,7 +214,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .tiny  { font-size: 12px; }
 
 /* ─── Post body rendered HTML (markdown → ammonia) ─────── */
-.post-body { word-wrap: break-word; line-height: 1.6; }
+.post-body { word-wrap: break-word; overflow-wrap: anywhere; line-height: 1.6; }
 .post-body p:first-child { margin-top: 0; }
 .post-body p:last-child { margin-bottom: 0; }
 .post-body img {

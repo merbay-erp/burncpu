@@ -300,8 +300,11 @@ export default function Layout(props: { children?: JSX.Element }) {
             </Show>
           </aside>
 
-          {/* Main column — bordered both sides where rails exist */}
-          <main class="min-h-[calc(100vh-4rem)] py-8 px-4 md:px-8 lg:px-10 xl:px-6 lg:border-r xl:border-r border-outline-variant">
+          {/* Main column — bordered both sides where rails exist.
+              min-w-0: grid/flex items default to min-width:auto, so a long
+              unbreakable token (e.g. a pasted URL) would stretch the column
+              past the viewport on mobile. This lets it shrink so text wraps. */}
+          <main class="min-w-0 min-h-[calc(100vh-4rem)] py-8 px-4 md:px-8 lg:px-10 xl:px-6 lg:border-r xl:border-r border-outline-variant">
             <div class="max-w-[680px] mx-auto">
               {props.children}
             </div>

@@ -11,7 +11,7 @@ export default function Settings() {
   const [tab, setTab] = createSignal<Tab>('profile');
 
   return (
-    <>
+    <div class="legacy">
       <h2 class="page-title">Ayarlar</h2>
       <Show when={me()} fallback={<p class="muted">Önce giriş yap.</p>}>
         <div class="flex" style="border-bottom: 1px solid var(--border); margin-bottom: 16px; gap: 4px;">
@@ -33,7 +33,7 @@ export default function Settings() {
           <DevTab />
         </Show>
       </Show>
-    </>
+    </div>
   );
 }
 

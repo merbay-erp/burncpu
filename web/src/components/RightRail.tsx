@@ -43,18 +43,18 @@ export default function RightRail() {
               </div>
             </div>
             <div class="grid grid-cols-3 gap-2 py-3 border-y border-outline-variant/30">
-              <div class="text-center">
-                <div class="font-bold text-on-background">{p().counts.posts}</div>
+              <A href={`/u/${p().username}`} class="text-center group">
+                <div class="font-bold text-on-background group-hover:text-primary transition-colors">{p().counts.posts}</div>
                 <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">Signals</div>
-              </div>
-              <div class="text-center">
-                <div class="font-bold text-on-background">{p().counts.followers}</div>
+              </A>
+              <A href={`/u/${p().username}/followers`} class="text-center group">
+                <div class="font-bold text-on-background group-hover:text-primary transition-colors">{p().counts.followers}</div>
                 <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">Nodes</div>
-              </div>
-              <div class="text-center">
-                <div class="font-bold text-on-background">{p().counts.following}</div>
+              </A>
+              <A href={`/u/${p().username}/following`} class="text-center group">
+                <div class="font-bold text-on-background group-hover:text-primary transition-colors">{p().counts.following}</div>
                 <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">Tracks</div>
-              </div>
+              </A>
             </div>
             <A
               href="/settings"

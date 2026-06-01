@@ -79,7 +79,7 @@ export default function DMThread() {
   };
 
   return (
-    <>
+    <div class="legacy">
       <Show when={me()} fallback={<p class="muted">Önce <A href="/login">giriş yap</A>.</p>}>
         <Show when={data() as ThreadView | null | undefined} fallback={<p class="muted">Yükleniyor…</p>}>
           {(t) => (
@@ -184,6 +184,6 @@ export default function DMThread() {
         </Show>
       </Show>
       <button class="ghost tiny" onClick={refetch} style="margin-top: 10px;">↻ yenile</button>
-    </>
+    </div>
   );
 }

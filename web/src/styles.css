@@ -140,3 +140,72 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .char-count { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #a78b7c; }
 .char-count.warn { color: #9ce16d; }
 .char-count.bad  { color: #ffb4ab; }
+
+/* ─── Legacy design-token compat ───────────────────────────────
+   Pages written before the Tailwind migration (Settings, Profile, DM
+   thread) still reference these CSS variables via inline styles and a few
+   semantic classes. Without them those pages render unstyled. Mapped to the
+   Electric Amber / turtle-moss palette (see tailwind.config.js). */
+:root {
+  --bg:       #131313;
+  --bg-2:     #1b1b1c;
+  --bg-3:     #2a2a2a;
+  --fg:       #e5e2e1;
+  --fg-2:     #c5d4b3;
+  --fg-3:     #8f9a82;
+  --accent:   #9ce16d;
+  --on-accent:#0f1f08;
+  --bad:      #ffb4ab;
+  --border:   #3a4e2e;
+  --radius:   8px;
+  --mono:     'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Non-colliding semantic classes — safe to define globally (Tailwind has no
+   utilities by these names). */
+.page-title { font-size: 22px; font-weight: 600; margin: 0 0 18px; color: var(--fg); }
+.page-title small { font-size: 13px; font-weight: 400; color: var(--fg-3); margin-left: 8px; }
+
+.primary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px 16px; background: var(--accent); color: var(--on-accent);
+  border: 1px solid var(--accent); border-radius: var(--radius);
+  font-weight: 600; font-family: var(--mono); font-size: 14px; transition: opacity .15s;
+}
+.primary:hover:not(:disabled) { opacity: .9; }
+.ghost {
+  padding: 4px 10px; background: transparent; border: 1px solid transparent;
+  border-radius: 6px; color: var(--fg-3); font-size: 13px;
+  transition: color .15s, border-color .15s;
+}
+.ghost:hover:not(:disabled) { color: var(--accent); border-color: var(--border); }
+
+.post {
+  padding: 16px 18px; background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 12px; margin-bottom: 12px;
+}
+.post-head { display: flex; align-items: center; margin-bottom: 8px; }
+.post-foot { margin-top: 12px; color: var(--fg-3); }
+.time { color: var(--fg-3); font-family: var(--mono); font-size: 12px; }
+
+.profile-head { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.profile-name { font-size: 24px; font-weight: 700; margin: 0; color: var(--fg); }
+.profile-handle { color: var(--fg-3); font-family: var(--mono); font-size: 14px; margin-top: 2px; }
+.profile-bio { margin-top: 10px; color: var(--fg-2); line-height: 1.5; }
+.profile-stats { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-top: 14px; font-size: 14px; color: var(--fg-3); }
+.profile-stats strong { color: var(--fg); }
+.profile-stats a:hover { color: var(--accent); }
+
+.compose-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+
+/* Collision-prone rules (Tailwind also defines `.flex` and bare <button> via
+   forms plugin) — scope under `.legacy`, applied only to the old pages. */
+.legacy .flex { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.legacy label { display: block; margin: 12px 0 4px; }
+.legacy label.flex { margin: 0; }
+.legacy button:not(.primary):not(.ghost) {
+  padding: 8px 14px; background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 6px; font-weight: 500;
+  transition: border-color .15s, color .15s;
+}
+.legacy button:not(.primary):not(.ghost):hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }

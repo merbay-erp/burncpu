@@ -1,5 +1,5 @@
 import { createResource, createSignal, createEffect, For, Show } from 'solid-js';
-import { useParams } from '@solidjs/router';
+import { useParams, A } from '@solidjs/router';
 import { api, type Profile, type PostView } from '../api';
 import Post from '../components/Post';
 import { me } from '../auth';
@@ -73,7 +73,7 @@ export default function ProfilePage() {
   };
 
   return (
-    <>
+    <div class="legacy">
       <Show when={profile.error}>
         <p class="error">Profil bulunamadı.</p>
       </Show>
@@ -100,12 +100,12 @@ export default function ProfilePage() {
                 <span>
                   <strong>{p().counts.posts}</strong> post
                 </span>
-                <span>
+                <A href={`/u/${p().username}/followers`}>
                   <strong>{p().counts.followers}</strong> takipçi
-                </span>
-                <span>
+                </A>
+                <A href={`/u/${p().username}/following`}>
                   <strong>{p().counts.following}</strong> takip
-                </span>
+                </A>
                 <span class="muted tiny">katıldı {relTime(p().created_at)}</span>
               </div>
               <Show when={me() && me()!.username !== p().username}>
@@ -203,6 +203,6 @@ export default function ProfilePage() {
           </For>
         )}
       </Show>
-    </>
+    </div>
   );
 }

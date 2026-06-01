@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { api, type Profile } from '../api';
 import { me, setCachedMe } from '../auth';
 import { locale, setLocale, t } from '../i18n';
+import { theme, setTheme } from '../theme';
 import { pushToast } from '../components/Toast';
 
 type Tab = 'profile' | 'security' | 'invites' | 'dev';
@@ -456,6 +457,24 @@ function PrefsBlock() {
           onClick={() => setLocale('en')}
         >
           English
+        </button>
+      </div>
+
+      <h3 style="margin: 18px 0 10px;">{t('settings.prefs.theme')}</h3>
+      <div class="flex">
+        <button
+          type="button"
+          class={theme() === 'dark' ? 'primary' : ''}
+          onClick={() => setTheme('dark')}
+        >
+          🌙 {t('theme.dark')}
+        </button>
+        <button
+          type="button"
+          class={theme() === 'light' ? 'primary' : ''}
+          onClick={() => setTheme('light')}
+        >
+          ☀️ {t('theme.light')}
         </button>
       </div>
       {/* PushBlock hidden during high-signal pact — dopamine-pull UX.

@@ -3,6 +3,7 @@ import { A, useLocation } from '@solidjs/router';
 import { Show, createEffect, onCleanup, onMount } from 'solid-js';
 import { me, unread, refetchUnread, probeSession, logout } from './auth';
 import { t } from './i18n';
+import { theme, toggleTheme } from './theme';
 import Logo from './components/Logo';
 import ToastStack, { pushToast } from './components/Toast';
 import Lightbox from './components/Lightbox';
@@ -155,6 +156,13 @@ export default function Layout(props: { children?: JSX.Element }) {
           </div>
 
           <div class="flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              class="p-2 text-on-surface-variant hover:text-primary transition-colors"
+              title={theme() === 'dark' ? t('theme.light') : t('theme.dark')}
+            >
+              <span class="material-symbols-outlined">{theme() === 'dark' ? 'light_mode' : 'dark_mode'}</span>
+            </button>
             <Show when={me()}>
               <button
                 onClick={() => {
@@ -162,7 +170,7 @@ export default function Layout(props: { children?: JSX.Element }) {
                   if (ta) ta.focus(); else window.location.assign('/');
                 }}
                 class="p-2 text-on-surface-variant hover:text-primary transition-colors"
-                title="Yeni post"
+                title={t('nav.new_post')}
               >
                 <span class="material-symbols-outlined">add_box</span>
               </button>

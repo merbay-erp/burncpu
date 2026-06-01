@@ -2,6 +2,7 @@ import { createResource, For, Show } from 'solid-js';
 import { useParams, A } from '@solidjs/router';
 import { api, type SearchResponse, type SearchHit } from '../api';
 import { relTime } from '../util';
+import { t } from '../i18n';
 
 export default function Hashtag() {
   const params = useParams<{ tag: string }>();
@@ -13,11 +14,11 @@ export default function Hashtag() {
   return (
     <>
       <h2 class="page-title">
-        #{params.tag} <small>{results()?.estimatedTotalHits ?? '…'} sonuç</small>
+        #{params.tag} <small>{results()?.estimatedTotalHits ?? '…'} {t('search.results')}</small>
       </h2>
-      <Show when={results()} fallback={<div class="muted">Yükleniyor…</div>}>
+      <Show when={results()} fallback={<div class="muted">{t('common.loading')}</div>}>
         {(r) => (
-          <For each={r().hits} fallback={<div class="muted">Sonuç yok.</div>}>
+          <For each={r().hits} fallback={<div class="muted">{t('search.no_results')}</div>}>
             {(h: SearchHit) => (
               <article class="post">
                 <div class="post-head">

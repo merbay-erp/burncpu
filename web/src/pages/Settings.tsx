@@ -2,7 +2,7 @@ import { createSignal, Show, For, createResource, onMount } from 'solid-js';
 import QRCode from 'qrcode';
 import { api, type Profile } from '../api';
 import { me, setCachedMe } from '../auth';
-import { locale, setLocale } from '../i18n';
+import { locale, setLocale, t } from '../i18n';
 import { pushToast } from '../components/Toast';
 
 type Tab = 'profile' | 'security' | 'invites' | 'dev';
@@ -12,13 +12,13 @@ export default function Settings() {
 
   return (
     <div class="legacy">
-      <h2 class="page-title">Ayarlar</h2>
-      <Show when={me()} fallback={<p class="muted">Önce giriş yap.</p>}>
+      <h2 class="page-title">{t('settings.title')}</h2>
+      <Show when={me()} fallback={<p class="muted">{t('settings.login_required')}</p>}>
         <div class="flex" style="border-bottom: 1px solid var(--border); margin-bottom: 16px; gap: 4px;">
-          <TabBtn label="Profil" active={tab() === 'profile'} onClick={() => setTab('profile')} />
-          <TabBtn label="Güvenlik" active={tab() === 'security'} onClick={() => setTab('security')} />
-          <TabBtn label="Davetler" active={tab() === 'invites'} onClick={() => setTab('invites')} />
-          <TabBtn label="Geliştirici" active={tab() === 'dev'} onClick={() => setTab('dev')} />
+          <TabBtn label={t('settings.tab.profile')} active={tab() === 'profile'} onClick={() => setTab('profile')} />
+          <TabBtn label={t('settings.tab.security')} active={tab() === 'security'} onClick={() => setTab('security')} />
+          <TabBtn label={t('settings.tab.invites')} active={tab() === 'invites'} onClick={() => setTab('invites')} />
+          <TabBtn label={t('settings.tab.dev')} active={tab() === 'dev'} onClick={() => setTab('dev')} />
         </div>
         <Show when={tab() === 'profile'}>
           <ProfileTab />
@@ -106,7 +106,7 @@ function DevTab() {
     refetchTokens();
   };
   const revokeToken = async (id: string) => {
-    if (!confirm('Token iptal edilsin mi?')) return;
+    if (!confirm(t('settings.dev.token_revoke_confirm'))) return;
     await api.del(`/tokens/${id}`);
     refetchTokens();
   };
@@ -135,7 +135,7 @@ function DevTab() {
     refetchHooks();
   };
   const removeHook = async (id: string) => {
-    if (!confirm('Webhook silinsin mi?')) return;
+    if (!confirm(t('settings.dev.webhook_remove_confirm'))) return;
     await api.del(`/webhooks/${id}`);
     refetchHooks();
   };
@@ -144,16 +144,16 @@ function DevTab() {
 
   return (
     <>
-      <h3 style="margin-top: 0;">API Tokens</h3>
+      <h3 style="margin-top: 0;">{t('settings.dev.tokens')}</h3>
       <p class="muted tiny" style="margin-top: 0;">
-        Bot ve script'lerden API'yi çağırmak için. <code>Authorization: Bearer &lt;token&gt;</code>
-        header'ı her endpoint'te çalışır.
+        {t('settings.dev.tokens_desc_pre')} <code>Authorization: Bearer &lt;token&gt;</code>
+        {' '}{t('settings.dev.tokens_desc_post')}
       </p>
       <form onSubmit={createToken} class="flex" style="gap: 8px; flex-wrap: wrap;">
         <input
           type="text"
           maxlength="64"
-          placeholder="token adı (örn: macbook-cli)"
+          placeholder={t('settings.dev.token_name_placeholder')}
           value={tName()}
           onInput={(e) => setTName(e.currentTarget.value)}
           style="flex: 1; min-width: 200px;"
@@ -167,17 +167,17 @@ function DevTab() {
             {([value, label]) => <option value={value}>{label}</option>}
           </For>
         </select>
-        <button type="submit" class="primary" disabled={!tName().trim()}>Oluştur</button>
+        <button type="submit" class="primary" disabled={!tName().trim()}>{t('settings.dev.create')}</button>
       </form>
 
       <Show when={lastToken()}>
-        {(t) => (
+        {(tok) => (
           <div class="success" style="margin-top: 10px;">
-            <p style="margin-top: 0;"><strong>{t().name}</strong> oluşturuldu. Bu token sadece bir kez gösterilir, kaydet:</p>
+            <p style="margin-top: 0;"><strong>{tok().name}</strong> {t('settings.dev.token_created_suffix')}</p>
             <code style="display: block; padding: 8px; background: var(--bg); border-radius: var(--radius); word-break: break-all; font-size: 12px;">
-              {t().token}
+              {tok().token}
             </code>
-            <button class="ghost tiny" onClick={() => copy(t().token)} style="margin-top: 6px;">Kopyala</button>
+            <button class="ghost tiny" onClick={() => copy(tok().token)} style="margin-top: 6px;">{t('settings.dev.copy')}</button>
           </div>
         )}
       </Show>
@@ -185,20 +185,20 @@ function DevTab() {
       <div style="margin-top: 16px;">
         <Show when={tokens()} fallback={<p class="muted">…</p>}>
           {(rows) => (
-            <For each={rows()} fallback={<p class="muted tiny">Henüz token yok.</p>}>
-              {(t) => (
+            <For each={rows()} fallback={<p class="muted tiny">{t('settings.dev.no_tokens')}</p>}>
+              {(tok) => (
                 <div
-                  style={`display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); gap: 10px; font-size: 13px; opacity: ${t.revoked_at ? '0.45' : '1'};`}
+                  style={`display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); gap: 10px; font-size: 13px; opacity: ${tok.revoked_at ? '0.45' : '1'};`}
                 >
-                  <strong>{t.name}</strong>
-                  <span class="muted tiny">{t.scope}</span>
+                  <strong>{tok.name}</strong>
+                  <span class="muted tiny">{tok.scope}</span>
                   <span class="muted tiny" style="margin-left: auto;">
-                    {t.revoked_at ? 'iptal edildi' :
-                      t.last_used_at ? `son: ${new Date(t.last_used_at).toLocaleString('tr-TR')}` :
-                      'hiç kullanılmadı'}
+                    {tok.revoked_at ? t('settings.dev.token_revoked') :
+                      tok.last_used_at ? `${t('settings.dev.token_last_used')} ${new Date(tok.last_used_at).toLocaleString(locale() === 'en' ? 'en-US' : 'tr-TR')}` :
+                      t('settings.dev.token_never_used')}
                   </span>
-                  <Show when={!t.revoked_at}>
-                    <button class="ghost tiny" onClick={() => revokeToken(t.id)}>iptal</button>
+                  <Show when={!tok.revoked_at}>
+                    <button class="ghost tiny" onClick={() => revokeToken(tok.id)}>{t('settings.dev.revoke')}</button>
                   </Show>
                 </div>
               )}
@@ -207,9 +207,9 @@ function DevTab() {
         </Show>
       </div>
 
-      <h3 style="margin-top: 26px;">Webhook'lar</h3>
+      <h3 style="margin-top: 26px;">{t('settings.dev.webhooks')}</h3>
       <p class="muted tiny" style="margin-top: 0;">
-        Olay olduğunda burncpu sana POST atar. HMAC-SHA256 imzası <code>X-Burncpu-Signature: sha256=&lt;hex&gt;</code> header'ında.
+        {t('settings.dev.webhooks_desc_pre')} <code>X-Burncpu-Signature: sha256=&lt;hex&gt;</code> {t('settings.dev.webhooks_desc_post')}
       </p>
       <form onSubmit={createHook}>
         <input
@@ -238,7 +238,7 @@ function DevTab() {
         </div>
         <div style="margin-top: 10px;">
           <button type="submit" class="primary" disabled={!hUrl().trim() || hEvents().length === 0}>
-            Webhook oluştur
+            {t('settings.dev.webhook_create')}
           </button>
         </div>
       </form>
@@ -247,12 +247,12 @@ function DevTab() {
         {(h) => (
           <div class="success" style="margin-top: 10px;">
             <p style="margin-top: 0;">
-              <strong>{h().url}</strong> kaydedildi. İmza secret'in <em>sadece bir kez</em> gösterilir:
+              <strong>{h().url}</strong> {t('settings.dev.webhook_created_pre')} <em>{t('settings.dev.webhook_created_em')}</em> {t('settings.dev.webhook_created_post')}
             </p>
             <code style="display: block; padding: 8px; background: var(--bg); border-radius: var(--radius); word-break: break-all; font-size: 12px;">
               {h().secret}
             </code>
-            <button class="ghost tiny" onClick={() => copy(h().secret)} style="margin-top: 6px;">Kopyala</button>
+            <button class="ghost tiny" onClick={() => copy(h().secret)} style="margin-top: 6px;">{t('settings.dev.copy')}</button>
           </div>
         )}
       </Show>
@@ -260,7 +260,7 @@ function DevTab() {
       <div style="margin-top: 16px;">
         <Show when={hooks()} fallback={<p class="muted">…</p>}>
           {(rows) => (
-            <For each={rows()} fallback={<p class="muted tiny">Henüz webhook yok.</p>}>
+            <For each={rows()} fallback={<p class="muted tiny">{t('settings.dev.no_webhooks')}</p>}>
               {(h) => (
                 <div
                   style={`padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; opacity: ${h.active ? '1' : '0.55'};`}
@@ -269,12 +269,12 @@ function DevTab() {
                     <code style="font-size: 12px;">{h.url}</code>
                     <span class="muted tiny">{h.events.join(', ')}</span>
                     <span style="margin-left: auto;" class="tiny muted">
-                      {h.last_status ? `→ ${h.last_status}` : 'çağrılmadı'}{h.failure_streak > 0 ? ` (${h.failure_streak} hata)` : ''}
+                      {h.last_status ? `→ ${h.last_status}` : t('settings.dev.webhook_not_called')}{h.failure_streak > 0 ? ` (${h.failure_streak} ${t('settings.dev.webhook_errors')})` : ''}
                     </span>
                     <button class="ghost tiny" onClick={() => toggleHookActive(h)}>
-                      {h.active ? 'durdur' : 'aktive et'}
+                      {h.active ? t('settings.dev.webhook_stop') : t('settings.dev.webhook_activate')}
                     </button>
-                    <button class="ghost tiny" onClick={() => removeHook(h.id)}>sil</button>
+                    <button class="ghost tiny" onClick={() => removeHook(h.id)}>{t('settings.dev.webhook_delete')}</button>
                   </div>
                 </div>
               )}
@@ -361,7 +361,7 @@ function ProfileTab() {
         avatar_url: avatarUrl().trim(),
       });
       setCachedMe({ ...u, display_name: displayName().trim() });
-      setMsg({ kind: 'ok', text: 'Kaydedildi.' });
+      setMsg({ kind: 'ok', text: t('settings.profile.saved') });
     } catch (e) {
       setMsg({ kind: 'err', text: (e as Error).message });
     } finally {
@@ -371,23 +371,23 @@ function ProfileTab() {
 
   return (
     <form onSubmit={save} style="max-width: 520px;">
-      <label class="muted tiny">Kullanıcı adı</label>
+      <label class="muted tiny">{t('settings.profile.username')}</label>
       <input type="text" value={u.username} disabled />
-      <label class="muted tiny" style="margin-top: 12px; display:block;">İsim</label>
+      <label class="muted tiny" style="margin-top: 12px; display:block;">{t('settings.profile.name')}</label>
       <input
         type="text"
         maxlength="80"
         value={displayName()}
         onInput={(e) => setDisplayName(e.currentTarget.value)}
       />
-      <label class="muted tiny" style="margin-top: 12px; display:block;">Bio (max 280)</label>
+      <label class="muted tiny" style="margin-top: 12px; display:block;">{t('settings.profile.bio')}</label>
       <textarea
         maxlength="280"
         value={bio()}
         onInput={(e) => setBio(e.currentTarget.value)}
         rows="3"
       />
-      <label class="muted tiny" style="margin-top: 12px; display:block;">Avatar</label>
+      <label class="muted tiny" style="margin-top: 12px; display:block;">{t('settings.profile.avatar')}</label>
       <Show when={avatarUrl()}>
         <img
           src={avatarUrl()}
@@ -404,7 +404,7 @@ function ProfileTab() {
           style="flex: 1;"
         />
         <button type="button" class="ghost tiny" onClick={pickAvatar} disabled={uploading()}>
-          {uploading() ? 'Yükleniyor…' : '📷 Yükle'}
+          {uploading() ? t('common.loading') : `📷 ${t('settings.profile.upload')}`}
         </button>
         <input
           ref={fileInput}
@@ -419,7 +419,7 @@ function ProfileTab() {
       </Show>
       <div style="margin-top: 18px;">
         <button type="submit" class="primary" disabled={busy()}>
-          {busy() ? 'Kaydediliyor…' : 'Kaydet'}
+          {busy() ? t('settings.profile.saving') : t('settings.profile.save')}
         </button>
       </div>
       <PrefsBlock />
@@ -432,7 +432,7 @@ function ProfileTab() {
 function PrefsBlock() {
   return (
     <div style="margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--border);">
-      <h3 style="margin: 0 0 10px;">Dil / Language</h3>
+      <h3 style="margin: 0 0 10px;">{t('settings.prefs.language')}</h3>
       <div class="flex">
         <button
           type="button"
@@ -581,12 +581,11 @@ function ExportBlock() {
   };
   return (
     <div style="margin-top: 18px;">
-      <h3 style="margin: 0 0 6px;">Verini indir</h3>
+      <h3 style="margin: 0 0 6px;">{t('settings.export.title')}</h3>
       <p class="muted tiny" style="margin-top: 0;">
-        Profil, postlar, takipler, tepkiler, kayıtlılar ve medya bilgilerinin
-        JSON dökümü. Tarayıcın "burncpu-export-YYYY-MM-DD.json" olarak kaydeder.
+        {t('settings.export.desc_pre')} "burncpu-export-YYYY-MM-DD.json" {t('settings.export.desc_post')}
       </p>
-      <button type="button" onClick={download}>JSON indir</button>
+      <button type="button" onClick={download}>{t('settings.export.download')}</button>
     </div>
   );
 }
@@ -600,7 +599,7 @@ function DangerZone() {
 
   const wipe = async () => {
     if (confirm() !== u.username) {
-      setErr(`Onay için '${u.username}' yaz`);
+      setErr(`${t('settings.danger.confirm_prefix')} '${u.username}' ${t('settings.danger.confirm_suffix')}`);
       return;
     }
     setBusy(true);
@@ -630,14 +629,13 @@ function DangerZone() {
     <div
       style="margin-top: 40px; padding: 14px; border: 1px solid rgba(255, 92, 92, 0.4); border-radius: var(--radius); background: rgba(255, 92, 92, 0.04);"
     >
-      <h3 style="margin: 0 0 6px; color: var(--bad);">Tehlikeli bölge</h3>
+      <h3 style="margin: 0 0 6px; color: var(--bad);">{t('settings.danger.title')}</h3>
       <p class="muted tiny" style="margin-top: 0;">
-        Hesabı silmek; postların, mesajların, oturumların, davetlerin — her şeyin geri
-        dönüşsüz silinmesi demek. Admin hesabı silinemez.
+        {t('settings.danger.desc')}
       </p>
       <Show when={!open()} fallback={
         <div style="margin-top: 8px;">
-          <p class="tiny">Onaylamak için kullanıcı adını yaz: <code>{u.username}</code></p>
+          <p class="tiny">{t('settings.danger.confirm_label')} <code>{u.username}</code></p>
           <input
             type="text"
             value={confirm()}
@@ -649,20 +647,20 @@ function DangerZone() {
           </Show>
           <div class="flex" style="margin-top: 8px; gap: 8px;">
             <button onClick={() => { setOpen(false); setConfirm(''); setErr(null); }} disabled={busy()}>
-              Vazgeç
+              {t('common.cancel')}
             </button>
             <button
               onClick={wipe}
               disabled={busy() || confirm() !== u.username}
               style="background: var(--bad); color: white; border-color: var(--bad);"
             >
-              {busy() ? 'Siliniyor…' : 'Hesabımı geri dönüşsüz sil'}
+              {busy() ? t('settings.danger.deleting') : t('settings.danger.delete_confirm')}
             </button>
           </div>
         </div>
       }>
         <button onClick={() => setOpen(true)} style="color: var(--bad);">
-          Hesabımı sil…
+          {t('settings.danger.open')}
         </button>
       </Show>
     </div>
@@ -723,14 +721,14 @@ function SecurityTab() {
       setCode('');
       refetch();
     } catch (e) {
-      setErr((e as Error).message || 'kod kabul edilmedi');
+      setErr((e as Error).message || t('settings.2fa.err_code_rejected'));
     } finally {
       setBusy(false);
     }
   };
 
   const disable = async () => {
-    const c = prompt('Devre dışı bırakmak için authenticator kodunu gir:');
+    const c = prompt(t('settings.2fa.disable_prompt'));
     if (!c) return;
     setBusy(true);
     setErr(null);
@@ -738,7 +736,7 @@ function SecurityTab() {
       await api.post('/auth/2fa/disable', { code: c.trim() });
       refetch();
     } catch (e) {
-      setErr((e as Error).message || 'kod yanlış');
+      setErr((e as Error).message || t('settings.2fa.err_code_wrong'));
     } finally {
       setBusy(false);
     }
@@ -746,14 +744,13 @@ function SecurityTab() {
 
   return (
     <>
-      <h3 style="margin: 0 0 8px;">İki faktörlü kimlik doğrulama (TOTP)</h3>
+      <h3 style="margin: 0 0 8px;">{t('settings.2fa.title')}</h3>
       <p class="muted tiny" style="margin-top: 0;">
-        Magic-link'e ek olarak authenticator app'ten 6 haneli kod gerektir. Admin
-        endpoint'leri 2FA olmadan sana açılmaz.
+        {t('settings.2fa.desc')}
       </p>
 
       <Show when={status.loading}>
-        <p class="muted">Yükleniyor…</p>
+        <p class="muted">{t('common.loading')}</p>
       </Show>
 
       <Show when={status() && !enroll() ? status() : null}>
@@ -761,23 +758,23 @@ function SecurityTab() {
           <>
             <Show when={s().confirmed}>
               <div class="success">
-                ✓ Aktif. Recovery kodu kalan: {s().recovery_codes_remaining}/10.
+                {t('settings.2fa.active_prefix')} {s().recovery_codes_remaining}/10.
               </div>
               <button onClick={disable} disabled={busy()}>
-                2FA'yı kapat
+                {t('settings.2fa.disable')}
               </button>
             </Show>
             <Show when={s().enrolled && !s().confirmed}>
               <div class="error">
-                Enrollment başlatılmış ama onaylanmamış. Yeniden başlat:
+                {t('settings.2fa.unconfirmed')}
               </div>
               <button class="primary" onClick={startEnroll} disabled={busy()}>
-                Tekrar başlat
+                {t('settings.2fa.restart')}
               </button>
             </Show>
             <Show when={!s().enrolled}>
               <button class="primary" onClick={startEnroll} disabled={busy()}>
-                {busy() ? 'Hazırlanıyor…' : '2FA kur'}
+                {busy() ? t('settings.2fa.preparing') : t('settings.2fa.setup')}
               </button>
             </Show>
           </>
@@ -787,22 +784,22 @@ function SecurityTab() {
       <Show when={enroll()}>
         {(e) => (
           <div style="margin-top: 18px; padding: 14px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);">
-            <h4 style="margin-top: 0;">1. QR kodu authenticator uygulamana tara</h4>
+            <h4 style="margin-top: 0;">{t('settings.2fa.step1')}</h4>
             <div style="display: flex; gap: 18px; flex-wrap: wrap;">
               <div style="background: var(--bg); padding: 8px; border-radius: var(--radius); max-width: 200px;" innerHTML={qrSvg()} />
               <div style="flex: 1; min-width: 220px;">
                 <p class="muted tiny" style="margin-top: 0;">
-                  Tarayamıyorsan elle gir:
+                  {t('settings.2fa.manual_entry')}
                 </p>
                 <code style="display: block; padding: 6px 8px; word-break: break-all; font-size: 12px;">
                   {e().secret_base32}
                 </code>
-                <h4>2. Recovery kodlarını güvenli bir yere kaydet</h4>
-                <p class="error tiny">Bu kodlar sadece BIR KEZ gösterilir. Authenticator'ı kaybedersen tek erişimin bunlar.</p>
+                <h4>{t('settings.2fa.step2')}</h4>
+                <p class="error tiny">{t('settings.2fa.recovery_warn')}</p>
                 <pre style="white-space: pre-wrap; line-height: 1.7; font-size: 12px;">
                   {e().recovery_codes.join('  ')}
                 </pre>
-                <h4>3. Onaylama kodunu gir</h4>
+                <h4>{t('settings.2fa.step3')}</h4>
                 <form onSubmit={confirm}>
                   <input
                     type="text"
@@ -818,7 +815,7 @@ function SecurityTab() {
                   </Show>
                   <div style="margin-top: 10px;">
                     <button type="submit" class="primary" disabled={busy() || !code()}>
-                      {busy() ? 'Doğrulanıyor…' : 'Aktive et'}
+                      {busy() ? t('settings.2fa.verifying') : t('settings.2fa.activate')}
                     </button>
                   </div>
                 </form>
@@ -871,7 +868,7 @@ function InvitesTab() {
   };
 
   const revoke = async (code: string) => {
-    if (!confirm(`${code} kodunu iptal et?`)) return;
+    if (!confirm(`${code} ${t('settings.invites.revoke_confirm_suffix')}`)) return;
     await api.del(`/invites/${code}`);
     refetch();
   };
@@ -883,10 +880,10 @@ function InvitesTab() {
   return (
     <>
       <p class="muted tiny">
-        Günde maksimum 5 kod oluşturabilirsin. Her kod 14 gün geçerli ve tek kullanımlık.
+        {t('settings.invites.intro')}
       </p>
       <button class="primary" onClick={create} disabled={busy()}>
-        {busy() ? 'Oluşturuluyor…' : 'Yeni davet kodu'}
+        {busy() ? t('settings.invites.creating') : t('settings.invites.new')}
       </button>
       <Show when={err()}>
         <div class="error">{err()}</div>
@@ -897,20 +894,20 @@ function InvitesTab() {
             <strong>{l().code}</strong>
             <div class="tiny" style="margin-top: 4px;">
               <button class="ghost tiny" onClick={() => copy(l().url)}>
-                URL kopyala
+                {t('settings.invites.copy_url')}
               </button>
               <button class="ghost tiny" onClick={() => copy(l().code)} style="margin-left: 6px;">
-                Kod kopyala
+                {t('settings.invites.copy_code')}
               </button>
             </div>
           </div>
         )}
       </Show>
 
-      <h3 style="margin-top: 22px;">Davetlerin</h3>
-      <Show when={data()} fallback={<p class="muted">Yükleniyor…</p>}>
+      <h3 style="margin-top: 22px;">{t('settings.invites.your_invites')}</h3>
+      <Show when={data()} fallback={<p class="muted">{t('common.loading')}</p>}>
         {(list) => (
-          <For each={list()} fallback={<p class="muted">Henüz davet oluşturmamışsın.</p>}>
+          <For each={list()} fallback={<p class="muted">{t('settings.invites.empty')}</p>}>
             {(inv) => (
               <div
                 style="display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px;"
@@ -918,14 +915,14 @@ function InvitesTab() {
                 <code style="font-size: 13px;">{inv.code}</code>
                 <span class="tiny muted">
                   {inv.redeemed_at
-                    ? `✓ kullanıldı ${relDate(inv.redeemed_at)}`
+                    ? `✓ ${t('settings.invites.redeemed')} ${relDate(inv.redeemed_at)}`
                     : Date.parse(inv.expires_at) < Date.now()
-                      ? '⊘ süresi doldu'
-                      : `geçerli (son: ${new Date(inv.expires_at).toLocaleDateString('tr-TR')})`}
+                      ? `⊘ ${t('settings.invites.expired')}`
+                      : `${t('settings.invites.valid_until_prefix')} ${new Date(inv.expires_at).toLocaleDateString(locale() === 'en' ? 'en-US' : 'tr-TR')})`}
                 </span>
                 <Show when={!inv.redeemed_at && Date.parse(inv.expires_at) > Date.now()}>
                   <button class="ghost tiny" style="margin-left: auto;" onClick={() => revoke(inv.code)}>
-                    iptal et
+                    {t('settings.invites.revoke')}
                   </button>
                 </Show>
               </div>
@@ -938,7 +935,7 @@ function InvitesTab() {
 }
 
 function relDate(iso: string) {
-  return new Date(iso).toLocaleDateString('tr-TR', {
+  return new Date(iso).toLocaleDateString(locale() === 'en' ? 'en-US' : 'tr-TR', {
     day: 'numeric',
     month: 'short',
   });

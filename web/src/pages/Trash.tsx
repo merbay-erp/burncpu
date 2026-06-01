@@ -3,6 +3,7 @@ import { A } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
 import { relTime } from '../util';
+import { t } from '../i18n';
 
 interface TrashedPost {
   id: string;
@@ -31,20 +32,20 @@ export default function Trash() {
   return (
     <>
       <h2 class="page-title">
-        Çöp <small>30 gün sonra kalıcı silinir</small>
+        {t('nav.trash')} <small>{t('trash.retention_note')}</small>
       </h2>
-      <Show when={me()} fallback={<p class="muted">Önce <A href="/login">giriş yap</A>.</p>}>
-        <Show when={list()} fallback={<p class="muted">Yükleniyor…</p>}>
+      <Show when={me()} fallback={<p class="muted">{t('auth.login_prefix')} <A href="/login">{t('auth.login_link')}</A>.</p>}>
+        <Show when={list()} fallback={<p class="muted">{t('common.loading')}</p>}>
           {(rows) => (
-            <For each={rows()} fallback={<p class="muted">Çöp boş.</p>}>
+            <For each={rows()} fallback={<p class="muted">{t('trash.empty')}</p>}>
               {(p) => (
                 <article class="post">
                   <div class="post-head">
                     <span class="time" style="color: var(--fg-3);">
-                      silindi {relTime(p.deleted_at)}
+                      {t('trash.deleted_prefix')} {relTime(p.deleted_at)}
                     </span>
                     <span class="tiny" style={`margin-left: auto; color: ${daysLeft(p.deleted_at) <= 3 ? 'var(--bad)' : 'var(--warn)'};`}>
-                      {daysLeft(p.deleted_at)} gün kaldı
+                      {daysLeft(p.deleted_at)} {t('trash.days_left')}
                     </span>
                   </div>
                   <div
@@ -54,7 +55,7 @@ export default function Trash() {
                     {p.body}
                   </div>
                   <div class="post-foot tiny">
-                    <button class="primary tiny" onClick={() => restore(p.id)}>Geri al</button>
+                    <button class="primary tiny" onClick={() => restore(p.id)}>{t('trash.restore')}</button>
                   </div>
                 </article>
               )}

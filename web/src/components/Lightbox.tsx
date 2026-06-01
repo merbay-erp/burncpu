@@ -1,4 +1,5 @@
 import { createSignal, Show, onCleanup, onMount } from 'solid-js';
+import { t } from '../i18n';
 
 const [src, setSrc] = createSignal<string | null>(null);
 
@@ -46,7 +47,7 @@ export default function Lightbox() {
           <button
             onClick={(e) => { e.stopPropagation(); setSrc(null); }}
             style="position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,0.5); color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 50%; width: 36px; height: 36px; font-size: 18px; cursor: pointer; padding: 0;"
-            aria-label="Kapat"
+            aria-label={t('lightbox.close')}
           >
             ✕
           </button>

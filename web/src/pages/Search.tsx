@@ -2,6 +2,7 @@ import { createSignal, createResource, For, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api, type SearchResponse, type SearchHit } from '../api';
 import { relTime } from '../util';
+import { t } from '../i18n';
 
 export default function Search() {
   const [q, setQ] = createSignal('');
@@ -24,11 +25,11 @@ export default function Search() {
 
   return (
     <>
-      <h2 class="page-title">Ara</h2>
+      <h2 class="page-title">{t('search.title')}</h2>
       <input
         ref={(el) => setTimeout(() => el?.focus(), 0)}
         type="search"
-        placeholder="Ne arıyorsun? (kelime veya #hashtag)"
+        placeholder={t('search.placeholder')}
         value={q()}
         onInput={(e) => onInput(e.currentTarget.value)}
       />
@@ -36,10 +37,10 @@ export default function Search() {
         {(r) => (
           <>
             <div class="tiny muted" style="margin-top: 6px;">
-              {r().estimatedTotalHits ?? r().hits.length} sonuç · {r().processingTimeMs ?? 0}ms
+              {r().estimatedTotalHits ?? r().hits.length} {t('search.results')} · {r().processingTimeMs ?? 0}ms
             </div>
             <div style="margin-top: 14px;">
-              <For each={r().hits} fallback={<div class="muted">Sonuç yok.</div>}>
+              <For each={r().hits} fallback={<div class="muted">{t('search.no_results')}</div>}>
                 {(h: SearchHit) => (
                   <article class="post">
                     <div class="post-head">
@@ -64,7 +65,7 @@ export default function Search() {
       </Show>
       <Show when={!trigger() && !results()}>
         <p class="muted tiny" style="margin-top: 14px;">
-          İpucu: <code>federation</code>, <code>rust</code>, <code>1 vps</code> dene.
+          {t('search.hint_prefix')} <code>federation</code>, <code>rust</code>, <code>1 vps</code> {t('search.hint_suffix')}
         </p>
       </Show>
     </>

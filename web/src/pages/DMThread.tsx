@@ -3,6 +3,7 @@ import { useParams, A } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
 import { relTime } from '../util';
+import { t } from '../i18n';
 
 interface DmMessage {
   id: string;
@@ -80,25 +81,25 @@ export default function DMThread() {
 
   return (
     <div class="legacy">
-      <Show when={me()} fallback={<p class="muted">Önce <A href="/login">giriş yap</A>.</p>}>
-        <Show when={data() as ThreadView | null | undefined} fallback={<p class="muted">Yükleniyor…</p>}>
-          {(t) => (
+      <Show when={me()} fallback={<p class="muted">{t('dmthread.login_prefix')} <A href="/login">{t('nav.login_action')}</A>.</p>}>
+        <Show when={data() as ThreadView | null | undefined} fallback={<p class="muted">{t('loading')}</p>}>
+          {(th) => (
             <>
               <h2 class="page-title">
-                <A href={`/u/${t().other_username}`} style="color: inherit;">
-                  {t().other_display_name}
+                <A href={`/u/${th().other_username}`} style="color: inherit;">
+                  {th().other_display_name}
                 </A>
-                <small>@{t().other_username}</small>
+                <small>@{th().other_username}</small>
               </h2>
-              <Show when={!t().mutual_follow}>
+              <Show when={!th().mutual_follow}>
                 <div class="error">
-                  DM atabilmek için iki tarafın da birbirini takip etmesi gerekiyor.
+                  {t('dm.mutual_required')}
                 </div>
               </Show>
               <div style="margin: 12px 0;">
                 <For
-                  each={t().messages}
-                  fallback={<div class="muted">Henüz mesaj yok. İlki sen ol.</div>}
+                  each={th().messages}
+                  fallback={<div class="muted">{t('dmthread.empty')}</div>}
                 >
                   {(m) => {
                     const mine = m.sender_id === me()?.user_id;
@@ -125,14 +126,14 @@ export default function DMThread() {
                   goruyordu, hicbir CTA yoktu → "mesajlasma aktif olmuyor" sikayeti.
                   Simdi mutual=false ise: cift takipte aktif olur, takip et butonu CTA.
                   Optimistic: butona basinca local state hemen guncellenir + refetch. */}
-              <Show when={t().mutual_follow} fallback={
+              <Show when={th().mutual_follow} fallback={
                 <div style="border-top: 1px solid var(--border); padding: 16px; text-align: center;">
                   <p class="muted" style="margin-bottom: 12px;">
-                    Mesajlaşmanın aktif olması için <strong>her iki tarafın</strong> birbirini takip etmesi gerekiyor.
+                    {t('dmthread.mutual_cta_prefix')} <strong>{t('dmthread.mutual_cta_strong')}</strong> {t('dmthread.mutual_cta_suffix')}
                   </p>
-                  <Show when={!t().is_following} fallback={
+                  <Show when={!th().is_following} fallback={
                     <p class="tiny muted">
-                      Sen @{t().other_username}'i takip ediyorsun. <strong>O da seni takip ettiğinde</strong> burada mesajlaşabilirsiniz.
+                      {t('dmthread.pending_prefix')} @{th().other_username}{t('dmthread.pending_mid')} <strong>{t('dmthread.pending_strong')}</strong> {t('dmthread.pending_suffix')}
                     </p>
                   }>
                     <button
@@ -142,7 +143,7 @@ export default function DMThread() {
                         if (busy()) return;
                         setBusy(true);
                         try {
-                          await api.post(`/users/${t().other_username}/follow`);
+                          await api.post(`/users/${th().other_username}/follow`);
                           await refetch();
                         } catch (e) {
                           setErr((e as Error).message);
@@ -151,14 +152,14 @@ export default function DMThread() {
                         }
                       }}
                     >
-                      {busy() ? 'Gönderiliyor…' : `@${t().other_username}'i takip et`}
+                      {busy() ? t('compose.sending') : `@${th().other_username}${t('dmthread.follow_cta')}`}
                     </button>
                   </Show>
                 </div>
               }>
                 <div style="border-top: 1px solid var(--border); padding-top: 12px; position: sticky; bottom: 0; background: var(--bg);">
                   <textarea
-                    placeholder="Mesajın..."
+                    placeholder={t('dmthread.message_placeholder')}
                     value={body()}
                     onInput={(e) => setBody(e.currentTarget.value)}
                     onKeyDown={(e) => {
@@ -172,9 +173,9 @@ export default function DMThread() {
                     <div class="error">{err()}</div>
                   </Show>
                   <div class="compose-actions">
-                    <span class="tiny muted">⌘/Ctrl + Enter ile gönder</span>
+                    <span class="tiny muted">{t('dmthread.send_hint')}</span>
                     <button class="primary" onClick={send} disabled={busy() || !body().trim()}>
-                      {busy() ? 'Gönderiliyor…' : 'Gönder'}
+                      {busy() ? t('compose.sending') : t('compose.send')}
                     </button>
                   </div>
                 </div>
@@ -183,7 +184,7 @@ export default function DMThread() {
           )}
         </Show>
       </Show>
-      <button class="ghost tiny" onClick={refetch} style="margin-top: 10px;">↻ yenile</button>
+      <button class="ghost tiny" onClick={refetch} style="margin-top: 10px;">↻ {t('dmthread.refresh')}</button>
     </div>
   );
 }

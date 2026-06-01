@@ -47,7 +47,7 @@ export default function Compose(props: {
       });
       setBody(''); setCw(''); setMentions([]);
       props.onPosted?.(p);
-    } catch (e) { setErr((e as Error).message || 'transmission failed'); }
+    } catch (e) { setErr((e as Error).message || t('compose.error')); }
     finally { setBusy(false); }
   };
 
@@ -150,7 +150,7 @@ export default function Compose(props: {
           <Show when={!props.replyToId}>
             <input
               type="text"
-              placeholder="İçerik uyarısı (opsiyonel, ör: 'spoiler')"
+              placeholder={t('compose.cw_placeholder')}
               maxlength="140"
               value={cw()}
               onInput={(e) => setCw(e.currentTarget.value)}
@@ -204,20 +204,20 @@ export default function Compose(props: {
                 onClick={pickFile}
                 disabled={uploading() || busy()}
                 class="p-2 text-on-surface-variant hover:text-primary transition-colors"
-                title="Görsel ekle"
+                title={t('compose.add_image')}
               >
                 <span class="material-symbols-outlined">image</span>
               </button>
               <button
                 onClick={() => insertAtCursor('\n```\n\n```\n')}
                 class="p-2 text-on-surface-variant hover:text-primary transition-colors"
-                title="Kod bloğu"
+                title={t('compose.code_block')}
               >
                 <span class="material-symbols-outlined">code</span>
               </button>
               <EmojiPicker onPick={insertAtCursor} />
               <Show when={uploading()}>
-                <span class="text-on-surface-variant font-mono text-[11px] ml-1">uploading…</span>
+                <span class="text-on-surface-variant font-mono text-[11px] ml-1">{t('compose.uploading')}</span>
               </Show>
             </div>
             <div class="flex items-center gap-3">

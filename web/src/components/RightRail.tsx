@@ -5,13 +5,21 @@ import { createResource, For, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api, type Profile } from '../api';
 import { me } from '../auth';
+import { t } from '../i18n';
 
 interface TagCount { tag: string; count: number }
 
 const CATEGORY_LABEL = (idx: number): string => {
   // Pure decoration — labels seen in the reference
-  const tags = ['Hardware', 'Infrastructure', 'Protocol', 'Economy', 'Topic', 'Signal'];
-  return tags[idx] ?? 'Topic';
+  const keys = [
+    'rail.cat.hardware',
+    'rail.cat.infrastructure',
+    'rail.cat.protocol',
+    'rail.cat.economy',
+    'rail.cat.topic',
+    'rail.cat.signal',
+  ];
+  return t(keys[idx] ?? 'rail.cat.topic');
 };
 
 export default function RightRail() {
@@ -45,45 +53,45 @@ export default function RightRail() {
             <div class="grid grid-cols-3 gap-2 py-3 border-y border-outline-variant/30">
               <A href={`/u/${p().username}`} class="text-center group">
                 <div class="font-bold text-on-background group-hover:text-primary transition-colors">{p().counts.posts}</div>
-                <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">Signals</div>
+                <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">{t('rail.signals')}</div>
               </A>
               <A href={`/u/${p().username}/followers`} class="text-center group">
                 <div class="font-bold text-on-background group-hover:text-primary transition-colors">{p().counts.followers}</div>
-                <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">Nodes</div>
+                <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">{t('rail.nodes')}</div>
               </A>
               <A href={`/u/${p().username}/following`} class="text-center group">
                 <div class="font-bold text-on-background group-hover:text-primary transition-colors">{p().counts.following}</div>
-                <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">Tracks</div>
+                <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">{t('rail.tracks')}</div>
               </A>
             </div>
             <A
               href="/settings"
               class="w-full mt-4 py-2 border border-primary text-primary font-bold rounded-lg text-[14px] font-mono hover:bg-primary/10 transition-colors flex items-center justify-center"
             >
-              Edit Profile
+              {t('rail.edit_profile')}
             </A>
           </section>
         )}
       </Show>
 
       <section>
-        <h3 class="font-mono text-[14px] text-primary font-bold uppercase tracking-widest mb-4">Trending Signals</h3>
+        <h3 class="font-mono text-[14px] text-primary font-bold uppercase tracking-widest mb-4">{t('rail.trending')}</h3>
         <div class="space-y-4">
-          <Show when={tags()} fallback={<p class="text-on-surface-variant text-[12px] font-mono">scanning…</p>}>
+          <Show when={tags()} fallback={<p class="text-on-surface-variant text-[12px] font-mono">{t('rail.scanning')}</p>}>
             {(rows) => (
               <For
                 each={rows()}
-                fallback={<p class="text-on-surface-variant text-[12px] font-mono">no signal in this window.</p>}
+                fallback={<p class="text-on-surface-variant text-[12px] font-mono">{t('rail.no_signal')}</p>}
               >
-                {(t, i) => (
-                  <A href={`/hashtag/${t.tag}`} class="group block">
+                {(tag, i) => (
+                  <A href={`/hashtag/${tag.tag}`} class="group block">
                     <div class="text-on-surface-variant text-[12px] font-mono">
                       {String(i() + 1).padStart(2, '0')} · {CATEGORY_LABEL(i())}
                     </div>
                     <div class="font-bold text-on-background group-hover:text-primary transition-colors">
-                      #{t.tag}
+                      #{tag.tag}
                     </div>
-                    <div class="text-[12px] text-on-surface-variant">{t.count} Transmissions</div>
+                    <div class="text-[12px] text-on-surface-variant">{tag.count} {t('rail.transmissions')}</div>
                   </A>
                 )}
               </For>
@@ -91,17 +99,17 @@ export default function RightRail() {
           </Show>
         </div>
         <A href="/search" class="block mt-6 text-primary text-[12px] font-mono hover:underline">
-          Show more
+          {t('rail.show_more')}
         </A>
       </section>
 
       <section class="mt-auto">
         <div class="p-4 bg-surface-container-lowest border border-outline-variant rounded-xl">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">Grid Status</span>
+            <span class="text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">{t('rail.grid_status')}</span>
             <span class="flex items-center gap-1.5 text-[10px] font-mono text-primary">
               <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
-              NOMINAL
+              {t('rail.nominal')}
             </span>
           </div>
           <div class="h-1 bg-surface-container-highest rounded-full overflow-hidden">

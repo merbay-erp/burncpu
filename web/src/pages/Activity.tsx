@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
+import { t } from '../i18n';
 
 interface Bucket {
   day: string;
@@ -22,17 +23,17 @@ interface Activity {
   daily: Bucket[];
 }
 
-const WIN: { value: string; label: string }[] = [
-  { value: '7d', label: '7 gün' },
-  { value: '30d', label: '30 gün' },
-  { value: '90d', label: '90 gün' },
+const WIN: { value: string; labelKey: string }[] = [
+  { value: '7d', labelKey: 'window.7d' },
+  { value: '30d', labelKey: 'window.30d' },
+  { value: '90d', labelKey: 'window.90d' },
 ];
 
-const METRICS: { key: keyof Totals; label: string; color: string }[] = [
-  { key: 'posts',              label: 'Post',     color: 'var(--accent)' },
-  { key: 'reactions_received', label: 'Tepki',    color: '#5fd068' },
-  { key: 'replies_received',   label: 'Yanıt',    color: '#6cb7ff' },
-  { key: 'followers_gained',   label: 'Yeni takipçi', color: '#f4b942' },
+const METRICS: { key: keyof Totals; labelKey: string; color: string }[] = [
+  { key: 'posts',              labelKey: 'activity.posts',              color: 'var(--accent)' },
+  { key: 'reactions_received', labelKey: 'activity.reactions_received', color: '#5fd068' },
+  { key: 'replies_received',   labelKey: 'activity.replies_received',   color: '#6cb7ff' },
+  { key: 'followers_gained',   labelKey: 'activity.followers_gained',   color: '#f4b942' },
 ];
 
 export default function ActivityPage() {
@@ -45,7 +46,7 @@ export default function ActivityPage() {
   return (
     <>
       <h2 class="page-title">
-        Aktivite
+        {t('activity.title')}
         <small>
           <For each={WIN}>
             {(w) => (
@@ -53,14 +54,14 @@ export default function ActivityPage() {
                 onClick={() => setWindow(w.value)}
                 style={`background: transparent; border: none; padding: 0 6px; color: ${window() === w.value ? 'var(--accent)' : 'var(--fg-3)'}; cursor: pointer; font: inherit;`}
               >
-                {w.label}
+                {t(w.labelKey)}
               </button>
             )}
           </For>
         </small>
       </h2>
-      <Show when={me()} fallback={<p class="muted">Önce <A href="/login">giriş yap</A>.</p>}>
-        <Show when={data()} fallback={<p class="muted">Yükleniyor…</p>}>
+      <Show when={me()} fallback={<p class="muted">{t('auth.login_prefix')} <A href="/login">{t('auth.login_link')}</A>.</p>}>
+        <Show when={data()} fallback={<p class="muted">{t('common.loading')}</p>}>
           {(d) => (
             <>
               <div
@@ -69,7 +70,7 @@ export default function ActivityPage() {
                 <For each={METRICS}>
                   {(m) => (
                     <div style="padding: 12px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);">
-                      <div class="tiny muted" style="text-transform: uppercase;">{m.label}</div>
+                      <div class="tiny muted" style="text-transform: uppercase;">{t(m.labelKey)}</div>
                       <div style={`font-size: 24px; font-weight: 700; color: ${m.color}; margin-top: 4px;`}>
                         {d().totals[m.key]}
                       </div>
@@ -77,9 +78,9 @@ export default function ActivityPage() {
                   )}
                 </For>
               </div>
-              <h3>Günlük</h3>
+              <h3>{t('activity.daily')}</h3>
               <For each={METRICS}>
-                {(m) => <Spark label={m.label} color={m.color} buckets={d().daily} field={m.key} />}
+                {(m) => <Spark label={t(m.labelKey)} color={m.color} buckets={d().daily} field={m.key} />}
               </For>
             </>
           )}
@@ -111,7 +112,7 @@ function Spark(props: {
     <div style="margin-bottom: 14px;">
       <div class="flex tiny muted" style="justify-content: space-between;">
         <span>{props.label}</span>
-        <span>tepe: {max()}</span>
+        <span>{t('activity.peak')} {max()}</span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} style="width: 100%; height: 36px; display: block;">
         <polyline

@@ -3,6 +3,7 @@ import type { PostView } from '../api';
 import Post from './Post';
 import Compose from './Compose';
 import { me } from '../auth';
+import { t } from '../i18n';
 
 // Shared per-thread context, drilled down through the recursion so each node
 // can look up its own children, toggle its own reply box, and report a new
@@ -36,7 +37,7 @@ export default function ThreadNode(props: { post: PostView; depth: number; ctx: 
         <div class="mt-2">
           <Compose
             replyToId={props.post.id}
-            placeholder={`@${props.post.author.username} yanıtla…`}
+            placeholder={`@${props.post.author.username} ${t('thread.reply_to')}`}
             autofocus
             onPosted={(p) => {
               props.ctx.onReplied(p);

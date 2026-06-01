@@ -2,6 +2,7 @@ import { createSignal, onMount, Show } from 'solid-js';
 import { useNavigate, useParams, A } from '@solidjs/router';
 import { api, ApiError } from '../api';
 import { probeSession } from '../auth';
+import { t } from '../i18n';
 
 interface VerifyResponse {
   ok: boolean;
@@ -34,9 +35,9 @@ export default function Confirm() {
       setTimeout(() => nav(r.pending_2fa ? '/2fa' : '/', { replace: true }), 500);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        setErr('Link süresi dolmuş ya da daha önce kullanılmış.');
+        setErr(t('confirm.error_expired'));
       } else {
-        setErr('Giriş doğrulanamadı. Yeni bir magic-link iste.');
+        setErr(t('confirm.error_generic'));
       }
     } finally {
       setBusy(false);
@@ -45,21 +46,21 @@ export default function Confirm() {
 
   return (
     <div class="auth-card">
-      <h1>Girişi onayla</h1>
+      <h1>{t('confirm.title')}</h1>
       <Show
         when={!done()}
-        fallback={<div class="success">Giriş tamam. Yönlendiriliyorsun…</div>}
+        fallback={<div class="success">{t('confirm.done')}</div>}
       >
         <p class="note">
-          Mail tarayıcılarının linki tüketmemesi için giriş yalnızca bu butona basınca tamamlanır.
+          {t('confirm.note')}
         </p>
         <Show when={err()}>
           <div class="error">{err()}</div>
         </Show>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px;">
-          <A href="/login" class="button">Yeni link iste</A>
+          <A href="/login" class="button">{t('confirm.request_new')}</A>
           <button class="primary" onClick={confirm} disabled={busy()}>
-            {busy() ? 'Doğrulanıyor…' : 'Giriş yap'}
+            {busy() ? t('confirm.verifying') : t('confirm.submit')}
           </button>
         </div>
       </Show>

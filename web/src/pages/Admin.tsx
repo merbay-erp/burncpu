@@ -3,6 +3,7 @@ import { A } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
 import { relTime } from '../util';
+import { t } from '../i18n';
 
 interface Stats {
   total_users: number;
@@ -88,7 +89,7 @@ export default function Admin() {
   );
 
   const resolve = async (id: string) => {
-    const reso = prompt('Resolution (no_action / removed / suspended / other):', 'no_action');
+    const reso = prompt(t('admin.resolve_prompt'), 'no_action');
     if (!reso) return;
     if (!['no_action', 'removed', 'suspended', 'other'].includes(reso)) return;
     await api.patch(`/admin/reports/${id}`, { resolution: reso });
@@ -98,48 +99,48 @@ export default function Admin() {
   return (
     <>
       <h2 class="page-title">
-        Admin <small>panel</small>
+        {t('admin.title')} <small>{t('admin.panel')}</small>
       </h2>
       <Show
         when={me()?.role === 'admin'}
-        fallback={<p class="error">Bu sayfa sadece admin için.</p>}
+        fallback={<p class="error">{t('admin.only')}</p>}
       >
-        <Show when={stats()} fallback={<p class="muted">Yükleniyor…</p>}>
+        <Show when={stats()} fallback={<p class="muted">{t('loading')}</p>}>
           {(s) => (
             <div
               style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 24px;"
             >
-              <Stat label="Kullanıcı" value={s().total_users} sub={`+${s().new_users_24h} (24h)`} />
-              <Stat label="DAU (24h)" value={s().dau_24h} />
-              <Stat label="Posts" value={s().total_posts} sub={`+${s().posts_24h} (24h)`} />
-              <Stat label="Tepki (24h)" value={s().reactions_24h} />
-              <Stat label="Follow (24h)" value={s().follows_24h} />
-              <Stat label="DM (24h)" value={s().dm_messages_24h} />
-              <Stat label="Request (24h)" value={s().requests_24h} />
+              <Stat label={t('admin.stat.users')} value={s().total_users} sub={`+${s().new_users_24h} (24h)`} />
+              <Stat label={t('admin.stat.dau')} value={s().dau_24h} />
+              <Stat label={t('admin.stat.posts')} value={s().total_posts} sub={`+${s().posts_24h} (24h)`} />
+              <Stat label={t('admin.stat.reactions')} value={s().reactions_24h} />
+              <Stat label={t('admin.stat.follows')} value={s().follows_24h} />
+              <Stat label={t('admin.stat.dm')} value={s().dm_messages_24h} />
+              <Stat label={t('admin.stat.requests')} value={s().requests_24h} />
               <Stat
-                label="Hata (24h)"
+                label={t('admin.stat.errors')}
                 value={s().errors_24h}
                 tone={s().errors_24h > 0 ? 'bad' : 'ok'}
               />
               <Stat
-                label="Flagged session"
+                label={t('admin.stat.flagged')}
                 value={s().flagged_sessions}
                 tone={s().flagged_sessions > 0 ? 'warn' : 'ok'}
               />
               <Stat
-                label="Karantina"
+                label={t('admin.stat.quarantine')}
                 value={s().pending_mod_posts}
                 tone={s().pending_mod_posts > 0 ? 'warn' : 'ok'}
               />
-              <Stat label="Medya" value={s().media_total} sub={fmtBytes(s().media_bytes)} />
+              <Stat label={t('admin.stat.media')} value={s().media_total} sub={fmtBytes(s().media_bytes)} />
             </div>
           )}
         </Show>
 
-        <h3>Açık raporlar</h3>
+        <h3>{t('admin.open_reports')}</h3>
         <Show when={reports()} fallback={<p class="muted">…</p>}>
           {(rows) => (
-            <For each={rows()} fallback={<p class="muted tiny">Bekleyen rapor yok.</p>}>
+            <For each={rows()} fallback={<p class="muted tiny">{t('admin.no_reports')}</p>}>
               {(r) => (
                 <div
                   style="padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 8px; font-size: 13px;"
@@ -148,23 +149,23 @@ export default function Admin() {
                   <strong>{r.reason}</strong>
                   <span class="tiny muted">{r.target_kind} {r.target_id.slice(0, 8)}</span>
                   <Show when={r.target_kind === 'post'}>
-                    <A href={`/posts/${r.target_id}`} class="tiny">aç</A>
+                    <A href={`/posts/${r.target_id}`} class="tiny">{t('admin.open')}</A>
                   </Show>
                   <span class="tiny muted" style="margin-left: auto;">
-                    by <A href={`/u/${r.reporter_username}`}>@{r.reporter_username}</A>
+                    {t('admin.by')} <A href={`/u/${r.reporter_username}`}>@{r.reporter_username}</A>
                   </span>
-                  <button class="ghost tiny" onClick={() => resolve(r.id)}>çöz</button>
+                  <button class="ghost tiny" onClick={() => resolve(r.id)}>{t('admin.resolve')}</button>
                 </div>
               )}
             </For>
           )}
         </Show>
 
-        <h3 style="margin-top: 22px;">Son hatalar (status ≥ 400)</h3>
+        <h3 style="margin-top: 22px;">{t('admin.recent_errors')} (status ≥ 400)</h3>
         <Show when={errors()} fallback={<p class="muted">…</p>}>
           {(rows) => (
             <div style="font-size: 12px; font-family: var(--mono); margin-bottom: 22px;">
-              <For each={rows()} fallback={<p class="muted">Hata yok 🎉</p>}>
+              <For each={rows()} fallback={<p class="muted">{t('admin.no_errors')} 🎉</p>}>
                 {(r) => (
                   <div
                     style={`padding: 4px 0; border-bottom: 1px solid var(--border); color: ${r.status >= 500 ? 'var(--bad)' : 'var(--warn)'};`}
@@ -179,11 +180,11 @@ export default function Admin() {
           )}
         </Show>
 
-        <h3>Son postlar</h3>
+        <h3>{t('admin.recent_posts')}</h3>
         <Show when={recent()} fallback={<p class="muted">…</p>}>
           {(rows) => (
             <div style="margin-bottom: 22px;">
-              <For each={rows()} fallback={<p class="muted">Yok.</p>}>
+              <For each={rows()} fallback={<p class="muted">{t('admin.empty')}</p>}>
                 {(p) => (
                   <div
                     style={`padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: baseline; font-size: 13px;`}
@@ -194,9 +195,9 @@ export default function Admin() {
                     </span>
                     <span class="tiny muted">
                       {p.moderation_state}
-                      {p.deleted_at ? ' · deleted' : ''}
+                      {p.deleted_at ? ` · ${t('admin.deleted')}` : ''}
                     </span>
-                    <A href={`/posts/${p.id}`} class="tiny">aç</A>
+                    <A href={`/posts/${p.id}`} class="tiny">{t('admin.open')}</A>
                   </div>
                 )}
               </For>
@@ -204,17 +205,17 @@ export default function Admin() {
           )}
         </Show>
 
-        <h3>Kullanıcılar</h3>
+        <h3>{t('admin.users')}</h3>
         <Show when={users()} fallback={<p class="muted">…</p>}>
           {(rows) => (
             <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
               <thead>
                 <tr style="color: var(--fg-3);">
-                  <th style="text-align: left; padding: 6px;">Username</th>
-                  <th style="text-align: left; padding: 6px;">Email</th>
-                  <th style="text-align: left; padding: 6px;">Role</th>
-                  <th style="text-align: right; padding: 6px;">Posts</th>
-                  <th style="text-align: right; padding: 6px;">Son görülme</th>
+                  <th style="text-align: left; padding: 6px;">{t('admin.col.username')}</th>
+                  <th style="text-align: left; padding: 6px;">{t('admin.col.email')}</th>
+                  <th style="text-align: left; padding: 6px;">{t('admin.col.role')}</th>
+                  <th style="text-align: right; padding: 6px;">{t('admin.col.posts')}</th>
+                  <th style="text-align: right; padding: 6px;">{t('admin.col.last_seen')}</th>
                 </tr>
               </thead>
               <tbody>

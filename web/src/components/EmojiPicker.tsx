@@ -3,6 +3,7 @@
 // to insert. Toggle from any composer with a single button.
 
 import { createSignal, For, Show, onCleanup, onMount } from 'solid-js';
+import { t } from '../i18n';
 
 interface Emoji {
   c: string;        // character
@@ -159,7 +160,7 @@ export default function EmojiPicker(props: { onPick: (c: string) => void }) {
         type="button"
         class="ghost tiny"
         onClick={() => setOpen((v) => !v)}
-        title="Emoji"
+        title={t('emoji.title')}
       >
         😀
       </button>
@@ -170,15 +171,15 @@ export default function EmojiPicker(props: { onPick: (c: string) => void }) {
           <input
             ref={(el) => setTimeout(() => el?.focus(), 0)}
             type="search"
-            placeholder="Ara (örn: ateş, fire, 🔥)"
+            placeholder={t('emoji.search_placeholder')}
             value={q()}
             onInput={(e) => setQ(e.currentTarget.value)}
             style="margin-bottom: 8px; font-size: 13px;"
           />
-          <For each={filtered()} fallback={<p class="muted tiny">Sonuç yok.</p>}>
+          <For each={filtered()} fallback={<p class="muted tiny">{t('emoji.no_results')}</p>}>
             {(g) => (
               <div style="margin-bottom: 8px;">
-                <div class="tiny muted" style="margin-bottom: 4px;">{g.name}</div>
+                <div class="tiny muted" style="margin-bottom: 4px;">{t('emoji.cat_' + g.name)}</div>
                 <div style="display: flex; flex-wrap: wrap; gap: 2px;">
                   <For each={g.list}>
                     {(e) => (

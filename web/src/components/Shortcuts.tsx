@@ -10,6 +10,7 @@
 
 import { createSignal, onCleanup, onMount, Show } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
+import { t } from '../i18n';
 
 const [helpOpen, setHelpOpen] = createSignal(false);
 
@@ -125,24 +126,24 @@ export default function Shortcuts() {
           onClick={(e) => e.stopPropagation()}
           style="background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; max-width: 420px; width: 100%;"
         >
-          <h3 style="margin-top: 0;">Klavye kısayolları</h3>
+          <h3 style="margin-top: 0;">{t('shortcuts.title')}</h3>
           <table style="width: 100%; font-size: 13px;">
             <tbody>
-              <Row k="n" desc="Yeni post (composer odakla)" />
-              <Row k="j / k" desc="Sonraki / önceki post" />
-              <Row k="g h" desc="Public timeline" />
-              <Row k="g f" desc="Feed" />
-              <Row k="g n" desc="Bildirimler" />
-              <Row k="g s" desc="Ara" />
-              <Row k="g b" desc="Kayıtlılar" />
-              <Row k="g t" desc="Trend" />
-              <Row k="g d" desc="Mesajlar" />
-              <Row k="?" desc="Bu yardımı aç/kapat" />
-              <Row k="Esc" desc="Kapat" />
+              <Row k="n" desc={t('shortcuts.new_post')} />
+              <Row k="j / k" desc={t('shortcuts.next_prev')} />
+              <Row k="g h" desc={t('shortcuts.timeline')} />
+              <Row k="g f" desc={t('shortcuts.feed')} />
+              <Row k="g n" desc={t('shortcuts.notifications')} />
+              <Row k="g s" desc={t('shortcuts.search')} />
+              <Row k="g b" desc={t('shortcuts.bookmarks')} />
+              <Row k="g t" desc={t('shortcuts.trending')} />
+              <Row k="g d" desc={t('shortcuts.dm')} />
+              <Row k="?" desc={t('shortcuts.toggle_help')} />
+              <Row k="Esc" desc={t('shortcuts.close')} />
             </tbody>
           </table>
           <p class="muted tiny" style="margin-bottom: 0;">
-            Compose'daki ⌘/Ctrl+Enter — DM/yorum gönder.
+            ⌘/Ctrl+Enter — {t('shortcuts.submit_hint')}
           </p>
         </div>
       </div>

@@ -6,6 +6,7 @@
 
 import { createSignal, onCleanup, onMount, Show } from 'solid-js';
 import { api, type Profile } from '../api';
+import { t } from '../i18n';
 
 interface CardState {
   username: string;
@@ -97,7 +98,7 @@ export default function HoverCard() {
           style={`position: absolute; top: ${c().y}px; left: ${c().x}px; min-width: 240px; max-width: 320px; background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 50; font-size: 13px;`}
         >
           <Show when={c().loading}>
-            <div class="muted tiny">@{c().username} yükleniyor…</div>
+            <div class="muted tiny">@{c().username} {t('common.loading')}</div>
           </Show>
           <Show when={c().profile}>
             {(p) => (
@@ -123,9 +124,9 @@ export default function HoverCard() {
                   <div style="margin-top: 8px; color: var(--fg);">{p().bio}</div>
                 </Show>
                 <div class="tiny muted" style="margin-top: 8px;">
-                  <strong style="color: var(--fg);">{p().counts.posts}</strong> post ·{' '}
-                  <strong style="color: var(--fg);">{p().counts.followers}</strong> takipçi ·{' '}
-                  <strong style="color: var(--fg);">{p().counts.following}</strong> takip
+                  <strong style="color: var(--fg);">{p().counts.posts}</strong> {t('hovercard.posts')} ·{' '}
+                  <strong style="color: var(--fg);">{p().counts.followers}</strong> {t('hovercard.followers')} ·{' '}
+                  <strong style="color: var(--fg);">{p().counts.following}</strong> {t('hovercard.following')}
                 </div>
               </>
             )}

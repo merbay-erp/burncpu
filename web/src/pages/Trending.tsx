@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api } from '../api';
 import { relTime } from '../util';
+import { t } from '../i18n';
 
 interface TagCount { tag: string; count: number }
 interface TrendingPost {
@@ -15,10 +16,10 @@ interface TrendingPost {
   created_at: string;
 }
 
-const WINDOWS: { value: string; label: string }[] = [
-  { value: '1h', label: '1 saat' },
-  { value: '24h', label: '24 saat' },
-  { value: '7d', label: '7 gün' },
+const WINDOWS: { value: string; labelKey: string }[] = [
+  { value: '1h', labelKey: 'window.1h' },
+  { value: '24h', labelKey: 'window.24h' },
+  { value: '7d', labelKey: 'window.7d' },
 ];
 
 export default function Trending() {
@@ -35,7 +36,7 @@ export default function Trending() {
   return (
     <>
       <h2 class="page-title">
-        Trend
+        {t('trending.title')}
         <small>
           <For each={WINDOWS}>
             {(w) => (
@@ -43,17 +44,17 @@ export default function Trending() {
                 onClick={() => setWindow(w.value)}
                 style={`background: transparent; border: none; padding: 0 6px; color: ${window() === w.value ? 'var(--accent)' : 'var(--fg-3)'}; cursor: pointer; font: inherit;`}
               >
-                {w.label}
+                {t(w.labelKey)}
               </button>
             )}
           </For>
         </small>
       </h2>
-      <h3 style="margin-top: 18px;">Hashtag'ler</h3>
+      <h3 style="margin-top: 18px;">{t('trending.hashtags')}</h3>
       <Show when={tags()} fallback={<p class="muted">…</p>}>
-        {(t) => (
+        {(tg) => (
           <div class="flex" style="flex-wrap: wrap; gap: 6px;">
-            <For each={t() as TagCount[]} fallback={<p class="muted">Bu pencerede hashtag yok.</p>}>
+            <For each={tg() as TagCount[]} fallback={<p class="muted">{t('trending.no_hashtags')}</p>}>
               {(x) => (
                 <A
                   href={`/hashtag/${x.tag}`}
@@ -67,10 +68,10 @@ export default function Trending() {
         )}
       </Show>
 
-      <h3 style="margin-top: 22px;">Postlar</h3>
+      <h3 style="margin-top: 22px;">{t('trending.posts')}</h3>
       <Show when={posts()} fallback={<p class="muted">…</p>}>
         {(ps) => (
-          <For each={ps() as TrendingPost[]} fallback={<p class="muted">Bu pencerede post yok.</p>}>
+          <For each={ps() as TrendingPost[]} fallback={<p class="muted">{t('trending.no_posts')}</p>}>
             {(p) => (
               <article class="post">
                 <div class="post-head">
@@ -86,7 +87,7 @@ export default function Trending() {
                 </div>
                 <div class="post-body" innerHTML={p.body_html} />
                 <div class="post-foot tiny muted">
-                  {p.reactions_count} tepki · {p.replies_count} reply
+                  {p.reactions_count} {t('post.reactions')} · {p.replies_count} {t('post.replies')}
                 </div>
               </article>
             )}

@@ -6,6 +6,7 @@ import { me } from '../auth';
 import { pushToast } from './Toast';
 import Compose from './Compose';
 import { relTime, visibleLength } from '../util';
+import { t } from '../i18n';
 
 // "Yaşlı mühendis kulübü" pact: single-emoji react (the brand turtle).
 // Backend still accepts the full set — re-enable by widening this array.
@@ -61,7 +62,7 @@ export default function Post(props: {
   const onInlineReplied = () => {
     setReplyOpen(false);
     setRepliesTotal((n) => n + 1);
-    pushToast('Yanıt gönderildi', 'ok');
+    pushToast(t('post.reply_sent'), 'ok');
   };
   const [editing, setEditing] = createSignal(false);
   const [editBody, setEditBody] = createSignal(props.post.body);
@@ -115,7 +116,7 @@ export default function Post(props: {
   };
 
   const deleteIt = async () => {
-    if (!confirm('Postu sil?')) return;
+    if (!confirm(t('post.delete_confirm'))) return;
     await api.del(`/posts/${props.post.id}`);
     setDeleted(true);
     props.onChange?.();
@@ -127,20 +128,20 @@ export default function Post(props: {
       try { await navigator.share({ url, title: `@${props.post.author.username} — burncpu` }); return; }
       catch { /* fall through */ }
     }
-    try { await navigator.clipboard.writeText(url); pushToast('Link kopyalandı', 'ok'); }
+    try { await navigator.clipboard.writeText(url); pushToast(t('post.link_copied'), 'ok'); }
     catch { pushToast('Link: ' + url); }
   };
 
   const report = async () => {
-    const reason = prompt('Sebep (spam / harassment / illegal / other):', 'spam');
+    const reason = prompt(t('post.report_reason_prompt'), 'spam');
     if (!reason) return;
     if (!['spam', 'harassment', 'illegal', 'other'].includes(reason)) {
-      pushToast('Geçersiz sebep', 'warn'); return;
+      pushToast(t('post.report_invalid'), 'warn'); return;
     }
-    const note = prompt('Kısa not (opsiyonel):') ?? '';
+    const note = prompt(t('post.report_note_prompt')) ?? '';
     try {
       await api.post('/reports', { target_kind: 'post', target_id: props.post.id, reason, note: note || null });
-      pushToast("Rapor gönderildi — admin'e düştü", 'ok');
+      pushToast(t('post.report_sent'), 'ok');
     } catch (e) { pushToast((e as Error).message, 'warn'); }
   };
 
@@ -149,7 +150,7 @@ export default function Post(props: {
     setBusy(true);
     try {
       await api.post(`/users/me/pin/${props.post.id}`);
-      pushToast('Profile sabitlendi', 'ok');
+      pushToast(t('post.pinned'), 'ok');
     } catch (e) { pushToast((e as Error).message, 'warn'); }
     finally { setBusy(false); }
   };
@@ -157,7 +158,7 @@ export default function Post(props: {
   if (deleted()) {
     return (
       <article class="p-6 bg-surface-container-low border border-outline-variant rounded-xl">
-        <div class="text-on-surface-variant text-[12px] font-mono">[transmission ceased]</div>
+        <div class="text-on-surface-variant text-[12px] font-mono">{t('post.transmission_ceased')}</div>
       </article>
     );
   }
@@ -197,7 +198,7 @@ export default function Post(props: {
               </A>
               <A href={`/posts/${props.post.id}`} class="text-on-surface-variant font-mono text-[12px] shrink-0">
                 · {relTime(props.post.created_at)}
-                <Show when={edited()}> · edit</Show>
+                <Show when={edited()}> · {t('post.edit_marker')}</Show>
               </A>
               <Show when={isRecent()}>
                 <span class="w-2 h-2 rounded-full bg-primary signal-pulse shrink-0"></span>
@@ -215,22 +216,22 @@ export default function Post(props: {
                   onMouseLeave={() => setMenuOpen(false)}
                   class="absolute right-0 top-full mt-1 w-44 bg-surface-container-high border border-outline-variant rounded-lg shadow-lg z-30 py-1 text-[13px]"
                 >
-                  <MenuItem icon="share" label="Paylaş" onClick={() => { setMenuOpen(false); share(); }} />
+                  <MenuItem icon="share" label={t('post.menu.share')} onClick={() => { setMenuOpen(false); share(); }} />
                   <Show when={me()}>
                     <MenuItem
                       icon={bookmarked() ? 'bookmark' : 'bookmark_add'}
-                      label={bookmarked() ? 'Kayıttan çıkar' : 'Kaydet'}
+                      label={bookmarked() ? t('post.menu.unbookmark') : t('post.menu.bookmark')}
                       onClick={() => { setMenuOpen(false); toggleBookmark(); }}
                     />
                     <Show when={isMine()}>
-                      <MenuItem icon="push_pin" label="Profile sabitle" onClick={() => { setMenuOpen(false); togglePin(); }} />
-                      <MenuItem icon="edit"     label="Düzenle"          onClick={() => { setMenuOpen(false); setEditing(true); }} />
+                      <MenuItem icon="push_pin" label={t('post.menu.pin')} onClick={() => { setMenuOpen(false); togglePin(); }} />
+                      <MenuItem icon="edit"     label={t('post.menu.edit')}          onClick={() => { setMenuOpen(false); setEditing(true); }} />
                     </Show>
                     <Show when={!isMine()}>
-                      <MenuItem icon="flag" label="Rapor et" onClick={() => { setMenuOpen(false); report(); }} />
+                      <MenuItem icon="flag" label={t('post.menu.report')} onClick={() => { setMenuOpen(false); report(); }} />
                     </Show>
                     <Show when={isMine() || isAdmin()}>
-                      <MenuItem icon="delete" label="Sil" danger onClick={() => { setMenuOpen(false); deleteIt(); }} />
+                      <MenuItem icon="delete" label={t('post.menu.delete')} danger onClick={() => { setMenuOpen(false); deleteIt(); }} />
                     </Show>
                   </Show>
                 </div>
@@ -249,13 +250,13 @@ export default function Post(props: {
                 }
               >
                 <div class="mt-3 p-3 bg-surface-container border border-outline-variant rounded-lg">
-                  <div class="text-[10px] font-mono uppercase tracking-widest text-primary">⚠ İçerik uyarısı</div>
+                  <div class="text-[10px] font-mono uppercase tracking-widest text-primary">⚠ {t('post.content_warning')}</div>
                   <div class="mt-1 text-on-surface">{props.post.content_warning}</div>
                   <button
                     onClick={() => setCwOpen(true)}
                     class="mt-2 text-[12px] font-mono text-primary hover:underline"
                   >
-                    göster ↓
+                    {t('post.cw_show')} ↓
                   </button>
                 </div>
               </Show>
@@ -271,10 +272,10 @@ export default function Post(props: {
             <div class="flex justify-end gap-2 mt-2 text-[12px]">
               <span class="char-count self-center mr-auto">{visibleLength(editBody())}/{MAX_LEN}</span>
               <button onClick={() => { setEditing(false); setEditBody(body()); }} class="px-3 py-1 font-mono text-on-surface-variant hover:text-primary">
-                iptal
+                {t('common.cancel')}
               </button>
               <button onClick={saveEdit} disabled={busy() || !editBody().trim()} class="px-3 py-1 bg-primary text-on-primary font-bold rounded font-mono">
-                Kaydet
+                {t('post.save_edit')}
               </button>
             </div>
           </Show>
@@ -284,7 +285,7 @@ export default function Post(props: {
             <Show
               when={props.onReply || me()}
               fallback={
-                <A href={`/posts/${props.post.id}`} class={ACTION_BTN} title="Yanıt">
+                <A href={`/posts/${props.post.id}`} class={ACTION_BTN} title={t('post.reply')}>
                   <span class="material-symbols-outlined" style="font-size: 18px;">chat_bubble</span>
                   <Show when={repliesTotal() > 0}>
                     <span class="font-mono text-[12px]">{repliesTotal()}</span>
@@ -295,7 +296,7 @@ export default function Post(props: {
               <button
                 class={ACTION_BTN + (replyOpen() ? ' text-primary' : '')}
                 onClick={onReplyClick}
-                title="Yanıtla"
+                title={t('compose.reply')}
               >
                 <span class="material-symbols-outlined" style="font-size: 18px;">reply</span>
                 <Show when={repliesTotal() > 0}>
@@ -307,7 +308,7 @@ export default function Post(props: {
               class={ACTION_BTN + (reacted() ? ' text-primary' : '')}
               onClick={toggleReact}
               disabled={!me() || busy()}
-              title={me() ? 'Katıldım' : 'tepki için giriş yap'}
+              title={me() ? t('post.react') : t('post.react_login')}
             >
               <span
                 class="material-symbols-outlined"
@@ -321,7 +322,7 @@ export default function Post(props: {
                 </span>
               </Show>
             </button>
-            <button class={ACTION_BTN + ' ml-auto'} onClick={share} title="Paylaş">
+            <button class={ACTION_BTN + ' ml-auto'} onClick={share} title={t('post.menu.share')}>
               <span class="material-symbols-outlined" style="font-size: 18px;">share</span>
             </button>
           </div>
@@ -332,7 +333,7 @@ export default function Post(props: {
             <div class="mt-4">
               <Compose
                 replyToId={props.post.id}
-                placeholder={`@${props.post.author.username} yanıtla…`}
+                placeholder={`@${props.post.author.username} ${t('thread.reply_to')}`}
                 autofocus
                 onPosted={onInlineReplied}
               />

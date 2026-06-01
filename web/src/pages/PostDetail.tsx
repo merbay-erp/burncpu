@@ -5,6 +5,7 @@ import Post from '../components/Post';
 import Compose from '../components/Compose';
 import ThreadNode, { type ThreadCtx } from '../components/ThreadNode';
 import { me } from '../auth';
+import { t } from '../i18n';
 
 interface ThreadResponse {
   root: PostView;
@@ -75,45 +76,45 @@ export default function PostDetail() {
   return (
     <>
       <div class="flex items-center gap-2 mb-4">
-        <A href="/" class="text-on-surface-variant hover:text-primary" title="geri">
+        <A href="/" class="text-on-surface-variant hover:text-primary" title={t('postdetail.back')}>
           <span class="material-symbols-outlined">arrow_back</span>
         </A>
-        <h2 class="page-title" style="margin: 0;">Konuşma</h2>
+        <h2 class="page-title" style="margin: 0;">{t('postdetail.title')}</h2>
       </div>
 
       <Show when={thread.loading}>
-        <p class="muted">Yükleniyor…</p>
+        <p class="muted">{t('loading')}</p>
       </Show>
 
       <Show when={isErr(thread())}>
         <div class="p-6 border border-dashed border-outline-variant rounded-xl text-on-surface-variant text-center">
           <Show
             when={(thread() as { err: string }).err === 'not_found'}
-            fallback={<>Bir şey ters gitti.</>}
+            fallback={<>{t('postdetail.error_other')}</>}
           >
-            Bu post artık yok (silinmiş ya da hiç olmamış).
+            {t('postdetail.not_found')}
           </Show>
           <div class="mt-3">
-            <A href="/" class="text-primary">← ana sayfaya dön</A>
+            <A href="/" class="text-primary">← {t('postdetail.back_home')}</A>
           </div>
         </div>
       </Show>
 
       <Show when={isOk(thread()) ? (thread() as { ok: ThreadResponse }).ok : null}>
-        {(t) => (
+        {(tr) => (
           <div class="space-y-3">
             {/* Root post + its reply box */}
             <Post
-              post={t().root}
+              post={tr().root}
               hideParent
-              highlight={t().root.id === params.id}
-              onReply={() => setReplyingTo(replyingTo() === t().root.id ? null : t().root.id)}
+              highlight={tr().root.id === params.id}
+              onReply={() => setReplyingTo(replyingTo() === tr().root.id ? null : tr().root.id)}
               onChange={refetch}
             />
-            <Show when={me() && replyingTo() === t().root.id}>
+            <Show when={me() && replyingTo() === tr().root.id}>
               <Compose
-                replyToId={t().root.id}
-                placeholder="Yanıtın…"
+                replyToId={tr().root.id}
+                placeholder={t('postdetail.reply_placeholder')}
                 autofocus
                 onPosted={(p) => {
                   appendDescendant(p);
@@ -125,19 +126,19 @@ export default function PostDetail() {
             {/* Conversation tree */}
             <div class="flex items-center gap-1.5 pt-2 text-on-surface-variant font-mono text-[12px] tracking-wide">
               <span class="material-symbols-outlined" style="font-size: 16px;">forum</span>
-              {replyCount()} yanıt
+              {replyCount()} {t('postdetail.replies')}
             </div>
 
             <Show
-              when={childrenOf(t().root.id).length > 0}
+              when={childrenOf(tr().root.id).length > 0}
               fallback={
                 <div class="muted">
-                  {me() ? 'Henüz yanıt yok — ilkini sen yaz.' : 'Henüz yanıt yok.'}
+                  {me() ? t('postdetail.no_replies_own') : t('postdetail.no_replies')}
                 </div>
               }
             >
               <div class="space-y-3">
-                <For each={childrenOf(t().root.id)}>
+                <For each={childrenOf(tr().root.id)}>
                   {(child) => <ThreadNode post={child} depth={1} ctx={ctx} />}
                 </For>
               </div>

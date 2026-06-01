@@ -3,6 +3,7 @@ import { A } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
 import { relTime } from '../util';
+import { t } from '../i18n';
 
 interface Bookmarked {
   id: string;
@@ -30,11 +31,11 @@ export default function Bookmarks() {
 
   return (
     <>
-      <h2 class="page-title">Kayıtlılar</h2>
-      <Show when={me()} fallback={<p class="muted">Önce <A href="/login">giriş yap</A>.</p>}>
-        <Show when={list()} fallback={<p class="muted">Yükleniyor…</p>}>
+      <h2 class="page-title">{t('nav.bookmarks')}</h2>
+      <Show when={me()} fallback={<p class="muted">{t('auth.login_prefix')} <A href="/login">{t('auth.login_link')}</A>.</p>}>
+        <Show when={list()} fallback={<p class="muted">{t('common.loading')}</p>}>
           {(rows) => (
-            <For each={rows()} fallback={<p class="muted">Henüz post kaydetmemişsin.</p>}>
+            <For each={rows()} fallback={<p class="muted">{t('bookmarks.empty')}</p>}>
               {(p) => (
                 <article class="post">
                   <div class="post-head">
@@ -50,9 +51,9 @@ export default function Bookmarks() {
                   </div>
                   <div class="post-body" innerHTML={p.body_html} />
                   <div class="post-foot tiny muted">
-                    {p.reactions_count} tepki · {p.replies_count} reply ·
+                    {p.reactions_count} {t('post.reactions')} · {p.replies_count} {t('post.replies')} ·
                     <button class="ghost tiny" onClick={() => remove(p.id)} style="margin-left: 6px;">
-                      kayıttan çıkar
+                      {t('bookmarks.remove')}
                     </button>
                   </div>
                 </article>

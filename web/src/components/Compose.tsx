@@ -155,7 +155,7 @@ export default function Compose(props: {
   };
 
   return (
-    <div class="composer mb-8 p-6 bg-surface-container border border-outline-variant rounded-xl relative">
+    <div class="composer mb-8 p-5 bg-surface-container border border-outline-variant rounded-2xl relative transition-colors focus-within:border-primary/40">
       <div class="flex gap-4">
         <div class="w-12 h-12 bg-surface-container-highest rounded-lg flex items-center justify-center text-[22px] shrink-0">
           🐢
@@ -224,14 +224,14 @@ export default function Compose(props: {
               <button
                 onClick={pickFile}
                 disabled={uploading() || busy()}
-                class="p-2 text-on-surface-variant hover:text-primary transition-colors"
+                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
                 title={t('compose.add_image')}
               >
                 <span class="material-symbols-outlined">image</span>
               </button>
               <button
                 onClick={() => insertAtCursor('\n```\n\n```\n')}
-                class="p-2 text-on-surface-variant hover:text-primary transition-colors"
+                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
                 title={t('compose.code_block')}
               >
                 <span class="material-symbols-outlined">code</span>

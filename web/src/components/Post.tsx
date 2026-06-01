@@ -14,7 +14,7 @@ import { t } from '../i18n';
 const REACT_EMOJI = '\u{1F422}'; // 🐢
 const MAX_LEN = 5000;
 
-const ACTION_BTN = 'flex items-center gap-1.5 text-on-surface-variant hover:text-primary transition-colors';
+const ACTION_BTN = 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors';
 
 export default function Post(props: {
   post: PostView;
@@ -166,7 +166,7 @@ export default function Post(props: {
 
   return (
     <article
-      class={`p-6 bg-surface-container-low border rounded-xl hover:border-primary/50 transition-colors ${
+      class={`p-5 sm:p-6 bg-surface-container-low border rounded-2xl transition-all duration-200 hover:border-primary/40 hover:shadow-[0_8px_30px_-12px_rgba(0,0,0,0.5)] ${
         props.highlight ? 'border-primary ring-2 ring-primary/40' : 'border-outline-variant'
       }`}
     >
@@ -185,7 +185,7 @@ export default function Post(props: {
       <div class="flex gap-4">
         {/* Avatar */}
         <A href={`/u/${props.post.author.username}`} class="flex-shrink-0">
-          <div class="w-10 h-10 bg-surface-container-highest rounded-lg flex items-center justify-center text-[18px] font-bold text-primary overflow-hidden">
+          <div class="w-10 h-10 bg-surface-container-highest rounded-xl flex items-center justify-center text-[18px] ring-1 ring-outline-variant/60 overflow-hidden transition-transform hover:scale-105">
             🐢
           </div>
         </A>
@@ -193,13 +193,15 @@ export default function Post(props: {
         <div class="flex-1 min-w-0">
           {/* Head */}
           <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2 min-w-0">
-              <A href={`/u/${props.post.author.username}`} class="font-bold text-primary truncate">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <A href={`/u/${props.post.author.username}`} class="font-bold text-on-background truncate hover:underline decoration-primary/50 decoration-2 underline-offset-2">
+                {props.post.author.display_name}
+              </A>
+              <A href={`/u/${props.post.author.username}`} class="text-on-surface-variant font-mono text-[12px] truncate shrink hover:text-primary transition-colors">
                 @{props.post.author.username}
               </A>
-              <A href={`/posts/${props.post.id}`} class="text-on-surface-variant font-mono text-[12px] shrink-0">
-                · {relTime(props.post.created_at)}
-                <Show when={edited()}> · {t('post.edit_marker')}</Show>
+              <A href={`/posts/${props.post.id}`} class="text-on-surface-variant font-mono text-[12px] shrink-0 hover:text-primary transition-colors">
+                · {relTime(props.post.created_at)}<Show when={edited()}> · {t('post.edit_marker')}</Show>
               </A>
               <Show when={isRecent()}>
                 <span class="w-2 h-2 rounded-full bg-primary signal-pulse shrink-0"></span>
@@ -208,9 +210,9 @@ export default function Post(props: {
             <div class="relative">
               <button
                 onClick={() => setMenuOpen((v) => !v)}
-                class="text-on-surface-variant hover:text-primary"
+                class="p-1.5 -mr-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
               >
-                <span class="material-symbols-outlined">more_horiz</span>
+                <span class="material-symbols-outlined" style="font-size:20px;">more_horiz</span>
               </button>
               <Show when={menuOpen()}>
                 <div
@@ -287,7 +289,7 @@ export default function Post(props: {
           </Show>
 
           {/* Footer actions */}
-          <div class="flex gap-6 mt-6 items-center">
+          <div class="flex gap-1 mt-4 -ml-2.5 items-center">
             <Show
               when={props.onReply || me()}
               fallback={

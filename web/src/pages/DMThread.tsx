@@ -37,20 +37,25 @@ export default function DMThread() {
   const [body, setBody] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
+  let bottomRef: HTMLDivElement | undefined;
 
-  // Mark read whenever we open OR switch threads. @solidjs/router reuses the
-  // same component instance across /dm/alice → /dm/bob, so an onMount one-shot
-  // would only ever mark the first thread read (the new thread's badge would
-  // stay stuck). A createEffect on params.username re-fires on every switch.
+  const scrollToBottom = () => setTimeout(() => bottomRef?.scrollIntoView({ block: 'end' }), 40);
+
+  // Mark read whenever we open OR switch threads. The router reuses the
+  // component instance across /dm/alice → /dm/bob, so a createEffect on
+  // params.username re-fires on every switch (an onMount one-shot wouldn't).
   createEffect(() => {
     const u = params.username;
     if (me() && u) void api.patch(`/dm/threads/${u}/read`).catch(() => {});
   });
 
+  // Scroll to the newest message once the thread (or a new message) loads.
+  createEffect(() => {
+    if ((data()?.messages?.length ?? 0) > 0) scrollToBottom();
+  });
+
   onMount(() => {
-    // 19 May 2026 — Real-time: thread acikken yeni mesaj geldiginde otomatik
-    // refetch + read mark. Onceden sadece ↻ butonuna basinca yeni mesaj
-    // geliyordu, kullanici "mesaj akmiyor" zannediyordu.
+    // Real-time: when a DM arrives for the open thread, refetch + mark read.
     const onNotif = (ev: Event) => {
       const d = (ev as CustomEvent).detail as { kind?: string; actor_username?: string } | undefined;
       if (d?.kind === 'dm' && d.actor_username === params.username) {
@@ -72,6 +77,20 @@ export default function DMThread() {
       const cur = data() as ThreadView | null | undefined;
       if (cur) mutate({ ...cur, messages: [...cur.messages, msg] });
       setBody('');
+      scrollToBottom();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doFollow = async () => {
+    if (busy()) return;
+    setBusy(true);
+    try {
+      await api.post(`/users/${params.username}/follow`);
+      await refetch();
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -80,40 +99,59 @@ export default function DMThread() {
   };
 
   return (
-    <div class="legacy">
-      <Show when={me()} fallback={<p class="muted">{t('dmthread.login_prefix')} <A href="/login">{t('nav.login_action')}</A>.</p>}>
-        <Show when={data() as ThreadView | null | undefined} fallback={<p class="muted">{t('loading')}</p>}>
+    <div>
+      <Show
+        when={me()}
+        fallback={
+          <p class="text-on-surface-variant text-[14px]">
+            {t('dmthread.login_prefix')} <A href="/login" class="text-primary hover:underline">{t('nav.login_action')}</A>.
+          </p>
+        }
+      >
+        <Show when={data() as ThreadView | null | undefined} fallback={<div class="p-6 text-on-surface-variant font-mono text-center text-[14px]">{t('loading')}</div>}>
           {(th) => (
-            <>
-              <h2 class="page-title">
-                <A href={`/u/${th().other_username}`} style="color: inherit;">
-                  {th().other_display_name}
+            <div class="flex flex-col min-h-[calc(100vh-8rem)]">
+              {/* Header */}
+              <header class="sticky top-16 z-10 py-3 mb-2 flex items-center gap-3 bg-background/95 backdrop-blur-md border-b border-outline-variant">
+                <A href="/dm" class="lg:hidden p-1.5 -ml-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors">
+                  <span class="material-symbols-outlined">arrow_back</span>
                 </A>
-                <small>@{th().other_username}</small>
-              </h2>
-              <Show when={!th().mutual_follow}>
-                <div class="error">
-                  {t('dm.mutual_required')}
-                </div>
-              </Show>
-              <div style="margin: 12px 0;">
+                <A href={`/u/${th().other_username}`} class="group flex items-center gap-3 min-w-0 flex-1">
+                  <div class="w-10 h-10 rounded-xl bg-surface-container-highest ring-1 ring-outline-variant/60 flex items-center justify-center text-[18px] shrink-0">🐢</div>
+                  <div class="min-w-0">
+                    <div class="font-bold text-on-background truncate group-hover:underline decoration-primary/50 decoration-2 underline-offset-2">{th().other_display_name}</div>
+                    <div class="font-mono text-[12px] text-on-surface-variant truncate">@{th().other_username}</div>
+                  </div>
+                </A>
+                <button onClick={refetch} title={t('dmthread.refresh')} class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors">
+                  <span class="material-symbols-outlined" style="font-size:20px;">refresh</span>
+                </button>
+              </header>
+
+              {/* Messages */}
+              <div class="flex-1 flex flex-col gap-1.5 py-4">
                 <For
                   each={th().messages}
-                  fallback={<div class="muted">{t('dmthread.empty')}</div>}
+                  fallback={
+                    <div class="flex-1 flex flex-col items-center justify-center text-center py-12 gap-2">
+                      <span class="material-symbols-outlined text-on-surface-variant/50" style="font-size:40px;">forum</span>
+                      <p class="text-on-surface-variant font-mono text-[13px]">{t('dmthread.empty')}</p>
+                    </div>
+                  }
                 >
                   {(m) => {
                     const mine = m.sender_id === me()?.user_id;
                     return (
-                      <div
-                        style={`display: flex; margin: 6px 0; ${mine ? 'justify-content: flex-end;' : ''}`}
-                      >
+                      <div class={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                         <div
-                          style={`max-width: 70%; padding: 8px 12px; border-radius: 12px; background: ${mine ? 'var(--accent)' : 'var(--bg-3)'}; color: ${mine ? '#1a0a00' : 'var(--fg)'};`}
+                          class={`max-w-[80%] px-3.5 py-2 rounded-2xl text-[14px] leading-relaxed break-words shadow-sm ${
+                            mine
+                              ? 'bg-primary text-on-primary rounded-br-sm'
+                              : 'bg-surface-container text-on-surface rounded-bl-sm'
+                          }`}
                         >
-                          <div innerHTML={m.body_html} />
-                          <div
-                            style={`font-size: 10px; opacity: 0.7; margin-top: 2px; text-align: right; font-family: var(--mono);`}
-                          >
+                          <div class="dm-body" innerHTML={m.body_html} />
+                          <div class={`text-[10px] font-mono mt-1 text-right ${mine ? 'text-on-primary/70' : 'text-on-surface-variant/70'}`}>
                             {relTime(m.created_at)}
                           </div>
                         </div>
@@ -121,70 +159,66 @@ export default function DMThread() {
                     );
                   }}
                 </For>
+                <div ref={bottomRef}></div>
               </div>
-              {/* 19 May 2026 — UX fix: kullanici onceden sadece "mutual_required" banner
-                  goruyordu, hicbir CTA yoktu → "mesajlasma aktif olmuyor" sikayeti.
-                  Simdi mutual=false ise: cift takipte aktif olur, takip et butonu CTA.
-                  Optimistic: butona basinca local state hemen guncellenir + refetch. */}
-              <Show when={th().mutual_follow} fallback={
-                <div style="border-top: 1px solid var(--border); padding: 16px; text-align: center;">
-                  <p class="muted" style="margin-bottom: 12px;">
-                    {t('dmthread.mutual_cta_prefix')} <strong>{t('dmthread.mutual_cta_strong')}</strong> {t('dmthread.mutual_cta_suffix')}
-                  </p>
-                  <Show when={!th().is_following} fallback={
-                    <p class="tiny muted">
-                      {t('dmthread.pending_prefix')} @{th().other_username}{t('dmthread.pending_mid')} <strong>{t('dmthread.pending_strong')}</strong> {t('dmthread.pending_suffix')}
+
+              {/* Composer or mutual-follow CTA */}
+              <Show
+                when={th().mutual_follow}
+                fallback={
+                  <div class="mt-2 p-6 rounded-2xl border border-dashed border-outline-variant text-center">
+                    <span class="material-symbols-outlined text-on-surface-variant/60" style="font-size:32px;">lock</span>
+                    <p class="text-on-surface-variant text-[14px] mt-2">
+                      {t('dmthread.mutual_cta_prefix')} <strong class="text-on-background">{t('dmthread.mutual_cta_strong')}</strong> {t('dmthread.mutual_cta_suffix')}
                     </p>
-                  }>
-                    <button
-                      class="primary"
-                      disabled={busy()}
-                      onClick={async () => {
-                        if (busy()) return;
-                        setBusy(true);
-                        try {
-                          await api.post(`/users/${th().other_username}/follow`);
-                          await refetch();
-                        } catch (e) {
-                          setErr((e as Error).message);
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                    >
-                      {busy() ? t('compose.sending') : `@${th().other_username}${t('dmthread.follow_cta')}`}
-                    </button>
-                  </Show>
-                </div>
-              }>
-                <div style="border-top: 1px solid var(--border); padding-top: 12px; position: sticky; bottom: 0; background: var(--bg);">
-                  <textarea
-                    placeholder={t('dmthread.message_placeholder')}
-                    value={body()}
-                    onInput={(e) => setBody(e.currentTarget.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                        void send();
+                    <Show
+                      when={!th().is_following}
+                      fallback={
+                        <p class="text-on-surface-variant/80 text-[12px] font-mono mt-3">
+                          {t('dmthread.pending_prefix')} @{th().other_username}{t('dmthread.pending_mid')} <strong>{t('dmthread.pending_strong')}</strong> {t('dmthread.pending_suffix')}
+                        </p>
                       }
-                    }}
-                    rows="2"
-                  />
-                  <Show when={err()}>
-                    <div class="error">{err()}</div>
-                  </Show>
-                  <div class="compose-actions">
-                    <span class="tiny muted">{t('dmthread.send_hint')}</span>
-                    <button class="primary" onClick={send} disabled={busy() || !body().trim()}>
-                      {busy() ? t('compose.sending') : t('compose.send')}
+                    >
+                      <button
+                        disabled={busy()}
+                        onClick={doFollow}
+                        class="mt-4 px-5 py-2 rounded-lg bg-primary text-on-primary font-bold font-mono text-[13px] hover:opacity-90 active:scale-95 transition-all disabled:opacity-50"
+                      >
+                        {busy() ? t('compose.sending') : `@${th().other_username}${t('dmthread.follow_cta')}`}
+                      </button>
+                    </Show>
+                  </div>
+                }
+              >
+                <div class="sticky bottom-16 lg:bottom-0 pt-3 pb-3 bg-background border-t border-outline-variant">
+                  <Show when={err()}><div class="error mb-2">{err()}</div></Show>
+                  <div class="flex items-end gap-2 bg-surface-container border border-outline-variant rounded-2xl p-2 focus-within:border-primary/40 transition-colors">
+                    <textarea
+                      placeholder={t('dmthread.message_placeholder')}
+                      value={body()}
+                      onInput={(e) => setBody(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); }
+                      }}
+                      rows={1}
+                      class="flex-1 bg-transparent border-none focus:ring-0 resize-none min-h-0 h-10 py-2 px-2 text-on-surface placeholder:text-on-surface-variant/50 text-[14px] font-sans"
+                    />
+                    <button
+                      onClick={send}
+                      disabled={busy() || !body().trim()}
+                      title={t('compose.send')}
+                      class="shrink-0 w-9 h-9 rounded-full bg-primary text-on-primary flex items-center justify-center hover:opacity-90 active:scale-90 transition-all disabled:opacity-40"
+                    >
+                      <span class="material-symbols-outlined" style="font-size:19px;">send</span>
                     </button>
                   </div>
+                  <div class="text-[10px] font-mono text-on-surface-variant/60 mt-1.5 px-1">{t('dmthread.send_hint')}</div>
                 </div>
               </Show>
-            </>
+            </div>
           )}
         </Show>
       </Show>
-      <button class="ghost tiny" onClick={refetch} style="margin-top: 10px;">↻ {t('dmthread.refresh')}</button>
     </div>
   );
 }

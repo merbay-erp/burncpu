@@ -120,16 +120,19 @@ textarea, input, select {
   background: var(--bg-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px 10px;
+  border-radius: 10px;
+  padding: 10px 13px;
   font: inherit;
   width: 100%;
+  transition: border-color .15s, box-shadow .15s, background .15s;
 }
 textarea { resize: vertical; min-height: 80px; font-family: 'JetBrains Mono', monospace; font-size: 14px; }
 textarea:focus, input:focus, select:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(var(--c-primary) / 0.15);
 }
+textarea::placeholder, input::placeholder { color: var(--fg-3); opacity: .7; }
 
 button { font: inherit; cursor: pointer; background: transparent; border: none; padding: 0; color: inherit; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -256,14 +259,16 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .primary {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 8px 16px; background: var(--accent); color: var(--on-accent);
-  border: 1px solid var(--accent); border-radius: var(--radius);
-  font-weight: 600; font-family: var(--mono); font-size: 14px; transition: opacity .15s;
+  padding: 9px 18px; background: var(--accent); color: var(--on-accent);
+  border: 1px solid var(--accent); border-radius: 10px;
+  font-weight: 700; font-family: var(--mono); font-size: 14px;
+  transition: opacity .15s, transform .1s;
 }
 .primary:hover:not(:disabled) { opacity: .9; }
+.primary:active:not(:disabled) { transform: scale(.97); }
 .ghost {
   padding: 4px 10px; background: transparent; border: 1px solid transparent;
-  border-radius: 6px; color: var(--fg-3); font-size: 13px;
+  border-radius: 8px; color: var(--fg-3); font-size: 13px;
   transition: color .15s, border-color .15s;
 }
 .ghost:hover:not(:disabled) { color: var(--accent); border-color: var(--border); }
@@ -292,8 +297,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .legacy label { display: block; margin: 12px 0 4px; }
 .legacy label.flex { margin: 0; }
 .legacy button:not(.primary):not(.ghost) {
-  padding: 8px 14px; background: var(--bg-2); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 6px; font-weight: 500;
-  transition: border-color .15s, color .15s;
+  padding: 8px 15px; background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 10px; font-weight: 500;
+  transition: border-color .15s, color .15s, background .15s;
 }
-.legacy button:not(.primary):not(.ghost):hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.legacy button:not(.primary):not(.ghost):hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--bg-3); }

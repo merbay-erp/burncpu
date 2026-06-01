@@ -3,7 +3,8 @@ import { useParams, A } from '@solidjs/router';
 import { api, type Profile, type PostView } from '../api';
 import Post from '../components/Post';
 import { me } from '../auth';
-import { relTime } from '../util';
+import { relTime, firstUrl } from '../util';
+import LinkCard from '../components/LinkCard';
 import { pushToast } from '../components/Toast';
 import { t } from '../i18n';
 
@@ -199,6 +200,9 @@ export default function ProfilePage() {
                   </a>
                 </div>
                 <div class="post-body" innerHTML={post.body_html} />
+                <Show when={firstUrl(post.body)}>
+                  {(u) => <LinkCard url={u()} />}
+                </Show>
                 <div class="post-foot tiny muted">
                   {post.reactions_count} {t('profile.reactions')} · {post.replies_count} {t('profile.replies')}
                 </div>

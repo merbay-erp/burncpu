@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use std::sync::OnceLock;
 
 pub fn render_markdown(src: &str) -> String {
-    let pre = linkify_mentions(src);
+    let pre = linkify_hashtags(&linkify_mentions(src));
 
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_STRIKETHROUGH);
@@ -112,6 +112,81 @@ fn linkify_mentions(src: &str) -> String {
                         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
                 {
                     out.push_str(&format!("[@{name}](/u/{name})"));
+                    i = end;
+                    continue;
+                }
+            }
+        }
+        push_char(&mut out, src, bytes, &mut i);
+    }
+    out
+}
+
+/// Pre-pass: rewrite `#hashtag` tokens into markdown link
+/// `[#hashtag](/hashtag/<lowercased>)` so pulldown-cmark renders them as <a>
+/// (and ammonia preserves the relative href with rel=noopener noreferrer ugc).
+///
+/// The visible text keeps the author's original casing (`#CiCd`) while the
+/// link target is lowercased to match `extract_hashtags()` and the
+/// `/hashtag/:tag` route, so every linkified tag resolves to its index page.
+/// Same boundary + charset (alphanumeric + `_`) rules as `extract_hashtags`.
+/// Skips fenced code blocks and inline code, and copies whole UTF-8 chars.
+fn linkify_hashtags(src: &str) -> String {
+    let bytes = src.as_bytes();
+    let mut out = String::with_capacity(src.len() + 32);
+    let mut i = 0;
+    let mut in_fence = false;
+    let mut in_inline = false;
+
+    let push_char = |out: &mut String, src: &str, bytes: &[u8], i: &mut usize| {
+        let start = *i;
+        let mut end = start + 1;
+        while end < bytes.len() && (bytes[end] & 0xC0) == 0x80 {
+            end += 1;
+        }
+        out.push_str(&src[start..end]);
+        *i = end;
+    };
+
+    while i < bytes.len() {
+        if (i == 0 || bytes[i - 1] == b'\n') && bytes.len() >= i + 3 && &bytes[i..i + 3] == b"```" {
+            in_fence = !in_fence;
+            out.push_str("```");
+            i += 3;
+            continue;
+        }
+        if in_fence {
+            push_char(&mut out, src, bytes, &mut i);
+            continue;
+        }
+        if bytes[i] == b'`' {
+            in_inline = !in_inline;
+            out.push('`');
+            i += 1;
+            continue;
+        }
+        if !in_inline && bytes[i] == b'#' {
+            // Must be at start or preceded by whitespace / punctuation so we
+            // don't fire on `foo#bar` or a URL fragment like `page.html#x`.
+            let prev_ok = i == 0
+                || matches!(
+                    bytes[i - 1],
+                    b' ' | b'\n' | b'\r' | b'\t' | b'.' | b',' | b'!' | b'?' | b'(' | b'['
+                );
+            if prev_ok {
+                let start = i + 1;
+                let mut end = start;
+                while end < bytes.len()
+                    && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_')
+                {
+                    end += 1;
+                }
+                let name = &src[start..end];
+                // len 3..=32 matches extract_hashtags; also dodges markdown
+                // headings (`# Heading` → space after `#` → empty name).
+                if name.len() >= 3 && name.len() <= 32 {
+                    let lower = name.to_lowercase();
+                    out.push_str(&format!("[#{name}](/hashtag/{lower})"));
                     i = end;
                     continue;
                 }

@@ -6,6 +6,7 @@ import { me } from '../auth';
 import { pushToast } from './Toast';
 import Compose from './Compose';
 import LinkCard from './LinkCard';
+import Avatar from './Avatar';
 import { relTime, visibleLength, firstUrl } from '../util';
 import { t } from '../i18n';
 
@@ -185,9 +186,12 @@ export default function Post(props: {
       <div class="flex gap-4">
         {/* Avatar */}
         <A href={`/u/${props.post.author.username}`} class="flex-shrink-0">
-          <div class="w-10 h-10 bg-surface-container-highest rounded-xl flex items-center justify-center text-[18px] ring-1 ring-outline-variant/60 overflow-hidden transition-transform hover:scale-105">
-            🐢
-          </div>
+          <Avatar
+            url={props.post.author.avatar_url}
+            name={props.post.author.display_name}
+            size={40}
+            class="rounded-xl ring-1 ring-outline-variant/60 transition-transform hover:scale-105"
+          />
         </A>
 
         <div class="flex-1 min-w-0">

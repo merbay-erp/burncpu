@@ -125,6 +125,7 @@ pub struct ThreadView {
     id: Option<Uuid>,
     other_username: String,
     other_display_name: String,
+    other_avatar_url: Option<String>,
     mutual_follow: bool,
     // 19 May 2026 — Frontend "takip et" CTA'si: mutual=false durumunda
     // is_following=false ise "takip et" butonu, is_following=true ise
@@ -213,6 +214,7 @@ async fn thread(
         id: thread_id,
         other_username: other.1,
         other_display_name: other.2,
+        other_avatar_url: other.3.clone(),
         mutual_follow: mutual,
         is_following,
         is_followed_by,
@@ -394,9 +396,12 @@ async fn delete_message(
 
 // ─── helpers ───────────────────────────────────────────────────
 
-async fn lookup_user(state: &AppState, username: &str) -> Result<(Uuid, String, String), AppError> {
-    let row: Option<(Uuid, String, String)> = sqlx::query_as(
-        "SELECT id, username, display_name FROM users WHERE username = $1 AND role <> 'suspended'",
+async fn lookup_user(
+    state: &AppState,
+    username: &str,
+) -> Result<(Uuid, String, String, Option<String>), AppError> {
+    let row: Option<(Uuid, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, username, display_name, avatar_url FROM users WHERE username = $1 AND role <> 'suspended'",
     )
     .bind(username)
     .fetch_optional(&state.pg)

@@ -4,6 +4,7 @@ import { api } from '../api';
 import { me } from '../auth';
 import { relTime } from '../util';
 import { t } from '../i18n';
+import Avatar from '../components/Avatar';
 
 interface DmMessage {
   id: string;
@@ -18,6 +19,7 @@ interface ThreadView {
   id: string | null;
   other_username: string;
   other_display_name: string;
+  other_avatar_url: string | null;
   mutual_follow: boolean;
   is_following: boolean;
   is_followed_by: boolean;
@@ -117,7 +119,7 @@ export default function DMThread() {
                   <span class="material-symbols-outlined">arrow_back</span>
                 </A>
                 <A href={`/u/${th().other_username}`} class="group flex items-center gap-3 min-w-0 flex-1">
-                  <div class="w-10 h-10 rounded-xl bg-surface-container-highest ring-1 ring-outline-variant/60 flex items-center justify-center text-[18px] shrink-0">🐢</div>
+                  <Avatar url={th().other_avatar_url} name={th().other_display_name} size={40} class="rounded-xl ring-1 ring-outline-variant/60" />
                   <div class="min-w-0">
                     <div class="font-bold text-on-background truncate group-hover:underline decoration-primary/50 decoration-2 underline-offset-2">{th().other_display_name}</div>
                     <div class="font-mono text-[12px] text-on-surface-variant truncate">@{th().other_username}</div>

@@ -7,6 +7,7 @@ import { t } from './i18n';
 import { theme, toggleTheme } from './theme';
 import Logo from './components/Logo';
 import Compose from './components/Compose';
+import Avatar from './components/Avatar';
 import ToastStack, { pushToast } from './components/Toast';
 import Lightbox from './components/Lightbox';
 import HoverCard from './components/HoverCard';
@@ -227,10 +228,10 @@ export default function Layout(props: { children?: JSX.Element }) {
               {(u) => (
                 <A
                   href={`/u/${u().username}`}
-                  class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+                  class="ml-1 block rounded-lg ring-1 ring-outline-variant/50 hover:ring-2 hover:ring-primary/50 transition-all"
                   title={`@${u().username}`}
                 >
-                  <span class="material-symbols-outlined">account_circle</span>
+                  <Avatar url={u().avatar_url} name={u().display_name} size={30} class="rounded-lg" />
                 </A>
               )}
             </Show>
@@ -281,7 +282,7 @@ export default function Layout(props: { children?: JSX.Element }) {
                       href={`/u/${u().username}`}
                       class="flex items-center gap-2.5 min-w-0 flex-1"
                     >
-                      <div class="w-9 h-9 rounded-lg bg-surface-container-highest flex items-center justify-center text-[18px] shrink-0">🐢</div>
+                      <Avatar url={u().avatar_url} name={u().display_name} size={36} class="rounded-lg" />
                       <div class="min-w-0 leading-tight">
                         <div class="font-bold text-[13px] text-on-background truncate">{u().display_name}</div>
                         <div class="font-mono text-[11px] text-on-surface-variant truncate">@{u().username}</div>

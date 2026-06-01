@@ -4,6 +4,8 @@ import { visibleLength, firstUrl } from '../util';
 import { t } from '../i18n';
 import EmojiPicker from './EmojiPicker';
 import LinkCard from './LinkCard';
+import Avatar from './Avatar';
+import { me } from '../auth';
 
 const MAX = 5000;
 
@@ -157,9 +159,7 @@ export default function Compose(props: {
   return (
     <div class="composer mb-8 p-5 bg-surface-container border border-outline-variant rounded-2xl relative transition-colors focus-within:border-primary/40">
       <div class="flex gap-4">
-        <div class="w-12 h-12 bg-surface-container-highest rounded-lg flex items-center justify-center text-[22px] shrink-0">
-          🐢
-        </div>
+        <Avatar url={me()?.avatar_url} name={me()?.display_name} size={48} class="rounded-lg" />
         <div class="flex-1 min-w-0">
           <Show when={!props.replyToId}>
             <input

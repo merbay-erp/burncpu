@@ -370,7 +370,7 @@ function ProfileTab() {
         bio: bio(),
         avatar_url: avatarUrl().trim(),
       });
-      setCachedMe({ ...u, display_name: displayName().trim() });
+      setCachedMe({ ...u, display_name: displayName().trim(), avatar_url: avatarUrl().trim() || null });
       setMsg({ kind: 'ok', text: t('settings.profile.saved') });
     } catch (e) {
       setMsg({ kind: 'err', text: (e as Error).message });

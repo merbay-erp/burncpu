@@ -11,6 +11,7 @@ interface Me {
   user_id: string;
   username: string;
   display_name: string;
+  avatar_url?: string | null;
   role: string;
   pending_2fa: boolean;
   session_flagged?: boolean;

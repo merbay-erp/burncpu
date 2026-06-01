@@ -63,7 +63,7 @@ async fn home(
     let rows: Vec<PostRow> = sqlx::query_as(
         r#"
         SELECT
-            p.id, p.author_id, u.username, u.display_name,
+            p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
             p.reactions_count, p.replies_count, p.created_at,
             EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $1) AS viewer_reacted,

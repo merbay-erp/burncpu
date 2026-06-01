@@ -415,14 +415,15 @@ pub struct Me {
     user_id: Uuid,
     username: String,
     display_name: String,
+    avatar_url: Option<String>,
     role: String,
     pending_2fa: bool,
     session_flagged: bool,
 }
 
 async fn get_me(State(state): State<AppState>, user: CurrentUser) -> Result<Json<Me>, AppError> {
-    let row: (String, String) =
-        sqlx::query_as("SELECT username, display_name FROM users WHERE id = $1")
+    let row: (String, String, Option<String>) =
+        sqlx::query_as("SELECT username, display_name, avatar_url FROM users WHERE id = $1")
             .bind(user.user_id)
             .fetch_one(&state.pg)
             .await?;
@@ -430,6 +431,7 @@ async fn get_me(State(state): State<AppState>, user: CurrentUser) -> Result<Json
         user_id: user.user_id,
         username: row.0,
         display_name: row.1,
+        avatar_url: row.2,
         role: user.role,
         pending_2fa: user.pending_2fa,
         session_flagged: user.session_flagged,

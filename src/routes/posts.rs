@@ -139,6 +139,8 @@ pub struct AuthorView {
     id: Uuid,
     username: String,
     display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    avatar_url: Option<String>,
 }
 
 // ── POST /posts ─────────────────────────────────────────────────
@@ -386,7 +388,7 @@ async fn timeline(
     let rows: Vec<PostRow> = sqlx::query_as(
         r#"
         SELECT
-            p.id, p.author_id, u.username, u.display_name,
+            p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
             p.reactions_count, p.replies_count, p.created_at,
             CASE WHEN $3::uuid IS NOT NULL THEN
@@ -870,6 +872,8 @@ pub(crate) struct PostRow {
     author_id: Uuid,
     username: String,
     display_name: String,
+    #[sqlx(default)]
+    avatar_url: Option<String>,
     body: String,
     body_html: String,
     visibility: String,
@@ -899,6 +903,7 @@ impl PostRow {
                 id: self.author_id,
                 username: self.username,
                 display_name: self.display_name,
+                avatar_url: self.avatar_url,
             },
             body: self.body,
             body_html: self.body_html,
@@ -1104,7 +1109,7 @@ async fn fetch_post(
     let row: Option<PostRow> = sqlx::query_as(
         r#"
         SELECT
-            p.id, p.author_id, u.username, u.display_name,
+            p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
             p.reactions_count, p.replies_count, p.created_at,
             CASE WHEN $2::uuid IS NOT NULL THEN
@@ -1168,7 +1173,7 @@ async fn replies(
     let rows: Vec<PostRow> = sqlx::query_as(
         r#"
         SELECT
-            p.id, p.author_id, u.username, u.display_name,
+            p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
             p.reactions_count, p.replies_count, p.created_at,
             CASE WHEN $3::uuid IS NOT NULL THEN
@@ -1282,7 +1287,7 @@ async fn thread(
             WHERE p.deleted_at IS NULL AND d.depth < 6
         )
         SELECT
-            p.id, p.author_id, u.username, u.display_name,
+            p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
             p.reactions_count, p.replies_count, p.created_at,
             CASE WHEN $2::uuid IS NOT NULL THEN

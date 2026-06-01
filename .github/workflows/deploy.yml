@@ -44,23 +44,39 @@ jobs:
           # Ownership: app klasoru root:root olabilir; build user docker
           sudo chown -R root:root /opt/burncpu/app
 
+      - name: Build + deploy frontend (SPA)
+        run: |
+          set -euo pipefail
+          # The SPA is NOT in the Docker image — nginx serves it as static files
+          # from /opt/burncpu/web (see sites-available/burncpu `root`). Build the
+          # bundle on the runner and publish it there. Without this step, web/**
+          # changes never reach production.
+          cd "$GITHUB_WORKSPACE/web"
+          npm ci
+          npm run build
+          sudo rsync -a --delete dist/ /opt/burncpu/web/
+          sudo nginx -t && sudo systemctl reload nginx
+          echo "frontend published → /opt/burncpu/web ✓"
+
       - name: Docker compose rebuild app
         run: |
           cd /opt/burncpu
           sudo docker compose build app
+          # Recreate the container — startup runs pending sqlx migrations.
           sudo docker compose up -d app
-          # Health bekle (max 60s)
+          # Health bekle (max 60s). App dinler: 3050 /healthz (container içi).
           for i in $(seq 1 30); do
-            if sudo docker compose exec -T app curl -fsS http://localhost:8080/health > /dev/null 2>&1; then
+            if sudo docker compose exec -T app curl -fsS http://localhost:3050/healthz > /dev/null 2>&1; then
               echo "App healthy ✓"
               exit 0
             fi
             sleep 2
           done
           echo "::warning::Health timeout (60s) — container loglarini kontrol et"
-          sudo docker compose logs --tail=20 app
+          sudo docker compose logs --tail=30 app
+          exit 1
 
       - name: Verify deploy
         run: |
-          # Public health endpoint
-          curl -fsS https://burncpu.com/health || echo "::warning::Public health fail (CF cache?)"
+          # Public health endpoint (nginx → app)
+          curl -fsS https://burncpu.com/healthz || echo "::warning::Public health fail (CF cache?)"

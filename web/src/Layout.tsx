@@ -172,10 +172,11 @@ export default function Layout(props: { children?: JSX.Element }) {
       <nav class="fixed top-0 inset-x-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-outline-variant">
         <div class="max-w-[1300px] mx-auto h-full px-4 md:px-6 flex justify-between items-center">
           <A href="/" class="flex items-center gap-2.5 group" title="burncpu — 1 vps yeter">
-            <Logo size={26} class="text-primary shrink-0 transition-transform duration-300 group-hover:-rotate-6" />
-            <span class="font-bold text-[20px] md:text-[22px] tracking-tight leading-none text-on-background">
-              burncpu
-            </span>
+            <Logo size={28} class="shrink-0 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110" />
+            <div class="leading-none">
+              <div class="font-bold text-[20px] md:text-[22px] tracking-tight text-on-background">burncpu</div>
+              <div class="hidden sm:block text-[8px] text-on-surface-variant/70 font-mono tracking-[0.3em] uppercase mt-1">1 vps yeter</div>
+            </div>
           </A>
 
           <div class="hidden md:flex flex-1 max-w-md mx-8">
@@ -249,14 +250,7 @@ export default function Layout(props: { children?: JSX.Element }) {
       <div class="max-w-[1300px] mx-auto pt-16 min-h-screen">
         <div class="grid grid-cols-1 lg:grid-cols-[256px_minmax(0,1fr)] xl:grid-cols-[256px_minmax(0,1fr)_320px]">
           {/* Left side nav — sticky inside shell */}
-          <aside class="hidden lg:flex sticky top-16 h-[calc(100vh-4rem)] flex-col py-6 px-3 border-r border-outline-variant">
-            <A href="/" class="group mb-4 px-2 flex items-center gap-2.5">
-              <Logo size={30} class="shrink-0 transition-transform duration-500 group-hover:rotate-[10deg]" />
-              <div class="leading-none">
-                <div class="font-bold text-[17px] tracking-tight text-on-background">burncpu</div>
-                <div class="text-[9px] text-on-surface-variant font-mono tracking-[0.22em] uppercase mt-1">1 vps yeter</div>
-              </div>
-            </A>
+          <aside class="hidden lg:flex sticky top-16 h-[calc(100vh-4rem)] flex-col py-5 px-3 border-r border-outline-variant">
             <nav class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5 -mr-1 pr-1">
               <p class="px-3 pt-1 pb-1 text-[10px] font-mono uppercase tracking-[0.16em] text-on-surface-variant/45">{t('nav.group.explore')}</p>
               <SideLink href="/"              icon="timeline"      label={t('nav.timeline')}      active={loc.pathname === '/'} />

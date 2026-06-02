@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
-import { api, API_ORIGIN, mediaUrl, type CreateResponse } from '@/api';
+import { api, API_ORIGIN, mediaUrl, type CreateResponse, type PostView } from '@/api';
 import { fonts, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
 
@@ -30,7 +30,7 @@ export default function Compose() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { replyTo } = useLocalSearchParams<{ replyTo?: string }>();
+  const { replyTo, editId } = useLocalSearchParams<{ replyTo?: string; editId?: string }>();
   useLocale();
   const s = styles(colors);
 
@@ -38,6 +38,10 @@ export default function Compose() {
   const [attachments, setAttachments] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    if (editId) api.get<PostView>(`/posts/${editId}`).then((p) => setBody(p.body)).catch(() => {});
+  }, [editId]);
 
   const pick = async () => {
     const res = await ImagePicker.launchImageLibraryAsync({
@@ -76,13 +80,17 @@ export default function Compose() {
     setBusy(true);
     try {
       const finalBody = [text, ...attachments.map((u) => `![](${u})`)].filter(Boolean).join('\n\n');
-      const payload: { body: string; visibility: string; reply_to_id?: string } = {
-        body: finalBody,
-        visibility: 'public',
-      };
-      if (replyTo) payload.reply_to_id = replyTo;
-      const res = await api.post<CreateResponse>('/posts', payload);
-      if (res?.quarantined) Alert.alert('burncpu', t('compose.pending'));
+      if (editId) {
+        await api.patch(`/posts/${editId}`, { body: finalBody });
+      } else {
+        const payload: { body: string; visibility: string; reply_to_id?: string } = {
+          body: finalBody,
+          visibility: 'public',
+        };
+        if (replyTo) payload.reply_to_id = replyTo;
+        const res = await api.post<CreateResponse>('/posts', payload);
+        if (res?.quarantined) Alert.alert('burncpu', t('compose.pending'));
+      }
       router.back();
     } catch {
       Alert.alert('burncpu', t('common.error'));
@@ -100,9 +108,17 @@ export default function Compose() {
         <Pressable onPress={() => router.back()} hitSlop={8}>
           <Text style={s.cancel}>{t('common.cancel')}</Text>
         </Pressable>
-        {replyTo ? <Text style={s.replyTag}>↳ {t('post.reply')}</Text> : <View />}
+        {editId ? (
+          <Text style={s.replyTag}>{t('post.edit')}</Text>
+        ) : replyTo ? (
+          <Text style={s.replyTag}>↳ {t('post.reply')}</Text>
+        ) : (
+          <View />
+        )}
         <Pressable style={[s.post, (empty || busy || over) && { opacity: 0.4 }]} onPress={submit} disabled={empty || busy || over}>
-          <Text style={s.postText}>{busy ? t('compose.posting') : t('compose.post')}</Text>
+          <Text style={s.postText}>
+            {busy ? t('compose.posting') : editId ? t('post.save_edit') : t('compose.post')}
+          </Text>
         </Pressable>
       </View>
 

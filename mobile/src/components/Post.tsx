@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import Avatar from './Avatar';
 import RichText from './RichText';
+import Sheet from './Sheet';
 import { api, mediaUrl, type PostView, type PostEditVersion } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
@@ -38,7 +39,52 @@ export default function Post({ post }: { post: PostView }) {
   const [history, setHistory] = useState<PostEditVersion[] | null>(null);
   const [historyErr, setHistoryErr] = useState(false);
   const [cwOpen, setCwOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reactOpen, setReactOpen] = useState(false);
+  const [deleted, setDeleted] = useState(false);
   const media = splitMedia(post.body);
+  const mine = post.author.id === me?.user_id;
+
+  const reactWith = async (emoji: string) => {
+    if (!me) return router.push('/login');
+    if (!reacted) {
+      setReacted(true);
+      setReactions((n) => n + 1);
+    }
+    try {
+      await api.post(`/posts/${post.id}/react`, { emoji });
+    } catch {
+      /* keep optimistic */
+    }
+  };
+
+  const confirmDelete = () =>
+    Alert.alert(t('post.delete_confirm'), undefined, [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('post.delete'),
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.del(`/posts/${post.id}`);
+            setDeleted(true);
+          } catch {
+            Alert.alert('burncpu', t('common.error'));
+          }
+        },
+      },
+    ]);
+
+  const report = async () => {
+    try {
+      await api.post('/reports', { target_kind: 'post', target_id: post.id, reason: 'inappropriate' });
+      Alert.alert('burncpu', t('post.reported'));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  if (deleted) return null;
 
   const react = async () => {
     if (!me) return router.push('/login');
@@ -83,6 +129,9 @@ export default function Post({ post }: { post: PostView }) {
       onPress={() => router.push(`/post/${post.id}`)}
       style={({ pressed }) => [s.card, pressed && { backgroundColor: colors.surfaceLow }]}
     >
+      <Pressable style={s.menuBtn} onPress={() => setMenuOpen(true)} hitSlop={8}>
+        <Ionicons name="ellipsis-horizontal" size={16} color={colors.onSurfaceVariant} />
+      </Pressable>
       <View style={s.row}>
         <Pressable onPress={() => router.push(`/u/${post.author.username}`)}>
           <Avatar uri={post.author.avatar_url} name={post.author.display_name} size={42} />
@@ -149,7 +198,7 @@ export default function Post({ post }: { post: PostView }) {
               <Ionicons name="chatbubble-outline" size={17} color={colors.onSurfaceVariant} />
               {post.replies_count > 0 ? <Text style={s.count}>{post.replies_count}</Text> : null}
             </Pressable>
-            <Pressable style={s.action} onPress={react} hitSlop={6}>
+            <Pressable style={s.action} onPress={react} onLongPress={() => setReactOpen(true)} hitSlop={6}>
               <Text style={{ fontSize: 16, opacity: reacted ? 1 : 0.5 }}>{REACTION}</Text>
               {reactions > 0 ? (
                 <Text style={[s.count, reacted && { color: colors.primary }]}>{reactions}</Text>
@@ -165,6 +214,25 @@ export default function Post({ post }: { post: PostView }) {
           </View>
         </View>
       </View>
+
+      <Sheet
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        options={
+          mine
+            ? [
+                { label: t('post.edit'), icon: 'create-outline', onPress: () => router.push(`/compose?editId=${post.id}`) },
+                { label: t('post.delete'), icon: 'trash-outline', danger: true, onPress: confirmDelete },
+              ]
+            : [{ label: t('post.report'), icon: 'flag-outline', onPress: report }]
+        }
+      />
+      <Sheet
+        visible={reactOpen}
+        onClose={() => setReactOpen(false)}
+        title={t('post.react')}
+        options={['🐢', '❤️', '😂', '🔥', '👀', '🎉'].map((e) => ({ label: e, onPress: () => reactWith(e) }))}
+      />
     </Pressable>
   );
 }
@@ -172,6 +240,7 @@ export default function Post({ post }: { post: PostView }) {
 const styles = (c: Palette) =>
   StyleSheet.create({
     card: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.outlineVariant },
+    menuBtn: { position: 'absolute', top: 10, right: 10, padding: 4, zIndex: 2 },
     row: { flexDirection: 'row', gap: 10 },
     main: { flex: 1, minWidth: 0 },
     headerLine: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap' },

@@ -90,12 +90,16 @@ export default function ProfileView({ username }: { username: string }) {
         <Text style={s.count}>
           <Text style={s.countNum}>{profile.counts.posts}</Text> {t('profile.posts')}
         </Text>
-        <Text style={s.count}>
-          <Text style={s.countNum}>{profile.counts.followers}</Text> {t('profile.followers')}
-        </Text>
-        <Text style={s.count}>
-          <Text style={s.countNum}>{profile.counts.following}</Text> {t('profile.followingc')}
-        </Text>
+        <Pressable onPress={() => router.push(`/follows/${username}?type=followers`)}>
+          <Text style={s.count}>
+            <Text style={s.countNum}>{profile.counts.followers}</Text> {t('profile.followers')}
+          </Text>
+        </Pressable>
+        <Pressable onPress={() => router.push(`/follows/${username}?type=following`)}>
+          <Text style={s.count}>
+            <Text style={s.countNum}>{profile.counts.following}</Text> {t('profile.followingc')}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );

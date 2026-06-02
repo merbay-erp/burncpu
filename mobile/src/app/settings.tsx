@@ -95,6 +95,10 @@ export default function Settings() {
 
             <Text style={s.section}>{t('settings.account')}</Text>
             <InfoRow label="@" value={me.username} c={colors} />
+            <Pressable style={[s.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]} onPress={() => router.push('/profile/edit')}>
+              <Text style={s.rowLabel}>{t('profile.edit')}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.fg3} />
+            </Pressable>
             <Pressable style={[s.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]} onPress={() => router.push('/bookmarks')}>
               <Text style={s.rowLabel}>{t('nav.bookmarks')}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.fg3} />

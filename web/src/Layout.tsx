@@ -255,8 +255,7 @@ export default function Layout(props: { children?: JSX.Element }) {
           <aside class="hidden lg:flex sticky top-16 h-[calc(100vh-4rem)] flex-col py-5 px-3 border-r border-outline-variant">
             <nav class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5 -mr-1 pr-1">
               <p class="px-3 pt-1 pb-1 text-[10px] font-mono uppercase tracking-[0.16em] text-on-surface-variant/45">{t('nav.group.explore')}</p>
-              <SideLink href="/"              icon="timeline"      label={t('nav.timeline')}      active={loc.pathname === '/'} />
-              <SideLink href="/feed"          icon="rss_feed"      label={t('nav.feed')}          active={is('/feed')} />
+              <SideLink href="/"              icon="timeline"      label={t('nav.timeline')}      active={loc.pathname === '/' || loc.pathname === '/feed'} />
               <SideLink href="/search"        icon="search"        label={t('nav.search')}        active={is('/search')} />
               <SideLink href="/notifications" icon="notifications" label={t('nav.notifications')} active={is('/notifications')} badge={unread() ?? 0} />
               <SideLink href="/docs"          icon="menu_book"     label={t('nav.docs')}          active={is('/docs')} />
@@ -323,9 +322,8 @@ export default function Layout(props: { children?: JSX.Element }) {
       {/* Mobile bottom nav */}
       <footer class="lg:hidden fixed bottom-0 inset-x-0 bg-background/90 backdrop-blur-md border-t border-outline-variant z-50">
         <div class="flex justify-around items-center h-16">
-          <BottomLink href="/"              icon="home"          active={loc.pathname === '/'} />
+          <BottomLink href="/"              icon="home"          active={loc.pathname === '/' || loc.pathname === '/feed'} />
           <BottomLink href="/search"        icon="search"        active={is('/search')} />
-          <BottomLink href="/feed"          icon="rss_feed"      active={is('/feed')} />
           <BottomLink href="/notifications" icon="notifications" active={is('/notifications')} />
           <Show when={me()} fallback={<BottomLink href="/login" icon="login" active={is('/login')} />}>
             {(u) => <BottomLink href={`/u/${u().username}`} icon="person" active={is(`/u/${u().username}`)} />}

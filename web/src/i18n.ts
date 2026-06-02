@@ -27,6 +27,8 @@ const dict: Record<Locale, Record<string, string>> = {
     // ── nav / shell ──
     'nav.timeline': 'Akış',
     'nav.feed': 'Feed',
+    'nav.tab_personal': 'Bana Özel',
+    'nav.tab_global': 'Global',
     'nav.search': 'Ara',
     'nav.notifications': 'Bildirimler',
     'nav.dm': 'Mesajlar',
@@ -399,6 +401,8 @@ const dict: Record<Locale, Record<string, string>> = {
   en: {
     'nav.timeline': 'Timeline',
     'nav.feed': 'Feed',
+    'nav.tab_personal': 'For You',
+    'nav.tab_global': 'Global',
     'nav.search': 'Search',
     'nav.notifications': 'Notifications',
     'nav.dm': 'Messages',

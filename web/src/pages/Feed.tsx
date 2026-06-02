@@ -5,6 +5,7 @@ import Post from '../components/Post';
 import Compose from '../components/Compose';
 import InfiniteList from '../components/InfiniteList';
 import { PostSkeletonList } from '../components/Skeleton';
+import TimelineTabs from '../components/TimelineTabs';
 import { me } from '../auth';
 import { t } from '../i18n';
 
@@ -63,14 +64,12 @@ export default function Feed() {
 
   return (
     <>
-      <h2 class="page-title">
-        {t('feed.title')} <small>{t('feed.subtitle')}</small>
-      </h2>
+      <TimelineTabs />
       <Show
         when={me()}
         fallback={
-          <p class="muted">
-            <A href="/login">{t('feed.login_required')}</A>
+          <p class="text-on-surface-variant">
+            <A href="/login" class="text-primary hover:underline">{t('feed.login_required')}</A>
           </p>
         }
       >

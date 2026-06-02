@@ -4,6 +4,7 @@ import Post from '../components/Post';
 import Compose from '../components/Compose';
 import InfiniteList from '../components/InfiniteList';
 import { PostSkeletonList } from '../components/Skeleton';
+import TimelineTabs from '../components/TimelineTabs';
 import { me } from '../auth';
 import { t } from '../i18n';
 
@@ -55,14 +56,7 @@ export default function Home() {
 
   return (
     <>
-      <header class="mb-8 border-b border-outline-variant pb-4">
-        <h1 class="font-headline-lg text-[28px] md:text-[32px] font-semibold tracking-tight text-on-background">
-          {t('home.title')}
-        </h1>
-        <p class="text-on-surface-variant font-mono text-[14px] mt-1">
-          {t('home.subtitle')}
-        </p>
-      </header>
+      <TimelineTabs />
 
       <Show when={me()}>
         <Compose persistDraft onPosted={prepend} />

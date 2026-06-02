@@ -5,6 +5,7 @@ import { me, refetchUnread } from '../auth';
 import { relTime } from '../util';
 import { t } from '../i18n';
 import InfiniteList from '../components/InfiniteList';
+import { RowSkeletonList } from '../components/Skeleton';
 
 interface Listing {
   notifications: Notification[];
@@ -151,7 +152,7 @@ export default function NotificationsPage() {
 
       <Show
         when={!(loading() && items().length === 0)}
-        fallback={<p class="text-on-surface-variant font-mono text-[14px]"><span class="spinner mr-2" />SCANNING…</p>}
+        fallback={<RowSkeletonList count={6} />}
       >
         <Show
           when={shown().length > 0}

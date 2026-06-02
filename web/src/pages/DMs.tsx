@@ -3,6 +3,7 @@ import { A, useNavigate } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
 import { relTime } from '../util';
+import { RowSkeletonList } from '../components/Skeleton';
 import { t } from '../i18n';
 
 interface ThreadSummary {
@@ -178,7 +179,7 @@ export default function DMs() {
         <Show
           when={list()}
           fallback={
-            <p class="text-on-surface-variant font-mono text-[14px]"><span class="spinner mr-2" />SCANNING…</p>
+            <RowSkeletonList count={6} />
           }
         >
           <Show

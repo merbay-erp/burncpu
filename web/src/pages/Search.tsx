@@ -3,6 +3,7 @@ import { A, useSearchParams } from '@solidjs/router';
 import { api, type SearchResponse, type SearchHit } from '../api';
 import { relTime, linkifyTags } from '../util';
 import Avatar from '../components/Avatar';
+import { PostSkeletonList } from '../components/Skeleton';
 import { t } from '../i18n';
 
 export default function Search() {
@@ -47,6 +48,10 @@ export default function Search() {
           class="w-full bg-surface-container border border-outline-variant rounded-full pl-11 pr-4 py-2.5 font-mono text-[14px] text-on-background placeholder:text-on-surface-variant/60 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 transition-all"
         />
       </div>
+
+      <Show when={trigger() && results.loading && !results()}>
+        <div class="mt-5"><PostSkeletonList count={3} /></div>
+      </Show>
 
       <Show when={results()}>
         {(r) => (

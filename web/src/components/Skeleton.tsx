@@ -40,6 +40,26 @@ export function PostSkeletonList(props: { count?: number }) {
   );
 }
 
+// One list-row placeholder (notifications, DM threads): avatar + two lines.
+export function RowSkeleton() {
+  return (
+    <div class="flex items-center gap-3 p-3">
+      <Bar class="!rounded-xl w-11 h-11 shrink-0" />
+      <div class="flex-1 min-w-0 space-y-2">
+        <Bar class="h-3.5 w-1/3" />
+        <Bar class="h-3 w-2/3" />
+      </div>
+    </div>
+  );
+}
+export function RowSkeletonList(props: { count?: number }) {
+  return (
+    <div class="space-y-1">
+      <For each={Array.from({ length: props.count ?? 6 })}>{() => <RowSkeleton />}</For>
+    </div>
+  );
+}
+
 // Profile header placeholder, matching the new header card.
 export function ProfileHeaderSkeleton() {
   return (

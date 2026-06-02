@@ -84,7 +84,7 @@ export default {
       },
       fontFamily: {
         sans: ['Geist', 'ui-sans-serif', 'system-ui'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        mono: ['"Geist Mono"', 'ui-monospace', '"JetBrains Mono"', 'monospace'],
         'body-md': ['Geist'],
         'body-lg': ['Geist'],
         'headline-lg': ['Geist'],

@@ -244,7 +244,7 @@ function DevTab() {
           <For each={['reaction', 'reply', 'follow', 'mention', 'dm']}>
             {(ev) => (
               <label
-                style={`display: inline-flex; align-items: center; gap: 5px; margin: 0; padding: 6px 12px; border-radius: 999px; font-family: var(--mono); font-size: 12px; cursor: pointer; transition: all .15s; border: 1px solid ${hEvents().includes(ev) ? 'var(--accent)' : 'var(--border)'}; background: ${hEvents().includes(ev) ? 'rgba(156,225,109,0.12)' : 'transparent'}; color: ${hEvents().includes(ev) ? 'var(--accent)' : 'var(--fg-2)'};`}
+                style={`display: inline-flex; align-items: center; gap: 5px; margin: 0; padding: 6px 12px; border-radius: 999px; font-family: var(--mono); font-size: 12px; cursor: pointer; transition: all .15s; border: 1px solid ${hEvents().includes(ev) ? 'var(--accent)' : 'var(--border)'}; background: ${hEvents().includes(ev) ? 'rgba(255,138,60,0.12)' : 'transparent'}; color: ${hEvents().includes(ev) ? 'var(--accent)' : 'var(--fg-2)'};`}
               >
                 <input
                   type="checkbox"

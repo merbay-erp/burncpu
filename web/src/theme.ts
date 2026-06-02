@@ -22,7 +22,7 @@ function apply(t: Theme) {
   el.classList.toggle('light', t === 'light');
   el.classList.toggle('dark', t === 'dark');
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', t === 'light' ? '#e0e2d9' : '#131313');
+  if (meta) meta.setAttribute('content', t === 'light' ? '#f4ece4' : '#171311');
 }
 
 export const [theme, _setTheme] = createSignal<Theme>(read());

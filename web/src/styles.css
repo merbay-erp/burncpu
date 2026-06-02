@@ -9,71 +9,72 @@
    theme (intentionally not bright-white). The legacy `--bg/--accent/...`
    aliases (used by inline styles + the `.legacy` pages) track the same. */
 :root {
-  /* Tailwind channels (R G B) — DARK */
-  --c-background: 19 19 19;
-  --c-surface-container-lowest: 14 14 14;
-  --c-surface-container-low: 27 27 28;
-  --c-surface-container: 32 32 32;
-  --c-surface-container-high: 42 42 42;
-  --c-surface-container-highest: 53 53 53;
-  --c-on-background: 229 226 225;
-  --c-on-surface: 229 226 225;
-  --c-on-surface-variant: 197 212 179;
-  --c-outline: 122 139 107;
-  --c-outline-variant: 58 78 46;
-  --c-primary: 156 225 109;
-  --c-on-primary: 15 31 8;
+  /* Tailwind channels (R G B) — DARK · "Ember" (burn) palette:
+     warm charcoal surfaces + amber-orange accent, matching the flame logo. */
+  --c-background: 23 19 17;
+  --c-surface-container-lowest: 18 15 13;
+  --c-surface-container-low: 31 26 23;
+  --c-surface-container: 38 31 28;
+  --c-surface-container-high: 48 40 35;
+  --c-surface-container-highest: 60 50 44;
+  --c-on-background: 240 232 226;
+  --c-on-surface: 240 232 226;
+  --c-on-surface-variant: 209 188 174;
+  --c-outline: 138 116 102;
+  --c-outline-variant: 74 56 46;
+  --c-primary: 255 138 60;
+  --c-on-primary: 38 16 4;
   --c-error: 255 180 171;
-  --c-on-secondary-container: 186 184 183;
+  --c-on-secondary-container: 200 188 180;
 
   /* legacy aliases (hex) — DARK */
-  --bg: #131313;
-  --bg-2: #1b1b1c;
-  --bg-3: #2a2a2a;
-  --fg: #e5e2e1;
-  --fg-2: #c5d4b3;
-  --fg-3: #8f9a82;
-  --accent: #9ce16d;
-  --on-accent: #0f1f08;
+  --bg: #171311;
+  --bg-2: #1f1a17;
+  --bg-3: #2e2620;
+  --fg: #f0e8e2;
+  --fg-2: #d1bcae;
+  --fg-3: #9a8a7e;
+  --accent: #ff8a3c;
+  --on-accent: #261004;
   --bad: #ffb4ab;
-  --border: #3a4e2e;
-  --code-bg: #0e0e0e;
-  --code-fg: #c6c6c7;
+  --border: #4a382e;
+  --code-bg: #120f0d;
+  --code-fg: #e8ddd4;
   --radius: 8px;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --mono: 'Geist Mono', ui-monospace, 'JetBrains Mono', monospace;
 }
 
 html.light {
-  /* Tailwind channels — soft sage LIGHT (muted, not bright) */
-  --c-background: 224 226 217;
-  --c-surface-container-lowest: 244 245 239;
-  --c-surface-container-low: 236 237 229;
-  --c-surface-container: 231 232 224;
-  --c-surface-container-high: 224 226 216;
-  --c-surface-container-highest: 214 217 204;
-  --c-on-background: 29 34 24;
-  --c-on-surface: 29 34 24;
-  --c-on-surface-variant: 78 87 67;
-  --c-outline: 110 119 99;
-  --c-outline-variant: 196 201 184;
-  --c-primary: 63 125 28;
-  --c-on-primary: 244 249 238;
+  /* Tailwind channels — warm cream LIGHT (Ember, soft not bright) */
+  --c-background: 244 236 228;
+  --c-surface-container-lowest: 251 246 240;
+  --c-surface-container-low: 239 230 220;
+  --c-surface-container: 234 224 213;
+  --c-surface-container-high: 226 215 202;
+  --c-surface-container-highest: 214 201 186;
+  --c-on-background: 42 30 22;
+  --c-on-surface: 42 30 22;
+  --c-on-surface-variant: 107 84 70;
+  --c-outline: 160 139 124;
+  --c-outline-variant: 220 207 192;
+  --c-primary: 196 77 18;
+  --c-on-primary: 255 245 236;
   --c-error: 186 26 26;
-  --c-on-secondary-container: 58 64 54;
+  --c-on-secondary-container: 74 58 48;
 
   /* legacy aliases — LIGHT */
-  --bg: #e0e2d9;
-  --bg-2: #ecede5;
-  --bg-3: #e0e2d8;
-  --fg: #1d2218;
-  --fg-2: #4e5743;
-  --fg-3: #6e7763;
-  --accent: #3f7d1c;
-  --on-accent: #f4f9ee;
+  --bg: #f4ece4;
+  --bg-2: #fbf6f0;
+  --bg-3: #e2d7ca;
+  --fg: #2a1e16;
+  --fg-2: #6b5446;
+  --fg-3: #93826f;
+  --accent: #c44d12;
+  --on-accent: #fff5ec;
   --bad: #ba1a1a;
-  --border: #c4c9b8;
-  --code-bg: #d8dacf;
-  --code-fg: #2a2e24;
+  --border: #dccfc0;
+  --code-bg: #ece1d4;
+  --code-fg: #3a2a1e;
 }
 
 /* ─── Base ─────────────────────────────────────────────────── */
@@ -105,7 +106,7 @@ html { scroll-behavior: smooth; }
 a { color: inherit; text-decoration: none; }
 a:hover { color: var(--accent); }
 
-code, pre, kbd { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+code, pre, kbd { font-family: var(--mono); }
 code {
   background: var(--code-bg);
   padding: 1px 4px;
@@ -126,7 +127,7 @@ textarea, input, select {
   width: 100%;
   transition: border-color .15s, box-shadow .15s, background .15s;
 }
-textarea { resize: vertical; min-height: 80px; font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+textarea { resize: vertical; min-height: 80px; font-family: var(--mono); font-size: 14px; }
 textarea:focus, input:focus, select:focus {
   outline: none;
   border-color: var(--accent);
@@ -159,13 +160,13 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ─── Signal Pulse (Turtle Moss dot animation) ─────────── */
 .signal-pulse {
-  box-shadow: 0 0 0 0 rgba(156, 225, 109, 0.4);
+  box-shadow: 0 0 0 0 rgba(255, 138, 60, 0.4);
   animation: burncpu-pulse 2s infinite;
 }
 @keyframes burncpu-pulse {
-  0%   { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(156, 225, 109, 0.7); }
-  70%  { transform: scale(1);    box-shadow: 0 0 0 6px rgba(156, 225, 109, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(156, 225, 109, 0); }
+  0%   { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 138, 60, 0.7); }
+  70%  { transform: scale(1);    box-shadow: 0 0 0 6px rgba(255, 138, 60, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 138, 60, 0); }
 }
 
 /* ─── Brand logo core pulse (the flame-CPU "signal") ─────── */
@@ -237,9 +238,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   margin: 8px 0;
 }
 .success {
-  background: rgba(156, 225, 109, 0.08);
+  background: rgba(255, 138, 60, 0.08);
   color: var(--accent);
-  border: 1px solid rgba(156, 225, 109, 0.28);
+  border: 1px solid rgba(255, 138, 60, 0.28);
   padding: 10px 12px;
   border-radius: 4px;
   font-size: 13px;

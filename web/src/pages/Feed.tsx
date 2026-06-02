@@ -69,7 +69,7 @@ export default function Feed() {
           </p>
         }
       >
-        <Compose onPosted={prepend} />
+        <Compose persistDraft onPosted={prepend} />
         <InfiniteList onLoadMore={loadMore} loading={loading()} done={done()}>
           <For
             each={posts()}

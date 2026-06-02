@@ -1,4 +1,4 @@
-import { createSignal, createMemo, Show, For, onMount } from 'solid-js';
+import { createSignal, createMemo, createEffect, Show, For, onMount } from 'solid-js';
 import { api, type PostView } from '../api';
 import { visibleLength, firstUrl } from '../util';
 import { t } from '../i18n';
@@ -8,6 +8,7 @@ import Avatar from './Avatar';
 import { me } from '../auth';
 
 const MAX = 5000;
+const DRAFT_KEY = 'burncpu.draft';
 
 interface MediaResp { id: string; url: string; width?: number; height?: number; }
 interface UserBrief { id: string; username: string; display_name: string; avatar_url: string | null; }
@@ -16,9 +17,18 @@ export default function Compose(props: {
   replyToId?: string;
   placeholder?: string;
   autofocus?: boolean;
+  // Persist an unsent draft to localStorage (only the always-present timeline
+  // composer opts in — not the FAB popup or inline reply boxes).
+  persistDraft?: boolean;
   onPosted?: (p: PostView) => void;
 }) {
-  const [body, setBody] = createSignal('');
+  const readDraft = (): string => {
+    if (!props.persistDraft) return '';
+    try { return localStorage.getItem(DRAFT_KEY) ?? ''; } catch { return ''; }
+  };
+  // Initialize from the saved draft so the save-effect's first run never wipes
+  // it (effect runs before onMount).
+  const [body, setBody] = createSignal(readDraft());
   const [cw, setCw] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [uploading, setUploading] = createSignal(false);
@@ -39,6 +49,11 @@ export default function Compose(props: {
 
   // When opened as an inline reply box, drop the cursor straight into the
   // textarea so the user can just start typing.
+  // Draft persistence for the main composer (not inline replies): restore on
+  // mount, auto-save as you type, clear once posted. So a refresh / accidental
+  // navigation never eats a half-written signal.
+  const isMainComposer = () => props.persistDraft === true;
+
   onMount(() => {
     if (props.autofocus && textarea) {
       // preventScroll: the inline reply box already opens right under the post,
@@ -48,6 +63,15 @@ export default function Compose(props: {
       const end = textarea.value.length;
       textarea.setSelectionRange(end, end);
     }
+  });
+
+  createEffect(() => {
+    const b = body();
+    if (!isMainComposer()) return;
+    try {
+      if (b.trim()) localStorage.setItem(DRAFT_KEY, b);
+      else localStorage.removeItem(DRAFT_KEY);
+    } catch { /* ignore */ }
   });
 
   const submit = async () => {
@@ -146,7 +170,36 @@ export default function Compose(props: {
     }, 0);
   };
 
+  // Wrap the current selection (or insert markers at the caret) for markdown
+  // formatting. Caret lands after the wrap when text was selected, otherwise
+  // between the markers so you can just start typing.
+  const wrapSelection = (before: string, after: string) => {
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? body().length;
+    const end = textarea.selectionEnd ?? start;
+    const val = body();
+    const selected = val.slice(start, end);
+    const next = val.slice(0, start) + before + selected + after + val.slice(end);
+    setBody(next);
+    setTimeout(() => {
+      if (!textarea) return;
+      textarea.focus({ preventScroll: true });
+      const caret = selected
+        ? start + before.length + selected.length + after.length
+        : start + before.length;
+      textarea.setSelectionRange(caret, caret);
+    }, 0);
+  };
+  const fmtBold = () => wrapSelection('**', '**');
+  const fmtItalic = () => wrapSelection('*', '*');
+  const fmtLink = () => wrapSelection('[', '](https://)');
+
   const onKeyDown = (e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'b') { e.preventDefault(); fmtBold(); return; }
+      if (k === 'i') { e.preventDefault(); fmtItalic(); return; }
+    }
     if (mentions().length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx((i) => Math.min(i + 1, mentions().length - 1)); return; }
       if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionIdx((i) => Math.max(i - 1, 0)); return; }
@@ -223,8 +276,34 @@ export default function Compose(props: {
           </Show>
 
           <div class="flex justify-between items-center mt-4 pt-4 border-t border-outline-variant/30">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-0.5">
               <button
+                type="button"
+                onClick={fmtBold}
+                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
+                title={`${t('compose.fmt.bold')} (⌘B)`}
+              >
+                <span class="material-symbols-outlined" style="font-size:20px;">format_bold</span>
+              </button>
+              <button
+                type="button"
+                onClick={fmtItalic}
+                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
+                title={`${t('compose.fmt.italic')} (⌘I)`}
+              >
+                <span class="material-symbols-outlined" style="font-size:20px;">format_italic</span>
+              </button>
+              <button
+                type="button"
+                onClick={fmtLink}
+                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
+                title={t('compose.fmt.link')}
+              >
+                <span class="material-symbols-outlined" style="font-size:20px;">link</span>
+              </button>
+              <span class="w-px h-5 bg-outline-variant/50 mx-1"></span>
+              <button
+                type="button"
                 onClick={pickFile}
                 disabled={uploading() || busy()}
                 class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"

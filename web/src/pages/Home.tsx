@@ -61,7 +61,7 @@ export default function Home() {
       </header>
 
       <Show when={me()}>
-        <Compose onPosted={prepend} />
+        <Compose persistDraft onPosted={prepend} />
       </Show>
 
       <InfiniteList onLoadMore={loadMore} loading={loading()} done={done()}>

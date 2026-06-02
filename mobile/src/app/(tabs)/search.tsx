@@ -32,7 +32,15 @@ export default function Search() {
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<Hit[]>([]);
   const [loading, setLoading] = useState(false);
+  const [trending, setTrending] = useState<{ tag: string; count: number }[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    api
+      .get<{ tag: string; count: number }[]>('/trending/hashtags')
+      .then(setTrending)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -86,7 +94,21 @@ export default function Search() {
           data={hits}
           keyExtractor={(h) => h.id}
           ListEmptyComponent={
-            <Text style={s.empty}>{q.trim() ? '—' : t('search.empty')}</Text>
+            q.trim() ? (
+              <Text style={s.empty}>—</Text>
+            ) : (
+              <View style={s.trendWrap}>
+                <Text style={s.trendTitle}>{t('search.trending')}</Text>
+                <View style={s.chips}>
+                  {trending.map((h) => (
+                    <Pressable key={h.tag} style={s.chip} onPress={() => router.push(`/tag/${h.tag}`)}>
+                      <Text style={s.chipText}>#{h.tag}</Text>
+                      <Text style={s.chipCount}>{h.count}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )
           }
           renderItem={({ item }) => (
             <Pressable
@@ -133,4 +155,11 @@ const styles = (c: Palette) =>
     time: { color: c.fg3 },
     body: { color: c.onSurface, fontSize: 14, lineHeight: 19, marginTop: 2 },
     empty: { color: c.fg3, textAlign: 'center', marginTop: 40, fontFamily: fonts.mono, fontSize: 13 },
+    trendWrap: { paddingHorizontal: 16, paddingTop: 8 },
+    trendTitle: { color: c.onSurfaceVariant, fontFamily: fonts.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 12 },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: c.surfaceLow, borderColor: c.outlineVariant, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
+    chipText: { color: c.primary, fontFamily: fonts.semibold, fontSize: 13 },
+    chipCount: { color: c.fg3, fontFamily: fonts.mono, fontSize: 11 },
   });
+

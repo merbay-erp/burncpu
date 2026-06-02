@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { View, Text, Pressable, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 import Avatar from './Avatar';
 import Post from './Post';
 import { api, type Profile, type PostView, type Timeline } from '@/api';
-import { useMe, logout } from '@/auth';
+import { useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
 
@@ -70,8 +71,9 @@ export default function ProfileView({ username }: { username: string }) {
       <View style={s.headTop}>
         <Avatar uri={profile.avatar_url} name={profile.display_name} size={72} />
         {self ? (
-          <Pressable style={s.outlineBtn} onPress={logout}>
-            <Text style={s.outlineBtnText}>{t('nav.logout')}</Text>
+          <Pressable style={s.gearBtn} onPress={() => router.push('/settings')}>
+            <Ionicons name="settings-outline" size={16} color={colors.onBackground} />
+            <Text style={s.outlineBtnText}>{t('nav.settings')}</Text>
           </Pressable>
         ) : (
           <Pressable style={following ? s.outlineBtn : s.solidBtn} onPress={toggleFollow}>
@@ -124,5 +126,6 @@ const styles = (c: Palette) =>
     solidBtn: { backgroundColor: c.primary, borderRadius: 999, paddingHorizontal: 20, paddingVertical: 9 },
     solidBtnText: { color: c.onPrimary, fontFamily: fonts.bold, fontSize: 13 },
     outlineBtn: { borderColor: c.outline, borderWidth: 1, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9 },
+    gearBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderColor: c.outline, borderWidth: 1, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 },
     outlineBtnText: { color: c.onBackground, fontFamily: fonts.semibold, fontSize: 13 },
   });

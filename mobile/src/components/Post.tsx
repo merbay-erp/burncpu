@@ -1,16 +1,28 @@
 import { useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import Avatar from './Avatar';
-import { api, type PostView, type PostEditVersion } from '@/api';
+import RichText from './RichText';
+import { api, mediaUrl, type PostView, type PostEditVersion } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
 import { relTime } from '@/util';
 import { t, useLocale } from '@/i18n';
 
 const REACTION = '🐢';
+const IMG_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+
+function splitMedia(body: string): { text: string; images: string[] } {
+  const images: string[] = [];
+  const text = body.replace(IMG_RE, (_full, url: string) => {
+    images.push(url);
+    return '';
+  });
+  return { text: text.trim(), images };
+}
 
 export default function Post({ post }: { post: PostView }) {
   const { colors } = useTheme();
@@ -25,6 +37,8 @@ export default function Post({ post }: { post: PostView }) {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<PostEditVersion[] | null>(null);
   const [historyErr, setHistoryErr] = useState(false);
+  const [cwOpen, setCwOpen] = useState(false);
+  const media = splitMedia(post.body);
 
   const react = async () => {
     if (!me) return router.push('/login');
@@ -89,12 +103,24 @@ export default function Post({ post }: { post: PostView }) {
             ) : null}
           </View>
 
-          {post.content_warning ? (
-            <View style={s.cw}>
+          {post.content_warning && !cwOpen ? (
+            <Pressable style={s.cw} onPress={() => setCwOpen(true)}>
               <Text style={s.cwLabel}>⚠ {post.content_warning}</Text>
-            </View>
+              <Text style={s.cwShow}>{t('post.cw_show')} ↓</Text>
+            </Pressable>
           ) : (
-            <Text style={s.body}>{post.body}</Text>
+            <>
+              {media.text ? <RichText body={media.text} style={s.body} /> : null}
+              {media.images.map((url, i) => (
+                <Image
+                  key={i}
+                  source={{ uri: mediaUrl(url) }}
+                  style={s.media}
+                  contentFit="cover"
+                  transition={120}
+                />
+              ))}
+            </>
           )}
 
           {showHistory ? (
@@ -115,7 +141,11 @@ export default function Post({ post }: { post: PostView }) {
           ) : null}
 
           <View style={s.footer}>
-            <Pressable style={s.action} onPress={() => router.push(`/post/${post.id}`)} hitSlop={6}>
+            <Pressable
+              style={s.action}
+              onPress={() => router.push(me ? `/compose?replyTo=${post.id}` : '/login')}
+              hitSlop={6}
+            >
               <Ionicons name="chatbubble-outline" size={17} color={colors.onSurfaceVariant} />
               {post.replies_count > 0 ? <Text style={s.count}>{post.replies_count}</Text> : null}
             </Pressable>
@@ -151,6 +181,8 @@ const styles = (c: Palette) =>
     body: { color: c.onSurface, fontFamily: fonts.sans, fontSize: 15, lineHeight: 21, marginTop: 4 },
     cw: { marginTop: 6, padding: 10, backgroundColor: c.surface, borderColor: c.outlineVariant, borderWidth: 1, borderRadius: radius },
     cwLabel: { color: c.primary, fontFamily: fonts.mono, fontSize: 12 },
+    cwShow: { color: c.onSurfaceVariant, fontFamily: fonts.mono, fontSize: 11, marginTop: 6 },
+    media: { width: '100%', aspectRatio: 16 / 10, borderRadius: radius, marginTop: 8, backgroundColor: c.surfaceHigh },
     history: { marginTop: 8, padding: 10, backgroundColor: c.surface, borderColor: c.outlineVariant, borderWidth: 1, borderRadius: radius },
     historyTitle: { color: c.onSurfaceVariant, fontFamily: fonts.mono, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 },
     historyErr: { color: c.error, fontFamily: fonts.mono, fontSize: 12 },

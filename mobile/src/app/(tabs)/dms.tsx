@@ -69,7 +69,7 @@ export default function DMs() {
           ListEmptyComponent={<Text style={s.empty}>—</Text>}
           renderItem={({ item }) => (
             <Pressable
-              onPress={() => router.push(`/u/${item.other.username}`)}
+              onPress={() => router.push(`/dm/${item.other.username}`)}
               style={({ pressed }) => [s.row, pressed && { backgroundColor: colors.surfaceLow }]}
             >
               <Avatar uri={item.other.avatar_url} name={item.other.display_name} size={44} />

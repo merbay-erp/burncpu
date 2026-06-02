@@ -23,8 +23,14 @@ interface DmMessage {
   id: string;
   sender_id: string;
   body: string;
+  body_html?: string;
+  read_at?: string | null;
   created_at: string;
-  deleted_at?: string | null;
+}
+
+// GET /dm/threads/{u} returns a ThreadView object, not a bare array.
+interface ThreadView {
+  messages: DmMessage[];
 }
 
 export default function DmThread() {
@@ -44,8 +50,8 @@ export default function DmThread() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api.get<DmMessage[]>(`/dm/threads/${username}`);
-      setMessages(data);
+      const data = await api.get<ThreadView>(`/dm/threads/${username}`);
+      setMessages(data.messages ?? []);
       api.patch(`/dm/threads/${username}/read`).catch(() => {});
     } catch {
       /* ignore */
@@ -105,7 +111,7 @@ export default function DmThread() {
               <View style={[s.bubbleRow, mine ? s.right : s.left]}>
                 <View style={[s.bubble, mine ? s.bubbleMine : s.bubbleOther]}>
                   <Text style={mine ? s.textMine : s.textOther}>
-                    {item.deleted_at ? '·' : item.body}
+                    {item.body}
                   </Text>
                 </View>
               </View>

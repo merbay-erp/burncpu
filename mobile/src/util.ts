@@ -1,3 +1,18 @@
+// First http(s) URL in a string, or null.
+export function firstUrl(text: string): string | null {
+  const m = text.match(/https?:\/\/[^\s)]+/);
+  return m ? m[0] : null;
+}
+
+// Bare host of a URL (www. stripped), for link-card domains.
+export function hostOf(u: string): string {
+  try {
+    return new URL(u).host.replace(/^www\./, '');
+  } catch {
+    return u;
+  }
+}
+
 // Compact relative time, Turkish-style abbreviations (matches the web:
 // şimdi / dk / sa / g / h / ay / y).
 export function relTime(iso: string): string {

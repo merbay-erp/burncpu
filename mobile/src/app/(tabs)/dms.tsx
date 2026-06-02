@@ -5,17 +5,23 @@ import { useRouter } from 'expo-router';
 import ScreenHeader from '@/components/ScreenHeader';
 import LoginGate from '@/components/LoginGate';
 import Avatar from '@/components/Avatar';
-import { api, type Author } from '@/api';
+import { api } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, useTheme, type Palette } from '@/theme';
 import { relTime } from '@/util';
 import { t, useLocale } from '@/i18n';
 
+// Matches the server's ThreadSummary (flat fields, not a nested `other`).
 interface DmThread {
-  other: Author;
-  last_message?: string | null;
-  unread?: number;
-  updated_at?: string;
+  id: string;
+  other_id: string;
+  other_username: string;
+  other_display_name: string;
+  other_avatar_url?: string | null;
+  last_body?: string | null;
+  last_sender_id?: string | null;
+  last_message_at: string;
+  unread_count: number;
 }
 
 export default function DMs() {
@@ -55,7 +61,7 @@ export default function DMs() {
       ) : (
         <FlatList
           data={threads}
-          keyExtractor={(th) => th.other.id}
+          keyExtractor={(th) => th.id}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -69,22 +75,22 @@ export default function DMs() {
           ListEmptyComponent={<Text style={s.empty}>—</Text>}
           renderItem={({ item }) => (
             <Pressable
-              onPress={() => router.push(`/dm/${item.other.username}`)}
+              onPress={() => router.push(`/dm/${item.other_username}`)}
               style={({ pressed }) => [s.row, pressed && { backgroundColor: colors.surfaceLow }]}
             >
-              <Avatar uri={item.other.avatar_url} name={item.other.display_name} size={44} />
+              <Avatar uri={item.other_avatar_url} name={item.other_display_name} size={44} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <View style={s.line}>
                   <Text style={s.name} numberOfLines={1}>
-                    {item.other.display_name}
+                    {item.other_display_name}
                   </Text>
-                  {item.updated_at ? <Text style={s.time}>{relTime(item.updated_at)}</Text> : null}
+                  {item.last_message_at ? <Text style={s.time}>{relTime(item.last_message_at)}</Text> : null}
                 </View>
                 <Text style={s.preview} numberOfLines={1}>
-                  {item.last_message ?? `@${item.other.username}`}
+                  {item.last_body ?? `@${item.other_username}`}
                 </Text>
               </View>
-              {item.unread ? <View style={s.dot} /> : null}
+              {item.unread_count > 0 ? <View style={s.dot} /> : null}
             </Pressable>
           )}
         />

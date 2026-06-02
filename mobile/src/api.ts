@@ -128,3 +128,17 @@ export interface PostEditVersion {
   body_html: string;
   edited_at: string;
 }
+
+export interface LinkPreview {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  site_name?: string;
+  favicon?: string;
+}
+
+// Open Graph unfurl (server-resolved + cached). `null` = nothing worth showing.
+export function fetchLinkPreview(url: string) {
+  return api.get<{ preview: LinkPreview | null }>(`/link_preview?url=${encodeURIComponent(url)}`);
+}

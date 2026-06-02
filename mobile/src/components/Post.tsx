@@ -7,10 +7,11 @@ import { useRouter } from 'expo-router';
 import Avatar from './Avatar';
 import RichText from './RichText';
 import Sheet from './Sheet';
+import LinkCard from './LinkCard';
 import { api, mediaUrl, type PostView, type PostEditVersion } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
-import { relTime } from '@/util';
+import { relTime, firstUrl } from '@/util';
 import { t, useLocale } from '@/i18n';
 
 const REACTION = '🐢';
@@ -42,8 +43,11 @@ export default function Post({ post }: { post: PostView }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
   const [deleted, setDeleted] = useState(false);
-  const media = splitMedia(post.body);
-  const mine = post.author.id === me?.user_id;
+  const [hideLinkUrl, setHideLinkUrl] = useState(false);
+  const media = splitMedia(post?.body ?? '');
+  const linkUrl = firstUrl(media.text);
+  const bodyText = hideLinkUrl && linkUrl ? media.text.replace(linkUrl, '').trim() : media.text;
+  const mine = post?.author?.id === me?.user_id;
 
   const reactWith = async (emoji: string) => {
     if (!me) return router.push('/login');
@@ -84,7 +88,7 @@ export default function Post({ post }: { post: PostView }) {
     }
   };
 
-  if (deleted) return null;
+  if (deleted || !post?.author) return null;
 
   const react = async () => {
     if (!me) return router.push('/login');
@@ -159,7 +163,7 @@ export default function Post({ post }: { post: PostView }) {
             </Pressable>
           ) : (
             <>
-              {media.text ? <RichText body={media.text} style={s.body} /> : null}
+              {bodyText ? <RichText body={bodyText} style={s.body} /> : null}
               {media.images.map((url, i) => (
                 <Image
                   key={i}
@@ -169,6 +173,7 @@ export default function Post({ post }: { post: PostView }) {
                   transition={120}
                 />
               ))}
+              {linkUrl ? <LinkCard url={linkUrl} onResolved={setHideLinkUrl} /> : null}
             </>
           )}
 

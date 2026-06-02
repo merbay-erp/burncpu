@@ -5,6 +5,7 @@ import { me, setCachedMe } from '../auth';
 import { locale, setLocale, t } from '../i18n';
 import { theme, setTheme } from '../theme';
 import { pushToast } from '../components/Toast';
+import AvatarCropper from '../components/AvatarCropper';
 
 type Tab = 'profile' | 'security' | 'invites' | 'dev';
 
@@ -318,17 +319,22 @@ function ProfileTab() {
   const [avatarUrl, setAvatarUrl] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [uploading, setUploading] = createSignal(false);
+  const [cropFile, setCropFile] = createSignal<File | null>(null);
   const [msg, setMsg] = createSignal<{ kind: 'ok' | 'err'; text: string } | null>(null);
   let fileInput: HTMLInputElement | undefined;
 
   const pickAvatar = () => fileInput?.click();
-  const onAvatarFile = async (e: Event) => {
+  // Pick → open the cropper → crop → upload the framed square.
+  const onAvatarFile = (e: Event) => {
     const f = (e.currentTarget as HTMLInputElement).files?.[0];
-    if (!f) return;
+    if (fileInput) fileInput.value = '';
+    if (f) setCropFile(f);
+  };
+  const uploadBlob = async (blob: Blob) => {
     setUploading(true);
     try {
       const fd = new FormData();
-      fd.append('file', f);
+      fd.append('file', blob, 'avatar.jpg');
       const r = await fetch('/api/v1/media', {
         method: 'POST',
         body: fd,
@@ -345,7 +351,6 @@ function ProfileTab() {
       setMsg({ kind: 'err', text: (err as Error).message });
     } finally {
       setUploading(false);
-      if (fileInput) fileInput.value = '';
     }
   };
 
@@ -423,6 +428,15 @@ function ProfileTab() {
           style="display: none;"
           onChange={onAvatarFile}
         />
+        <Show when={cropFile()}>
+          {(f) => (
+            <AvatarCropper
+              file={f()}
+              onCancel={() => setCropFile(null)}
+              onCropped={(b) => { setCropFile(null); uploadBlob(b); }}
+            />
+          )}
+        </Show>
       </div>
       <Show when={msg()}>
         {(m) => <div class={m().kind === 'ok' ? 'success' : 'error'}>{m().text}</div>}

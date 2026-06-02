@@ -40,8 +40,20 @@ export default function DMThread() {
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
   let bottomRef: HTMLDivElement | undefined;
+  const [otherTyping, setOtherTyping] = createSignal(false);
+  let typingClearTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastTypingSent = 0;
 
   const scrollToBottom = () => setTimeout(() => bottomRef?.scrollIntoView({ block: 'end' }), 40);
+
+  // Tell the other side we're typing — throttled so a fast typist sends at most
+  // one ping every 2.5s (the backend also throttles).
+  const pingTyping = () => {
+    const now = Date.now();
+    if (now - lastTypingSent < 2500) return;
+    lastTypingSent = now;
+    void api.post(`/dm/threads/${params.username}/typing`).catch(() => {});
+  };
 
   // Mark read whenever we open OR switch threads. The router reuses the
   // component instance across /dm/alice → /dm/bob, so a createEffect on
@@ -67,6 +79,19 @@ export default function DMThread() {
     };
     window.addEventListener('burncpu:notification', onNotif);
     onCleanup(() => window.removeEventListener('burncpu:notification', onNotif));
+
+    // The other person is typing → show the indicator, auto-clear after a gap.
+    const onTyping = (ev: Event) => {
+      const d = (ev as CustomEvent).detail as { actor_username?: string } | undefined;
+      if (d?.actor_username === params.username) {
+        setOtherTyping(true);
+        scrollToBottom();
+        if (typingClearTimer) clearTimeout(typingClearTimer);
+        typingClearTimer = setTimeout(() => setOtherTyping(false), 4000);
+      }
+    };
+    window.addEventListener('burncpu:typing', onTyping);
+    onCleanup(() => window.removeEventListener('burncpu:typing', onTyping));
   });
 
   const send = async () => {
@@ -161,6 +186,13 @@ export default function DMThread() {
                     );
                   }}
                 </For>
+                <Show when={otherTyping()}>
+                  <div class="flex justify-start">
+                    <div class="bg-surface-container rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1.5">
+                      <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+                    </div>
+                  </div>
+                </Show>
                 <div ref={bottomRef}></div>
               </div>
 
@@ -198,7 +230,7 @@ export default function DMThread() {
                     <textarea
                       placeholder={t('dmthread.message_placeholder')}
                       value={body()}
-                      onInput={(e) => setBody(e.currentTarget.value)}
+                      onInput={(e) => { setBody(e.currentTarget.value); pingTyping(); }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); }
                       }}

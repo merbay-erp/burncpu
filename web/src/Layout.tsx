@@ -117,6 +117,12 @@ export default function Layout(props: { children?: JSX.Element }) {
     src.addEventListener('notification', (msg) => {
       try {
         const ev = JSON.parse((msg as MessageEvent).data) as NotificationEvent;
+        // Ephemeral "is typing" pings: route to the open DM thread only — no
+        // toast, no unread badge, no persistence.
+        if (ev.kind === 'typing') {
+          window.dispatchEvent(new CustomEvent('burncpu:typing', { detail: ev }));
+          return;
+        }
         pushToast(eventText(ev));
         if (ev.kind !== 'dm') refetchUnread();
         // 19 May 2026 — Sayfa-spesifik real-time refetch icin global event.

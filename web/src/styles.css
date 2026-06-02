@@ -201,6 +201,20 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 @keyframes skeleton-shimmer { 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
 
+/* ─── DM "is typing" dots ──────────────────────────────────── */
+.typing-dot {
+  width: 6px; height: 6px; border-radius: 9999px;
+  background: rgb(var(--c-on-surface-variant));
+  display: inline-block;
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30%           { transform: translateY(-4px); opacity: 1; }
+}
+
 /* ─── Spinner ──────────────────────────────────────────────── */
 .spinner {
   display: inline-block;

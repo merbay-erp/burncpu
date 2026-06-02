@@ -24,7 +24,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{delete, get, patch},
+    routing::{delete, get, patch, post},
 };
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,7 @@ pub fn router() -> Router<AppState> {
         .route("/threads", get(list_threads))
         .route("/threads/{username}", get(thread).post(send))
         .route("/threads/{username}/read", patch(mark_read))
+        .route("/threads/{username}/typing", post(typing))
         .route("/messages/{id}", delete(delete_message))
 }
 
@@ -324,6 +325,47 @@ async fn send(
     }
 
     Ok((StatusCode::CREATED, Json(msg)))
+}
+
+// ─── POST /dm/threads/{username}/typing — ephemeral "is typing" ping ───
+// No DB write: just broadcasts a transient NotificationEvent to the recipient's
+// SSE stream. Throttled per (sender → recipient) so a fast typist can't flood.
+async fn typing(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(username): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let other = lookup_user(&state, &username).await?;
+    if other.0 == user.user_id {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let mut redis = state.redis.clone();
+    let key = format!("dm:typing:{}:{}", user.user_id, other.0);
+    let fresh: bool = redis.set_nx(&key, 1u8).await.unwrap_or(false);
+    if !fresh {
+        return Ok(StatusCode::NO_CONTENT); // throttled (a ping went out <2s ago)
+    }
+    let _: () = redis.expire(&key, 2).await.unwrap_or(());
+
+    if mutual_follow(&state, user.user_id, other.0).await
+        && !is_muted(&state, other.0, user.user_id).await
+    {
+        let sender_username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+            .bind(user.user_id)
+            .fetch_one(&state.pg)
+            .await
+            .unwrap_or_default();
+        let _ = state.notif_tx.send(NotificationEvent {
+            user_id: other.0,
+            kind: "typing".into(),
+            actor_id: Some(user.user_id),
+            actor_username: Some(sender_username),
+            target_kind: "thread".into(),
+            target_id: Uuid::nil(),
+            created_at: Utc::now().to_rfc3339(),
+        });
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ─── PATCH /dm/threads/{username}/read ─────────────────────────

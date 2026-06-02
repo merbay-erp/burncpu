@@ -19,7 +19,7 @@ export default function TimelineTabs() {
     </A>
   );
   return (
-    <div class="flex gap-1 p-1 bg-surface-container-low border border-outline-variant rounded-xl mb-6 max-w-[360px]">
+    <div class="flex gap-1 p-1 bg-surface-container-low border border-outline-variant rounded-xl mb-6">
       {tab('/feed', t('nav.tab_personal'))}
       {tab('/', t('nav.tab_global'))}
     </div>

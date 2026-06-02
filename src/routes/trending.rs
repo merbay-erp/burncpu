@@ -98,6 +98,7 @@ pub struct TrendingPost {
     author_id: Uuid,
     author_username: String,
     author_display_name: String,
+    author_avatar_url: Option<String>,
     body: String,
     body_html: String,
     reactions_count: i32,
@@ -114,7 +115,7 @@ async fn posts(
     let rows: Vec<TrendingPost> = sqlx::query_as(
         r#"
         SELECT p.id, p.author_id, u.username AS author_username,
-               u.display_name AS author_display_name,
+               u.display_name AS author_display_name, u.avatar_url AS author_avatar_url,
                p.body, p.body_html, p.reactions_count, p.replies_count, p.created_at
         FROM posts p JOIN users u ON u.id = p.author_id
         WHERE p.deleted_at IS NULL

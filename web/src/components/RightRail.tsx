@@ -98,7 +98,7 @@ export default function RightRail() {
             )}
           </Show>
         </div>
-        <A href="/search" class="block mt-6 text-primary text-[12px] font-mono hover:underline">
+        <A href="/trending" class="block mt-6 text-primary text-[12px] font-mono hover:underline">
           {t('rail.show_more')}
         </A>
       </section>

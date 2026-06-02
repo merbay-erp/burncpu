@@ -4,6 +4,7 @@ import { api, type Timeline, type PostView } from '../api';
 import Post from '../components/Post';
 import Compose from '../components/Compose';
 import InfiniteList from '../components/InfiniteList';
+import { PostSkeletonList } from '../components/Skeleton';
 import { me } from '../auth';
 import { t } from '../i18n';
 
@@ -74,8 +75,12 @@ export default function Feed() {
             each={posts()}
             fallback={
               initialized() ? (
-                <div class="muted">{t('feed.empty')}</div>
-              ) : null
+                <div class="p-6 border border-dashed border-outline-variant rounded-xl text-on-surface-variant font-mono text-[14px] text-center">
+                  {t('feed.empty')}
+                </div>
+              ) : (
+                <PostSkeletonList count={5} />
+              )
             }
           >
             {(p) => <Post post={p} onChange={reload} />}

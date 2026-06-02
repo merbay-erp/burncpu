@@ -179,6 +179,28 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 
+/* ─── Loading skeletons (shimmer) ──────────────────────────── */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgb(var(--c-surface-container));
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(var(--c-surface-container-highest) / 0.7),
+    transparent
+  );
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer { 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
+
 /* ─── Spinner ──────────────────────────────────────────────── */
 .spinner {
   display: inline-block;

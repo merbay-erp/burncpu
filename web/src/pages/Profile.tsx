@@ -5,6 +5,7 @@ import Post from '../components/Post';
 import { me } from '../auth';
 import { relTime } from '../util';
 import { pushToast } from '../components/Toast';
+import { ProfileHeaderSkeleton, PostSkeletonList } from '../components/Skeleton';
 import { t } from '../i18n';
 
 interface BriefPost {
@@ -122,7 +123,8 @@ export default function ProfilePage() {
         </div>
       </Show>
       <Show when={!profile.error && !profile()}>
-        <div class="p-6 text-on-surface-variant font-mono text-center text-[14px]">{t('loading')}</div>
+        <ProfileHeaderSkeleton />
+        <PostSkeletonList count={4} />
       </Show>
 
       <Show when={profile()}>
@@ -231,7 +233,7 @@ export default function ProfilePage() {
             <h2 class="text-[18px] font-semibold text-on-background border-b border-outline-variant pb-2 mb-4">
               {t('profile.posts_heading')}
             </h2>
-            <Show when={posts()}>
+            <Show when={posts()} fallback={<PostSkeletonList count={4} />}>
               {(list) => (
                 <div class="space-y-6">
                   <For

@@ -24,7 +24,9 @@ export default function Notifications() {
 
   const load = useCallback(async () => {
     try {
-      setItems(await api.get<Notification[]>('/notifications'));
+      // /notifications returns { notifications: [...], next_before }, not a bare array.
+      const data = await api.get<{ notifications: Notification[] }>('/notifications');
+      setItems(data.notifications ?? []);
     } catch {
       /* ignore */
     } finally {

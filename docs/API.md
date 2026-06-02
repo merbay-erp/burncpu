@@ -64,6 +64,9 @@ Legend: 🔓 anon-ok · 🔒 auth required · 🛡️ admin (role + 2FA).
 | `GET` | `/users/lookup?prefix=` | 🔓 | Username prefix lookup (mentions, command palette). |
 | `PATCH` | `/users/me` | 🔒 | Update display_name / bio / avatar_url. |
 | `GET` | `/users/me/activity` | 🔒 | Your account activity. |
+| `GET` | `/users/me/security` | 🔒 | Active sessions + login/magic-link/2FA event log. |
+| `DELETE` | `/users/me/sessions/{id}` | 🔒 | Revoke one session (device). |
+| `DELETE` | `/users/me/sessions` | 🔒 | Revoke every other session (keeps the current one). |
 | `GET` | `/users/me/trash` | 🔒 | Your soft-deleted posts. |
 | `GET` | `/users/me/export` | 🔒 | Export your account data. |
 | `POST` | `/users/me/pin/{post_id}` | 🔒 | Pin a post to your profile. |

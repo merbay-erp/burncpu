@@ -16,7 +16,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
@@ -28,6 +28,9 @@ pub fn router() -> Router<AppState> {
         .route("/me/export", get(export_me))
         .route("/me/trash", get(trash))
         .route("/me/activity", get(activity))
+        .route("/me/security", get(security))
+        .route("/me/sessions", delete(revoke_other_sessions))
+        .route("/me/sessions/{id}", delete(revoke_session))
         .route("/me/pin/{post_id}", post(pin_post).delete(unpin_post))
         .route("/{username}", get(get_profile))
         .route("/{username}/posts", get(user_posts))
@@ -940,4 +943,127 @@ async fn rehost_external_avatar(
         .await
         .map_err(|_| AppError::BadRequest("avatar_url is not a valid image".into()))?;
     Ok(media.url)
+}
+
+// ─── GET /users/me/security — active sessions + login/2FA log ───
+
+#[derive(Serialize, sqlx::FromRow)]
+struct SessionView {
+    id: Uuid,
+    created_at: DateTime<Utc>,
+    last_seen_at: DateTime<Utc>,
+    last_seen_ip: Option<String>,
+    last_seen_ua: Option<String>,
+    flagged: bool,
+    current: bool,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct SecurityEvent {
+    kind: String,
+    outcome: String,
+    ip: Option<String>,
+    user_agent: Option<String>,
+    ts: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct SecurityResponse {
+    sessions: Vec<SessionView>,
+    events: Vec<SecurityEvent>,
+}
+
+async fn security(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> Result<Json<SecurityResponse>, AppError> {
+    let sessions: Vec<SessionView> = sqlx::query_as(
+        r#"
+        SELECT id, created_at, last_seen_at,
+               host(last_seen_ip)::text AS last_seen_ip,
+               last_seen_ua,
+               (flagged_at IS NOT NULL) AS flagged,
+               (id = $2)                AS current
+        FROM sessions
+        WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
+        ORDER BY last_seen_at DESC
+        LIMIT 50
+        "#,
+    )
+    .bind(user.user_id)
+    .bind(user.session_id)
+    .fetch_all(&state.pg)
+    .await?;
+
+    // The viewer's own login/magic-link/2FA attempts. Magic-link *requests* are
+    // keyed by email (pre-session); verify/totp by user_id — union both.
+    let events: Vec<SecurityEvent> = sqlx::query_as(
+        r#"
+        SELECT kind, outcome, host(ip)::text AS ip, user_agent, ts
+        FROM login_attempts
+        WHERE user_id = $1
+           OR email = (SELECT email FROM users WHERE id = $1)
+        ORDER BY ts DESC
+        LIMIT 40
+        "#,
+    )
+    .bind(user.user_id)
+    .fetch_all(&state.pg)
+    .await?;
+
+    Ok(Json(SecurityResponse { sessions, events }))
+}
+
+// ─── DELETE /users/me/sessions/{id} — revoke one device ─────────
+
+async fn revoke_session(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    let n = sqlx::query(
+        "UPDATE sessions SET revoked_at = NOW() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
+    )
+    .bind(id)
+    .bind(user.user_id)
+    .execute(&state.pg)
+    .await?
+    .rows_affected();
+    if n == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ─── DELETE /users/me/sessions — revoke every OTHER session ─────
+
+#[derive(Serialize)]
+struct RevokedCount {
+    revoked: i64,
+}
+
+async fn revoke_other_sessions(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> Result<Json<RevokedCount>, AppError> {
+    use redis::AsyncCommands;
+    let mut redis = state.redis.clone();
+    let key = format!("rl:sec:revoke_all:{}", user.user_id);
+    let n: u32 = redis.incr(&key, 1u32).await?;
+    if n == 1 {
+        let _: () = redis.expire(&key, 3600).await?;
+    }
+    if n > 5 {
+        return Err(AppError::RateLimited);
+    }
+
+    let revoked = sqlx::query(
+        "UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL",
+    )
+    .bind(user.user_id)
+    .bind(user.session_id)
+    .execute(&state.pg)
+    .await?
+    .rows_affected();
+    Ok(Json(RevokedCount { revoked: revoked as i64 }))
 }

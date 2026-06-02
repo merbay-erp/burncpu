@@ -727,6 +727,149 @@ interface EnrollResponse {
   recovery_codes: string[];
 }
 
+interface SessionView {
+  id: string;
+  created_at: string;
+  last_seen_at: string;
+  last_seen_ip: string | null;
+  last_seen_ua: string | null;
+  flagged: boolean;
+  current: boolean;
+}
+interface SecurityEvent {
+  kind: string;
+  outcome: string;
+  ip: string | null;
+  user_agent: string | null;
+  ts: string;
+}
+interface SecurityData {
+  sessions: SessionView[];
+  events: SecurityEvent[];
+}
+
+function uaShort(ua: string | null): string {
+  if (!ua) return t('settings.sessions.unknown_device');
+  const b = /Edg\//.test(ua)
+    ? 'Edge'
+    : /Chrome\//.test(ua)
+      ? 'Chrome'
+      : /Firefox\//.test(ua)
+        ? 'Firefox'
+        : /Safari\//.test(ua)
+          ? 'Safari'
+          : 'Browser';
+  const os = /iPhone|iPad/.test(ua)
+    ? 'iOS'
+    : /Android/.test(ua)
+      ? 'Android'
+      : /Mac OS X/.test(ua)
+        ? 'macOS'
+        : /Windows/.test(ua)
+          ? 'Windows'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : '';
+  return os ? `${b} · ${os}` : b;
+}
+
+function SessionsBlock() {
+  const [data, { refetch }] = createResource<SecurityData>(() =>
+    api.get<SecurityData>('/users/me/security'),
+  );
+  const [busy, setBusy] = createSignal(false);
+  const revoke = async (id: string) => {
+    await api.del(`/users/me/sessions/${id}`);
+    refetch();
+  };
+  const revokeOthers = async () => {
+    if (!confirm(t('settings.sessions.revoke_all_confirm'))) return;
+    setBusy(true);
+    try {
+      const r = await api.del<{ revoked: number }>('/users/me/sessions');
+      pushToast(`${r.revoked} ${t('settings.sessions.revoked_toast')}`, 'ok');
+      refetch();
+    } catch (e) {
+      pushToast((e as Error).message, 'warn');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const dot = (o: string) =>
+    o === 'ok' ? 'bg-primary' : o === 'invalid' || o === 'rate_limited' ? 'bg-error' : 'bg-on-surface-variant/50';
+
+  return (
+    <div class="mt-10 pt-6 border-t border-outline-variant/40">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h3 class="text-on-background font-bold text-[15px]">{t('settings.sessions.title')}</h3>
+        <button
+          onClick={revokeOthers}
+          disabled={busy()}
+          class="text-[12px] font-mono text-error/80 hover:text-error transition-colors disabled:opacity-50"
+        >
+          {t('settings.sessions.revoke_all')}
+        </button>
+      </div>
+      <Show when={data()} fallback={<p class="text-on-surface-variant font-mono text-[12px]">{t('common.loading')}</p>}>
+        {(d) => (
+          <div class="space-y-2">
+            <For each={d().sessions}>
+              {(s) => (
+                <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container border border-outline-variant">
+                  <span class="material-symbols-outlined text-on-surface-variant shrink-0" style="font-size:20px;">
+                    {s.current ? 'verified_user' : 'devices'}
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[13px] text-on-background truncate">
+                      {uaShort(s.last_seen_ua)}
+                      <Show when={s.current}>
+                        <span class="ml-2 text-[10px] font-mono uppercase tracking-wider text-primary">{t('settings.sessions.this_device')}</span>
+                      </Show>
+                      <Show when={s.flagged}>
+                        <span class="ml-2 text-[10px] font-mono uppercase tracking-wider text-error/80">{t('settings.sessions.flagged')}</span>
+                      </Show>
+                    </div>
+                    <div class="text-[11px] font-mono text-on-surface-variant truncate">
+                      {s.last_seen_ip ?? '—'} · {relDate(s.last_seen_at)}
+                    </div>
+                  </div>
+                  <Show when={!s.current}>
+                    <button
+                      onClick={() => revoke(s.id)}
+                      class="shrink-0 text-[11px] font-mono text-on-surface-variant hover:text-error transition-colors"
+                    >
+                      {t('settings.sessions.revoke')}
+                    </button>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+        )}
+      </Show>
+
+      <h3 class="text-on-background font-bold text-[15px] mt-8 mb-3">{t('settings.events.title')}</h3>
+      <Show when={data()}>
+        {(d) => (
+          <div class="space-y-0.5">
+            <For each={d().events} fallback={<p class="text-on-surface-variant font-mono text-[12px]">{t('settings.events.empty')}</p>}>
+              {(e) => (
+                <div class="flex items-center gap-2 px-2 py-1.5 text-[12px] font-mono">
+                  <span class={`shrink-0 w-1.5 h-1.5 rounded-full ${dot(e.outcome)}`}></span>
+                  <span class="shrink-0 text-on-background">{t('settings.events.kind.' + e.kind)}</span>
+                  <span class="text-on-surface-variant/60 shrink-0">{e.outcome}</span>
+                  <span class="text-on-surface-variant/70 truncate flex-1 text-right">{e.ip ?? ''}</span>
+                  <span class="text-on-surface-variant/60 shrink-0">{relDate(e.ts)}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        )}
+      </Show>
+    </div>
+  );
+}
+
 function SecurityTab() {
   const [status, { refetch }] = createResource<TwoFaStatus>(() =>
     api.get<TwoFaStatus>('/auth/2fa/status'),
@@ -873,6 +1016,8 @@ function SecurityTab() {
       <Show when={err() && !enroll()}>
         <div class="error">{err()}</div>
       </Show>
+
+      <SessionsBlock />
     </>
   );
 }

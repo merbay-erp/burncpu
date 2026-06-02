@@ -275,12 +275,12 @@ export default function Compose(props: {
             )}
           </Show>
 
-          <div class="flex justify-between items-center mt-4 pt-4 border-t border-outline-variant/30">
-            <div class="flex items-center gap-0.5">
+          <div class="mt-4 pt-4 border-t border-outline-variant/30 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+            <div class="flex items-center gap-0.5 min-w-0 overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onClick={fmtBold}
-                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
+                class="shrink-0 p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
                 title={`${t('compose.fmt.bold')} (⌘B)`}
               >
                 <span class="material-symbols-outlined" style="font-size:20px;">format_bold</span>
@@ -288,7 +288,7 @@ export default function Compose(props: {
               <button
                 type="button"
                 onClick={fmtItalic}
-                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
+                class="shrink-0 p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
                 title={`${t('compose.fmt.italic')} (⌘I)`}
               >
                 <span class="material-symbols-outlined" style="font-size:20px;">format_italic</span>
@@ -296,34 +296,34 @@ export default function Compose(props: {
               <button
                 type="button"
                 onClick={fmtLink}
-                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
+                class="shrink-0 p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
                 title={t('compose.fmt.link')}
               >
                 <span class="material-symbols-outlined" style="font-size:20px;">link</span>
               </button>
-              <span class="w-px h-5 bg-outline-variant/50 mx-1"></span>
+              <span class="w-px h-5 bg-outline-variant/50 mx-1 shrink-0"></span>
               <button
                 type="button"
                 onClick={pickFile}
                 disabled={uploading() || busy()}
-                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
+                class="shrink-0 p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
                 title={t('compose.add_image')}
               >
                 <span class="material-symbols-outlined">image</span>
               </button>
               <button
                 onClick={() => insertAtCursor('\n```\n\n```\n')}
-                class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
+                class="shrink-0 p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors"
                 title={t('compose.code_block')}
               >
                 <span class="material-symbols-outlined">code</span>
               </button>
-              <EmojiPicker onPick={insertAtCursor} />
+              <div class="shrink-0"><EmojiPicker onPick={insertAtCursor} /></div>
               <Show when={uploading()}>
-                <span class="text-on-surface-variant font-mono text-[11px] ml-1">{t('compose.uploading')}</span>
+                <span class="text-on-surface-variant font-mono text-[11px] ml-1 shrink-0">{t('compose.uploading')}</span>
               </Show>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex items-center justify-end gap-3 shrink-0">
               <span
                 class={`char-count ${
                   visibleLength(body()) > MAX ? 'bad' : visibleLength(body()) > MAX * 0.9 ? 'warn' : ''

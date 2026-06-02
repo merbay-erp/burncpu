@@ -70,5 +70,7 @@ export async function logout() {
     // ignore — we still clear local state
   }
   setCachedMe(null);
+  // Don't leave a half-written post draft behind for the next user on this device.
+  try { localStorage.removeItem('burncpu.draft'); } catch { /* ignore */ }
   refetchUnread();
 }

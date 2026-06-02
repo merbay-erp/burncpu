@@ -22,14 +22,29 @@ export default function Compose(props: {
   persistDraft?: boolean;
   onPosted?: (p: PostView) => void;
 }) {
-  const readDraft = (): string => {
-    if (!props.persistDraft) return '';
-    try { return localStorage.getItem(DRAFT_KEY) ?? ''; } catch { return ''; }
+  const readDraft = (): { body: string; cw: string } => {
+    if (!props.persistDraft) return { body: '', cw: '' };
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return { body: '', cw: '' };
+      // Backward-compat: older drafts were a plain body string.
+      if (raw[0] === '{') {
+        const d = JSON.parse(raw) as { body?: unknown; cw?: unknown };
+        return {
+          body: typeof d.body === 'string' ? d.body : '',
+          cw: typeof d.cw === 'string' ? d.cw : '',
+        };
+      }
+      return { body: raw, cw: '' };
+    } catch {
+      return { body: '', cw: '' };
+    }
   };
   // Initialize from the saved draft so the save-effect's first run never wipes
   // it (effect runs before onMount).
-  const [body, setBody] = createSignal(readDraft());
-  const [cw, setCw] = createSignal('');
+  const initialDraft = readDraft();
+  const [body, setBody] = createSignal(initialDraft.body);
+  const [cw, setCw] = createSignal(initialDraft.cw);
   const [busy, setBusy] = createSignal(false);
   const [uploading, setUploading] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
@@ -67,9 +82,10 @@ export default function Compose(props: {
 
   createEffect(() => {
     const b = body();
+    const c = cw();
     if (!isMainComposer()) return;
     try {
-      if (b.trim()) localStorage.setItem(DRAFT_KEY, b);
+      if (b.trim() || c.trim()) localStorage.setItem(DRAFT_KEY, JSON.stringify({ body: b, cw: c }));
       else localStorage.removeItem(DRAFT_KEY);
     } catch { /* ignore */ }
   });

@@ -15,7 +15,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::{get, patch},
+    routing::{get, patch, post},
 };
 use hmac::Mac;
 use rand::RngCore;
@@ -29,6 +29,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list).post(create))
         .route("/{id}", patch(update).delete(remove))
+        .route("/{id}/deliveries", get(deliveries))
+        .route("/{id}/test", post(test_webhook))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -208,6 +210,83 @@ async fn remove(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ─── GET /webhooks/{id}/deliveries — recent delivery log ────────
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct DeliveryRow {
+    event: String,
+    status: Option<i16>,
+    ok: bool,
+    error: Option<String>,
+    created_at: DateTime<Utc>,
+}
+
+async fn deliveries(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<DeliveryRow>>, AppError> {
+    // Ownership-scoped via the join on webhooks.user_id.
+    let rows: Vec<DeliveryRow> = sqlx::query_as(
+        r#"
+        SELECT d.event, d.status, d.ok, d.error, d.created_at
+        FROM webhook_deliveries d
+        JOIN webhooks w ON w.id = d.webhook_id
+        WHERE d.webhook_id = $1 AND w.user_id = $2
+        ORDER BY d.created_at DESC
+        LIMIT 20
+        "#,
+    )
+    .bind(id)
+    .bind(user.user_id)
+    .fetch_all(&state.pg)
+    .await?;
+    Ok(Json(rows))
+}
+
+// ─── POST /webhooks/{id}/test — enqueue a signed test ping ──────
+
+async fn test_webhook(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    use redis::AsyncCommands;
+    let mut redis = state.redis.clone();
+    let key = format!("rl:wh:test:{}", user.user_id);
+    let n: u32 = redis.incr(&key, 1u32).await?;
+    if n == 1 {
+        let _: () = redis.expire(&key, 60).await?;
+    }
+    if n > 5 {
+        return Err(AppError::RateLimited);
+    }
+
+    let row: Option<(String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT url, secret_encrypted, secret_nonce FROM webhooks WHERE id = $1 AND user_id = $2",
+    )
+    .bind(id)
+    .bind(user.user_id)
+    .fetch_optional(&state.pg)
+    .await?;
+    let (url, enc, nonce) = row.ok_or(AppError::NotFound)?;
+
+    let body = serde_json::json!({
+        "event": "test",
+        "delivered_at": Utc::now(),
+        "payload": { "message": "burncpu webhook test ping" },
+    });
+    let bytes = serde_json::to_vec(&body).unwrap_or_default();
+    let secret = crate::auth::totp::decrypt_blob(&enc, &nonce)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("webhook secret: {e}")))?;
+    let sig = sign_hmac(&secret, &bytes);
+    let job = WebhookJob { id, url, event: "test".into(), body: bytes, sig };
+    if state.webhook_tx.try_send(job).is_err() {
+        return Err(AppError::RateLimited);
+    }
+    Ok(StatusCode::ACCEPTED)
+}
+
 // ─── Dispatcher ────────────────────────────────────────────────
 //
 // A single notification can fan out to several webhooks, and notifications can
@@ -220,6 +299,7 @@ async fn remove(
 pub struct WebhookJob {
     id: Uuid,
     url: String,
+    event: String,
     body: Vec<u8>,
     sig: String,
 }
@@ -250,7 +330,7 @@ pub fn spawn_dispatcher(pg: sqlx::PgPool) -> tokio::sync::mpsc::Sender<WebhookJo
 }
 
 async fn deliver(pg: &sqlx::PgPool, job: WebhookJob) {
-    let WebhookJob { id, url, body, sig } = job;
+    let WebhookJob { id, url, event, body, sig } = job;
     let (http, safe_url) = match crate::net_safety::safe_client_for(
         &url,
         "burncpu-webhook/1",
@@ -274,6 +354,7 @@ async fn deliver(pg: &sqlx::PgPool, job: WebhookJob) {
             .bind(id)
             .execute(pg)
             .await;
+            record_delivery(pg, id, &event, None, false, Some("url blocked")).await;
             return;
         }
     };
@@ -302,6 +383,49 @@ async fn deliver(pg: &sqlx::PgPool, job: WebhookJob) {
     .bind(status)
     .bind(ok)
     .bind(id)
+    .execute(pg)
+    .await;
+    let reason: Option<String> = if ok {
+        None
+    } else {
+        Some(match status {
+            Some(s) => format!("http {s}"),
+            None => "network error".into(),
+        })
+    };
+    record_delivery(pg, id, &event, status, ok, reason.as_deref()).await;
+}
+
+/// Append a delivery-log row and prune to the latest 20 for this webhook —
+/// bounded in-place, no retention cron.
+async fn record_delivery(
+    pg: &sqlx::PgPool,
+    webhook_id: Uuid,
+    event: &str,
+    status: Option<i16>,
+    ok: bool,
+    error: Option<&str>,
+) {
+    let _ = sqlx::query(
+        "INSERT INTO webhook_deliveries (webhook_id, event, status, ok, error) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(webhook_id)
+    .bind(event)
+    .bind(status)
+    .bind(ok)
+    .bind(error)
+    .execute(pg)
+    .await;
+    let _ = sqlx::query(
+        r#"
+        DELETE FROM webhook_deliveries
+        WHERE webhook_id = $1 AND id NOT IN (
+            SELECT id FROM webhook_deliveries WHERE webhook_id = $1
+            ORDER BY created_at DESC LIMIT 20
+        )
+        "#,
+    )
+    .bind(webhook_id)
     .execute(pg)
     .await;
 }
@@ -342,7 +466,7 @@ pub async fn dispatch_event(state: &AppState, user_id: Uuid, event: &str, payloa
             }
         };
         let sig = sign_hmac(&secret, &bytes);
-        let job = WebhookJob { id, url, body: bytes, sig };
+        let job = WebhookJob { id, url, event: event.to_string(), body: bytes, sig };
         if let Err(e) = state.webhook_tx.try_send(job) {
             tracing::warn!(%e, webhook_id = %id, "webhook queue full; delivery shed");
         }

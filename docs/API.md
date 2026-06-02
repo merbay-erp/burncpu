@@ -141,6 +141,8 @@ Legend: 🔓 anon-ok · 🔒 auth required · 🛡️ admin (role + 2FA).
 | `GET` | `/webhooks` | 🔒 | List webhook subscriptions. |
 | `POST` | `/webhooks` | 🔒 | Create a webhook. |
 | `PATCH` | `/webhooks/{id}` | 🔒 | Update a webhook. |
+| `GET` | `/webhooks/{id}/deliveries` | 🔒 | Recent delivery log (last 20: event, status, ok, reason). |
+| `POST` | `/webhooks/{id}/test` | 🔒 | Enqueue a signed test ping (rate-limited). |
 | `GET` | `/push/vapid-public-key` | 🔓 | VAPID public key for Web Push. |
 | `POST` | `/push/subscribe` | 🔒 | Register a push subscription. |
 | `DELETE` | `/push/unsubscribe` | 🔒 | Remove a push subscription. |

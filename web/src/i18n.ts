@@ -239,6 +239,10 @@ const dict: Record<Locale, Record<string, string>> = {
     'settings.dev.webhook_stop': 'durdur',
     'settings.dev.webhook_activate': 'aktive et',
     'settings.dev.webhook_delete': 'sil',
+    'settings.dev.webhook_test': 'test',
+    'settings.dev.webhook_log': 'günlük',
+    'settings.dev.webhook_test_sent': 'Test gönderildi',
+    'settings.dev.webhook_no_deliveries': 'Henüz teslimat yok',
     'settings.dev.webhook_remove_confirm': 'Webhook silinsin mi?',
     // ── post / profile / threads ──
     'post.menu.share': 'Paylaş',
@@ -652,6 +656,10 @@ const dict: Record<Locale, Record<string, string>> = {
     'settings.dev.webhook_stop': 'stop',
     'settings.dev.webhook_activate': 'activate',
     'settings.dev.webhook_delete': 'delete',
+    'settings.dev.webhook_test': 'test',
+    'settings.dev.webhook_log': 'log',
+    'settings.dev.webhook_test_sent': 'Test sent',
+    'settings.dev.webhook_no_deliveries': 'No deliveries yet',
     'settings.dev.webhook_remove_confirm': 'Delete this webhook?',
     // ── post / profile / threads ──
     'post.menu.share': 'Share',

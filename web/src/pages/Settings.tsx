@@ -104,6 +104,71 @@ const TOKEN_SCOPES = [
   ['write:push', 'write:push'],
 ];
 
+interface Delivery {
+  event: string;
+  status: number | null;
+  ok: boolean;
+  error: string | null;
+  created_at: string;
+}
+
+function HookRow(props: { h: WebhookRow; onToggle: () => void; onRemove: () => void }) {
+  const [open, setOpen] = createSignal(false);
+  const [log, { refetch }] = createResource(open, () =>
+    api.get<Delivery[]>(`/webhooks/${props.h.id}/deliveries`),
+  );
+  const [testing, setTesting] = createSignal(false);
+  const test = async () => {
+    setTesting(true);
+    try {
+      await api.post(`/webhooks/${props.h.id}/test`);
+      pushToast(t('settings.dev.webhook_test_sent'), 'ok');
+      setOpen(true);
+      setTimeout(refetch, 1200);
+    } catch (e) {
+      pushToast((e as Error).message, 'warn');
+    } finally {
+      setTesting(false);
+    }
+  };
+  return (
+    <div style={`padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; opacity: ${props.h.active ? '1' : '0.55'};`}>
+      <div class="flex" style="gap: 8px; flex-wrap: wrap; align-items: baseline;">
+        <code style="font-size: 12px;">{props.h.url}</code>
+        <span class="muted tiny">{props.h.events.join(', ')}</span>
+        <span style="margin-left: auto;" class="tiny muted">
+          {props.h.last_status ? `→ ${props.h.last_status}` : t('settings.dev.webhook_not_called')}
+          {props.h.failure_streak > 0 ? ` (${props.h.failure_streak} ${t('settings.dev.webhook_errors')})` : ''}
+        </span>
+        <button class="ghost tiny" onClick={test} disabled={testing()}>{t('settings.dev.webhook_test')}</button>
+        <button class="ghost tiny" onClick={() => setOpen(!open())}>{t('settings.dev.webhook_log')}</button>
+        <button class="ghost tiny" onClick={props.onToggle}>
+          {props.h.active ? t('settings.dev.webhook_stop') : t('settings.dev.webhook_activate')}
+        </button>
+        <button class="ghost tiny" onClick={props.onRemove}>{t('settings.dev.webhook_delete')}</button>
+      </div>
+      <Show when={open()}>
+        <div style="margin-top: 6px; padding-left: 4px;">
+          <Show when={log()} fallback={<p class="muted tiny">{t('common.loading')}</p>}>
+            {(rows) => (
+              <For each={rows()} fallback={<p class="muted tiny">{t('settings.dev.webhook_no_deliveries')}</p>}>
+                {(d) => (
+                  <div class="flex" style="gap: 8px; font-size: 11px; padding: 2px 0; align-items: baseline;">
+                    <span style={d.ok ? 'color: var(--accent);' : 'color: #e5484d;'}>{d.ok ? '✓' : '✕'}</span>
+                    <code style="font-size: 11px;">{d.event}</code>
+                    <span class="muted">{d.status ? `${d.status}` : d.error ?? ''}</span>
+                    <span class="muted" style="margin-left: auto;">{relDate(d.created_at)}</span>
+                  </div>
+                )}
+              </For>
+            )}
+          </Show>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
 function DevTab() {
   const [tokens, { refetch: refetchTokens }] = createResource<TokenRow[]>(() =>
     api.get<TokenRow[]>('/tokens'),
@@ -287,21 +352,7 @@ function DevTab() {
           {(rows) => (
             <For each={rows()} fallback={<p class="muted tiny">{t('settings.dev.no_webhooks')}</p>}>
               {(h) => (
-                <div
-                  style={`padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; opacity: ${h.active ? '1' : '0.55'};`}
-                >
-                  <div class="flex" style="gap: 8px; flex-wrap: wrap; align-items: baseline;">
-                    <code style="font-size: 12px;">{h.url}</code>
-                    <span class="muted tiny">{h.events.join(', ')}</span>
-                    <span style="margin-left: auto;" class="tiny muted">
-                      {h.last_status ? `→ ${h.last_status}` : t('settings.dev.webhook_not_called')}{h.failure_streak > 0 ? ` (${h.failure_streak} ${t('settings.dev.webhook_errors')})` : ''}
-                    </span>
-                    <button class="ghost tiny" onClick={() => toggleHookActive(h)}>
-                      {h.active ? t('settings.dev.webhook_stop') : t('settings.dev.webhook_activate')}
-                    </button>
-                    <button class="ghost tiny" onClick={() => removeHook(h.id)}>{t('settings.dev.webhook_delete')}</button>
-                  </div>
-                </div>
+                <HookRow h={h} onToggle={() => toggleHookActive(h)} onRemove={() => removeHook(h.id)} />
               )}
             </For>
           )}

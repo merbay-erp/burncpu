@@ -12,6 +12,7 @@ import ToastStack, { pushToast } from './components/Toast';
 import Lightbox from './components/Lightbox';
 import HoverCard from './components/HoverCard';
 import Shortcuts from './components/Shortcuts';
+import CommandPalette, { openPalette } from './components/CommandPalette';
 import RightRail from './components/RightRail';
 
 interface NotificationEvent {
@@ -95,9 +96,15 @@ export default function Layout(props: { children?: JSX.Element }) {
     window.dispatchEvent(new CustomEvent('burncpu:posted', { detail: p }));
   };
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setComposeOpen(false); };
+  // The command palette ("New signal" action) asks Layout to open the composer.
+  const onComposeReq = () => setComposeOpen(true);
   onMount(() => {
     window.addEventListener('keydown', onKey);
-    onCleanup(() => window.removeEventListener('keydown', onKey));
+    window.addEventListener('burncpu:compose', onComposeReq);
+    onCleanup(() => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('burncpu:compose', onComposeReq);
+    });
   });
 
   let es: EventSource | undefined;
@@ -182,21 +189,15 @@ export default function Layout(props: { children?: JSX.Element }) {
           </A>
 
           <div class="hidden md:flex flex-1 max-w-md mx-8">
-            <form
-              class="relative w-full"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const v = (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.value?.trim();
-                if (v) window.location.assign(`/search?q=${encodeURIComponent(v)}`);
-              }}
+            <button
+              onClick={openPalette}
+              aria-label={t('cmd.open')}
+              class="relative w-full flex items-center gap-2.5 bg-surface-container/70 border border-outline-variant/70 pl-3.5 pr-2 py-2 rounded-full text-on-surface-variant/70 hover:border-primary/50 hover:bg-surface-container hover:text-on-surface transition-all"
             >
-              <span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant" style="font-size: 19px;">search</span>
-              <input
-                type="text"
-                placeholder={t('nav.search_placeholder')}
-                class="w-full bg-surface-container/70 border border-outline-variant/70 pl-10 pr-4 py-2 rounded-full font-mono text-[13.5px] text-on-background placeholder:text-on-surface-variant/60 focus:outline-none focus:border-primary focus:bg-surface-container focus:ring-2 focus:ring-primary/15 transition-all"
-              />
-            </form>
+              <span class="material-symbols-outlined shrink-0" style="font-size: 19px;">search</span>
+              <span class="flex-1 text-left font-mono text-[13.5px] truncate">{t('nav.search_placeholder')}</span>
+              <kbd class="hidden lg:inline-flex items-center shrink-0 px-1.5 h-5 rounded border border-outline-variant bg-surface-container-high font-mono text-[10px] leading-none">⌘K</kbd>
+            </button>
           </div>
 
           <div class="flex items-center gap-2">
@@ -323,7 +324,9 @@ export default function Layout(props: { children?: JSX.Element }) {
       <footer class="lg:hidden fixed bottom-0 inset-x-0 bg-background/90 backdrop-blur-md border-t border-outline-variant z-50">
         <div class="flex justify-around items-center h-16">
           <BottomLink href="/"              icon="home"          active={loc.pathname === '/' || loc.pathname === '/feed'} />
-          <BottomLink href="/search"        icon="search"        active={is('/search')} />
+          <button onClick={openPalette} aria-label={t('cmd.open')} class="p-2 text-on-surface-variant">
+            <span class="material-symbols-outlined">search</span>
+          </button>
           <BottomLink href="/notifications" icon="notifications" active={is('/notifications')} />
           <Show when={me()} fallback={<BottomLink href="/login" icon="login" active={is('/login')} />}>
             {(u) => <BottomLink href={`/u/${u().username}`} icon="person" active={is(`/u/${u().username}`)} />}
@@ -377,6 +380,7 @@ export default function Layout(props: { children?: JSX.Element }) {
       <Lightbox />
       <HoverCard />
       <Shortcuts />
+      <CommandPalette />
     </div>
   );
 }

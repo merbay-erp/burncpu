@@ -79,6 +79,17 @@ async fn home(
               OR p.author_id IN (
                   SELECT followee_id FROM follows WHERE follower_id = $1
               )
+              -- Followed topics: public posts carrying a hashtag the viewer
+              -- follows. Same boundary regex as trending; tags are validated to
+              -- [a-z0-9_] on follow, so interpolation here is injection-safe.
+              OR (
+                  p.visibility = 'public'
+                  AND EXISTS (
+                      SELECT 1 FROM hashtag_follows hf
+                      WHERE hf.user_id = $1
+                        AND lower(p.body) ~ ('(?<![[:alnum:]_])#' || hf.tag || '(?![[:alnum:]_])')
+                  )
+              )
           )
           AND p.author_id NOT IN (
               SELECT blocked_id FROM user_blocks WHERE blocker_id = $1

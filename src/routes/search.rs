@@ -9,14 +9,18 @@
 // posts never leak via search.
 
 use crate::{
-    errors::AppError, middleware::auth_extractor::AdminUser, search::PostDoc, state::AppState,
+    errors::AppError,
+    middleware::{auth_extractor::AdminUser, session::CurrentUser},
+    search::PostDoc,
+    state::AppState,
 };
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
+    http::StatusCode,
     routing::{get, post},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::collections::HashMap;
@@ -31,7 +35,82 @@ pub fn router() -> Router<AppState> {
 }
 
 pub fn hashtags_router() -> Router<AppState> {
-    Router::new().route("/{tag}", get(by_hashtag))
+    Router::new()
+        .route("/{tag}", get(by_hashtag))
+        .route(
+            "/{tag}/follow",
+            get(follow_state).post(follow_tag).delete(unfollow_tag),
+        )
+}
+
+// ─── Hashtag follow ─────────────────────────────────────────────
+//
+// Follow a topic (not a person): public posts carrying a followed tag surface
+// in the personal feed (see routes::feed). Tags are normalized to lowercase
+// `[a-z0-9_]{2,32}` — which also keeps them safe to interpolate into the feed's
+// boundary regex.
+
+fn normalize_tag(raw: &str) -> Result<String, AppError> {
+    let t = raw.trim_start_matches('#').to_lowercase();
+    if t.len() < 2
+        || t.len() > 32
+        || !t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(AppError::BadRequest("invalid hashtag".into()));
+    }
+    Ok(t)
+}
+
+async fn follow_tag(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(tag): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let tag = normalize_tag(&tag)?;
+    sqlx::query("INSERT INTO hashtag_follows (user_id, tag) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(user.user_id)
+        .bind(&tag)
+        .execute(&state.pg)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn unfollow_tag(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(tag): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let tag = normalize_tag(&tag)?;
+    sqlx::query("DELETE FROM hashtag_follows WHERE user_id = $1 AND tag = $2")
+        .bind(user.user_id)
+        .bind(&tag)
+        .execute(&state.pg)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+pub struct FollowState {
+    following: bool,
+}
+
+async fn follow_state(
+    State(state): State<AppState>,
+    user: Option<CurrentUser>,
+    Path(tag): Path<String>,
+) -> Result<Json<FollowState>, AppError> {
+    let tag = normalize_tag(&tag)?;
+    let following = match user {
+        Some(u) => sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM hashtag_follows WHERE user_id = $1 AND tag = $2)",
+        )
+        .bind(u.user_id)
+        .bind(&tag)
+        .fetch_one(&state.pg)
+        .await?,
+        None => false,
+    };
+    Ok(Json(FollowState { following }))
 }
 
 #[derive(Deserialize)]

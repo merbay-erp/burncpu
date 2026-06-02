@@ -87,6 +87,8 @@ Legend: 🔓 anon-ok · 🔒 auth required · 🛡️ admin (role + 2FA).
 | `GET` | `/feed` | 🔒 | Personal home (you + followees). |
 | `GET` | `/search?q=&tag=` | 🔓 | Meilisearch query (live + public only). |
 | `GET` | `/hashtags/{tag}` | 🔓 | Posts for a hashtag. |
+| `GET` | `/hashtags/{tag}/follow` | 🔓 | Whether the viewer follows the tag (`{following}`). |
+| `POST` / `DELETE` | `/hashtags/{tag}/follow` | 🔒 | Follow / unfollow a topic (its public posts surface in `/feed`). |
 | `GET` | `/trending/hashtags?window=` | 🔓 | Trending hashtags (`1h`/`24h`/`7d`). |
 | `GET` | `/trending/posts?window=` | 🔓 | Trending posts. |
 | `GET` | `/link_preview?url=` | 🔓 | SSRF-safe Open Graph unfurl (cached). |

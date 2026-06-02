@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import Post from '@/components/Post';
+import Brand from '@/components/Brand';
 import { api, type PostView, type Timeline } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, useTheme, type Palette } from '@/theme';
@@ -80,10 +81,7 @@ export default function Home() {
     <View style={[s.screen, { paddingTop: insets.top }]}>
       {/* Brand bar */}
       <View style={s.topbar}>
-        <Text style={s.brand}>
-          <Text style={{ color: colors.primary }}>burn</Text>
-          <Text style={{ color: colors.onBackground }}>cpu</Text>
-        </Text>
+        <Brand size={22} />
         <View style={s.topActions}>
           <Pressable onPress={toggle} hitSlop={8} style={s.iconBtn}>
             <Ionicons name="contrast-outline" size={20} color={colors.onSurfaceVariant} />

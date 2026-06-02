@@ -3,6 +3,7 @@ import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Pla
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
+import Brand from '@/components/Brand';
 import { api } from '@/api';
 import { probeSession } from '@/auth';
 import { loginWithPasskey, passkeySupported } from '@/passkey';
@@ -64,10 +65,7 @@ export default function Login() {
       </Pressable>
 
       <View style={s.brandWrap}>
-        <Text style={s.brand}>
-          <Text style={{ color: colors.primary }}>burn</Text>
-          <Text style={{ color: colors.onBackground }}>cpu</Text>
-        </Text>
+        <Brand size={30} />
         <Text style={s.tagline}>1 VPS YETER</Text>
       </View>
 

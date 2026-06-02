@@ -8,7 +8,13 @@
 
 import { api } from './api';
 
-type RNPasskeys = typeof import('react-native-passkeys');
+// Manual interface (NOT `typeof import(...)`) so nothing references the native
+// module until the lazy require() runs.
+interface RNPasskeys {
+  isSupported(): boolean;
+  create(req: unknown): Promise<unknown | null>;
+  get(req: unknown): Promise<unknown | null>;
+}
 type AnyOptions = Record<string, unknown>;
 
 let cached: RNPasskeys | null | undefined;
@@ -46,7 +52,7 @@ export async function registerPasskey(name?: string): Promise<void> {
   const m = passkeys();
   if (!m) throw new Error('passkeys unavailable');
   const { publicKey } = await api.post<{ publicKey: AnyOptions }>('/auth/passkeys/register/start');
-  const credential = await m.create(clean(publicKey) as Parameters<typeof m.create>[0]);
+  const credential = await m.create(clean(publicKey));
   if (!credential) throw new Error('cancelled');
   await api.post('/auth/passkeys/register/finish', { name: name?.trim() || undefined, credential });
 }
@@ -57,7 +63,7 @@ export async function loginWithPasskey(): Promise<{ ok: boolean; pending_2fa: bo
   const start = await api.post<{ ceremony: string; options: { publicKey: AnyOptions } }>(
     '/auth/passkeys/login/start',
   );
-  const credential = await m.get(clean(start.options.publicKey) as Parameters<typeof m.get>[0]);
+  const credential = await m.get(clean(start.options.publicKey));
   if (!credential) throw new Error('cancelled');
   return api.post('/auth/passkeys/login/finish', { ceremony: start.ceremony, credential });
 }

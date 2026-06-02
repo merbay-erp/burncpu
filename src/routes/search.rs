@@ -19,6 +19,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::types::chrono::{DateTime, Utc};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 type ReindexRow = (Uuid, Uuid, String, String, DateTime<Utc>, i32, i32);
@@ -52,12 +53,50 @@ async fn search(
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<Value>, AppError> {
     let limit = q.limit.clamp(1, 100);
-    let result = state
+    let mut result = state
         .search
         .search_public(q.q.trim(), q.tag.as_deref(), limit)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    enrich_avatars(&state, &mut result).await;
     Ok(Json(result))
+}
+
+/// Inject each hit author's *current* avatar_url from Postgres as
+/// `author_avatar_url`. Sourced live (not from the index) so an avatar change
+/// shows up in search immediately without a re-index.
+async fn enrich_avatars(state: &AppState, result: &mut Value) {
+    let Some(hits) = result.get_mut("hits").and_then(|h| h.as_array_mut()) else {
+        return;
+    };
+    let ids: Vec<Uuid> = hits
+        .iter()
+        .filter_map(|h| h.get("author_id").and_then(Value::as_str))
+        .filter_map(|s| Uuid::parse_str(s).ok())
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let rows: Vec<(Uuid, Option<String>)> =
+        sqlx::query_as("SELECT id, avatar_url FROM users WHERE id = ANY($1)")
+            .bind(&ids)
+            .fetch_all(&state.pg)
+            .await
+            .unwrap_or_default();
+    let map: HashMap<Uuid, String> = rows
+        .into_iter()
+        .filter_map(|(id, a)| a.filter(|s| !s.is_empty()).map(|a| (id, a)))
+        .collect();
+    for h in hits.iter_mut() {
+        let avatar = h
+            .get("author_id")
+            .and_then(Value::as_str)
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .and_then(|id| map.get(&id).cloned());
+        if let (Some(avatar), Some(obj)) = (avatar, h.as_object_mut()) {
+            obj.insert("author_avatar_url".to_string(), Value::String(avatar));
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -72,11 +111,12 @@ async fn by_hashtag(
     Query(q): Query<TagQuery>,
 ) -> Result<Json<Value>, AppError> {
     let limit = q.limit.clamp(1, 100);
-    let result = state
+    let mut result = state
         .search
         .search_public("", Some(&tag), limit)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    enrich_avatars(&state, &mut result).await;
     Ok(Json(result))
 }
 

@@ -41,7 +41,10 @@ export default function Compose(props: {
   // textarea so the user can just start typing.
   onMount(() => {
     if (props.autofocus && textarea) {
-      textarea.focus();
+      // preventScroll: the inline reply box already opens right under the post,
+      // so don't let focus() yank the page to re-center the textarea (it caused
+      // a jarring scroll jump, especially on mobile).
+      textarea.focus({ preventScroll: true });
       const end = textarea.value.length;
       textarea.setSelectionRange(end, end);
     }

@@ -2,6 +2,7 @@ import { createSignal, createResource, For, Show } from 'solid-js';
 import { A, useSearchParams } from '@solidjs/router';
 import { api, type SearchResponse, type SearchHit } from '../api';
 import { relTime, linkifyTags } from '../util';
+import Avatar from '../components/Avatar';
 import { t } from '../i18n';
 
 export default function Search() {
@@ -65,7 +66,7 @@ export default function Search() {
                 {(h: SearchHit) => (
                   <article class="p-5 bg-surface-container-low border border-outline-variant rounded-2xl hover:border-primary/40 hover:shadow-[0_8px_30px_-12px_rgba(0,0,0,0.5)] transition-all">
                     <div class="flex items-center gap-2 mb-2">
-                      <div class="w-7 h-7 rounded-lg bg-surface-container-highest ring-1 ring-outline-variant/60 flex items-center justify-center text-[13px] shrink-0">🐢</div>
+                      <Avatar url={h.author_avatar_url} name={h.author_username} size={28} class="rounded-lg ring-1 ring-outline-variant/60" />
                       <A href={`/u/${h.author_username}`} class="font-bold text-on-background text-[13px] truncate hover:text-primary transition-colors">
                         @{h.author_username}
                       </A>

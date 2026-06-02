@@ -138,6 +138,7 @@ export interface SearchHit {
   id: string;
   author_id: string;
   author_username: string;
+  author_avatar_url?: string | null;
   body: string;
   tags: string[];
   created_at: number;

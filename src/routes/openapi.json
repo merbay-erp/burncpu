@@ -65,6 +65,25 @@
     "/auth/2fa/disable": {
       "post": { "tags": ["Auth"], "summary": "Remove TOTP (requires a current code)", "security": [ { "cookieAuth": [] } ], "requestBody": { "$ref": "#/components/requestBodies/TotpCode" }, "responses": { "204": { "description": "TOTP removed." }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" } } }
     },
+    "/auth/passkeys": {
+      "get": { "tags": ["Auth"], "summary": "List your registered passkeys", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Passkeys", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Passkey" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/auth/passkeys/register/start": {
+      "post": { "tags": ["Auth"], "summary": "Begin passkey registration", "description": "Returns WebAuthn `CreationChallengeResponse` (PublicKeyCredentialCreationOptions); ceremony state is held server-side for 5 minutes.", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Creation options", "content": { "application/json": { "schema": { "type": "object", "description": "WebAuthn CreationChallengeResponse", "properties": { "publicKey": { "type": "object" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/auth/passkeys/register/finish": {
+      "post": { "tags": ["Auth"], "summary": "Complete passkey registration", "description": "Submit the authenticator's `RegisterPublicKeyCredential` plus an optional label.", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["credential"], "properties": { "credential": { "type": "object", "description": "WebAuthn RegisterPublicKeyCredential" }, "name": { "type": "string", "maxLength": 60 } } } } } }, "responses": { "204": { "description": "Passkey stored." }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/auth/passkeys/login/start": {
+      "post": { "tags": ["Auth"], "summary": "Begin passkey (discoverable) login", "security": [], "responses": { "200": { "description": "Request options + ceremony id", "content": { "application/json": { "schema": { "type": "object", "properties": { "ceremony": { "type": "string", "format": "uuid" }, "options": { "type": "object", "description": "WebAuthn RequestChallengeResponse" } } } } } } } }
+    },
+    "/auth/passkeys/login/finish": {
+      "post": { "tags": ["Auth"], "summary": "Complete passkey login", "description": "Submit the ceremony id and the authenticator's `PublicKeyCredential`. Sets the session cookie.", "security": [], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["ceremony", "credential"], "properties": { "ceremony": { "type": "string", "format": "uuid" }, "credential": { "type": "object", "description": "WebAuthn PublicKeyCredential" } } } } } }, "responses": { "200": { "description": "Authenticated; sets burncpu_session cookie.", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "pending_2fa": { "type": "boolean" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/auth/passkeys/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "delete": { "tags": ["Auth"], "summary": "Remove a passkey", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Removed." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
 
     "/posts": {
       "get": { "tags": ["Posts"], "summary": "Public timeline", "security": [], "parameters": [ { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ], "responses": { "200": { "description": "Paginated public posts", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } } } },
@@ -585,6 +604,15 @@
           "followers": { "type": "integer", "description": "Local users following any actor on this host." },
           "blocked": { "type": "boolean" },
           "reason": { "type": ["string", "null"] }
+        }
+      },
+      "Passkey": {
+        "type": "object", "required": ["id", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": ["string", "null"] },
+          "created_at": { "type": "string", "format": "date-time" },
+          "last_used_at": { "type": ["string", "null"], "format": "date-time" }
         }
       }
     }

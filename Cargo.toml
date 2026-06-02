@@ -82,6 +82,10 @@ pkcs8 = { version = "0.10", features = ["pem"] }
 base64 = "0.22"
 url = "2"
 httpdate = "1"
+webauthn-rs = { version = "0.5.5", features = [
+    "danger-allow-state-serialisation", # serialize in-flight ceremony state into Redis
+    "conditional-ui",                   # discoverable (usernameless) passkey login
+] }
 
 [profile.release]
 opt-level = 3

@@ -40,6 +40,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/logout", post(logout_handler))
         .nest("/2fa", super::twofa::router())
+        .nest("/passkeys", super::passkeys::router())
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -367,6 +368,59 @@ pub async fn verify_handler(
         .headers_mut()
         .insert(header::SET_COOKIE, cookie_value);
     Ok(response)
+}
+
+// ────────────────────────────────────────────────────────────────
+//  Shared: mint a session + build the Set-Cookie header.
+//
+//  Used by the magic-link verify path (inline above, kept as-is to avoid
+//  churn on the critical login route) and by passkey login. If the user has
+//  confirmed TOTP, the session starts in pending_2fa state, exactly like a
+//  magic-link login — passkeys are a first factor, not a 2FA bypass.
+// ────────────────────────────────────────────────────────────────
+
+pub(crate) async fn issue_session(
+    state: &AppState,
+    user_id: uuid::Uuid,
+    ip_str: &str,
+    ua: &str,
+) -> Result<(HeaderValue, bool), AppError> {
+    let (session_raw, session_hash) = new_token().map_err(AppError::Internal)?;
+
+    let has_totp: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM user_totp WHERE user_id = $1 AND confirmed_at IS NOT NULL)",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false);
+
+    sqlx::query(
+        r#"
+        INSERT INTO sessions (user_id, token_hash, ip, user_agent, expires_at, last_seen_at, last_seen_ip, last_seen_ua, pending_2fa)
+        VALUES ($1, $2, $3::inet, $4, NOW() + ($5 || ' seconds')::interval, NOW(), $3::inet, $4, $6)
+        "#,
+    )
+    .bind(user_id)
+    .bind(&session_hash)
+    .bind(ip_str)
+    .bind(ua)
+    .bind(SESSION_TTL.as_secs().to_string())
+    .bind(has_totp)
+    .execute(&state.pg)
+    .await?;
+
+    let secure = if state.config.site_origin.starts_with("https://") {
+        "; Secure"
+    } else {
+        ""
+    };
+    let cookie = format!(
+        "{SESSION_COOKIE}={session_raw}; HttpOnly{secure}; SameSite=Lax; Path=/; Max-Age={}",
+        SESSION_TTL.as_secs()
+    );
+    let hv = HeaderValue::from_str(&cookie).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    Ok((hv, has_totp))
 }
 
 // ────────────────────────────────────────────────────────────────

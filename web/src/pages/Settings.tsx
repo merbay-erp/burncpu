@@ -7,6 +7,14 @@ import { locale, setLocale, t } from '../i18n';
 import { theme, setTheme } from '../theme';
 import { pushToast } from '../components/Toast';
 import AvatarCropper from '../components/AvatarCropper';
+import { relTime } from '../util';
+import {
+  registerPasskey,
+  listPasskeys,
+  deletePasskey,
+  passkeySupported,
+  type PasskeyInfo,
+} from '../passkey';
 
 type Tab = 'profile' | 'security' | 'invites' | 'dev';
 
@@ -1068,8 +1076,79 @@ function SecurityTab() {
         <div class="error">{err()}</div>
       </Show>
 
+      <PasskeysBlock />
       <SessionsBlock />
     </>
+  );
+}
+
+function PasskeysBlock() {
+  const [keys, { refetch }] = createResource<PasskeyInfo[]>(() => listPasskeys());
+  const [name, setName] = createSignal('');
+  const [busy, setBusy] = createSignal(false);
+  const [err, setErr] = createSignal<string | null>(null);
+
+  const add = async () => {
+    if (busy()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await registerPasskey(name());
+      setName('');
+      refetch();
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg && msg !== 'cancelled') setErr(t('settings.passkeys.error'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    await deletePasskey(id);
+    refetch();
+  };
+
+  return (
+    <Show when={passkeySupported()}>
+      <h3 style="margin: 26px 0 8px;">{t('settings.passkeys.title')}</h3>
+      <p class="muted tiny" style="margin-top: 0;">
+        {t('settings.passkeys.desc')}
+      </p>
+      <div style="display: flex; gap: 8px; margin: 10px 0;">
+        <input
+          type="text"
+          maxlength="60"
+          placeholder={t('settings.passkeys.name_placeholder')}
+          value={name()}
+          onInput={(e) => setName(e.currentTarget.value)}
+          style="flex: 1; min-width: 0;"
+        />
+        <button class="primary" onClick={add} disabled={busy()}>
+          {busy() ? t('settings.passkeys.adding') : t('settings.passkeys.add')}
+        </button>
+      </div>
+      <Show when={err()}>
+        <div class="error">{err()}</div>
+      </Show>
+      <Show when={keys() && keys()!.length > 0} fallback={<p class="muted tiny">{t('settings.passkeys.none')}</p>}>
+        <For each={keys()}>
+          {(k) => (
+            <div style="padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: baseline; font-size: 13px;">
+              <span class="text-[16px] leading-none">🔑</span>
+              <strong>{k.name || t('settings.passkeys.unnamed')}</strong>
+              <span class="tiny muted">
+                {t('settings.passkeys.added')} {relTime(k.created_at)}
+                {k.last_used_at ? ` · ${t('settings.passkeys.used')} ${relTime(k.last_used_at)}` : ''}
+              </span>
+              <button class="ghost tiny" style="margin-left: auto;" onClick={() => remove(k.id)}>
+                {t('settings.passkeys.remove')}
+              </button>
+            </div>
+          )}
+        </For>
+      </Show>
+    </Show>
   );
 }
 

@@ -1,5 +1,8 @@
 import { createSignal, Show } from 'solid-js';
+import { useNavigate } from '@solidjs/router';
 import { api } from '../api';
+import { probeSession } from '../auth';
+import { loginWithPasskey, passkeySupported } from '../passkey';
 import { t } from '../i18n';
 import Logo from '../components/Logo';
 
@@ -9,11 +12,30 @@ const inputClass =
   'focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30';
 
 export default function Login() {
+  const navigate = useNavigate();
   const [email, setEmail] = createSignal('');
   const [invite, setInvite] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [sent, setSent] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
+  const [pkBusy, setPkBusy] = createSignal(false);
+
+  const passkey = async () => {
+    if (pkBusy()) return;
+    setPkBusy(true);
+    setErr(null);
+    try {
+      await loginWithPasskey();
+      await probeSession();
+      navigate('/', { replace: true });
+    } catch (e) {
+      // A user cancelling the native prompt is not an error worth shouting about.
+      const msg = (e as Error).message;
+      if (msg && msg !== 'cancelled') setErr(t('login.passkey_error'));
+    } finally {
+      setPkBusy(false);
+    }
+  };
 
   const submit = async (e: Event) => {
     e.preventDefault();
@@ -106,6 +128,25 @@ export default function Login() {
                 {busy() ? t('login.sending') : t('login.submit')}
               </button>
             </form>
+
+            <Show when={passkeySupported()}>
+              <div class="flex items-center gap-3 my-5">
+                <div class="h-px flex-1 bg-outline-variant" />
+                <span class="text-[11px] font-mono uppercase tracking-widest text-on-surface-variant/60">
+                  {t('login.or')}
+                </span>
+                <div class="h-px flex-1 bg-outline-variant" />
+              </div>
+              <button
+                type="button"
+                onClick={passkey}
+                disabled={pkBusy() || busy()}
+                class="w-full py-2.5 rounded-lg border border-outline-variant text-on-background font-bold font-mono text-[14px] hover:bg-surface-container active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+              >
+                <span class="text-[16px] leading-none">🔑</span>
+                {pkBusy() ? t('login.passkey_busy') : t('login.passkey')}
+              </button>
+            </Show>
           </Show>
         </div>
       </div>

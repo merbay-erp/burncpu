@@ -145,6 +145,13 @@ live. The threat tables above reflect these as active mitigations.
   now re-hosted through the media pipeline on save (SSRF-guarded fetch, size
   cap, EXIF strip, content-addressed `/media`), so viewing a profile no longer
   leaks the viewer to a third party. Per-user rate-limited; fail-closed.
+- **Passkeys (WebAuthn)**: phishing-resistant, passwordless login is now
+  available alongside the magic link (`webauthn-rs`, discoverable credentials).
+  Credentials are origin-bound (rp_id = `burncpu.com`), user verification is
+  required, and the signature counter is persisted for clone detection. A
+  passkey is a *first* factor — if the account has confirmed TOTP, the session
+  it mints still starts `pending_2fa`, so passkeys never bypass 2FA. Ceremony
+  state lives in Redis (5-min TTL, consumed once).
 - **Instance-level defederation**: an admin blocklist (`federation_blocks`,
   host-keyed) is the one moderation lever federation needed — a blocked host's
   inbound `POST /inbox` activities are rejected (`403`) and the host is skipped

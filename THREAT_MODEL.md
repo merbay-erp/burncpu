@@ -1,7 +1,7 @@
 # burncpu — threat model
 
 > Live document. Updated as features land.
-> Last revised: 2026-05-16 (Hafta 1)
+> Last revised: 2026-06-02
 
 ## Scope
 
@@ -13,8 +13,9 @@ single Postgres, single admin (initially). All assets covered:
 - App: Rust/Axum on `127.0.0.1:3060`
 - Data: Postgres 16, Redis 7, Meilisearch v1.10 (all on docker bridge)
 
-Out of scope (current sprint): federation (ActivityPub), CDN for media,
-email provider (still console-only).
+Federation (ActivityPub) and SMTP delivery are now implemented and in
+scope. Out of scope (current): media CDN, multi-admin RBAC, AI/heuristic
+spam filtering.
 
 ## Actors
 
@@ -48,7 +49,7 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 | Magic-link raw token | Critical (15 min) | Email only — never persisted | sha256 stored |
 | Session raw token | Critical (30 day) | Cookie only — sha256 stored | HttpOnly, Secure, SameSite=Lax |
 | Password | n/a | none — passwordless | by design |
-| TOTP secret (admin) | Critical | PG `user_totp.secret_encrypted` | XChaCha20-Poly1305, key in env (Hafta 2) |
+| TOTP secret (admin) | Critical | PG `user_totp.secret_encrypted` | XChaCha20-Poly1305, key in env |
 | Post body | Medium | PG `posts.body` | Public; XSS-sanitized via ammonia |
 | Audit log | Medium | PG `audit_log` | 90-day retention |
 | Login attempts | Medium | PG `login_attempts` | Indefinite, scrubbed manually |
@@ -71,8 +72,8 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 | Threat | Vector | Mitigation |
 |--------|--------|------------|
 | SQL injection | User input → query | sqlx parameterized binds (no string interpolation) |
-| XSS in post body | Stored XSS | `ammonia` sanitizer on render (Hafta 1 — post CRUD) |
-| CSRF on state-changing endpoints | Cross-origin POST | SameSite=Lax cookies + CSRF token (Hafta 2) |
+| XSS in post body | Stored XSS | `ammonia` allowlist sanitizer on render |
+| CSRF on state-changing endpoints | Cross-origin POST | SameSite=Lax cookies + same-origin CSRF middleware (`middleware::csrf`) |
 | Cookie/header injection | Smuggled `\r\n` | axum/hyper rejects malformed headers |
 
 ### Repudiation
@@ -98,7 +99,7 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 |--------|--------|------------|
 | Magic-link email flood | Single attacker mailing many users | Per-(IP, email) Redis rate limit: 3/hour |
 | Login brute force | Token guessing | 256-bit tokens, sha256 lookup; rate limit |
-| Slow-loris / large body | Long-lived conns | tower-http timeout + body limit (Hafta 2) |
+| Slow-loris / large body | Long-lived conns | tower-http timeout + 6 MiB `DefaultBodyLimit` |
 | Database connection exhaustion | App-level connection leak | sqlx pool bounds; healthcheck on PG |
 | Cloudflare-bypassing direct IP attack | Origin IP leak | nginx + app only listen on 127.0.0.1 for direct port; CF in front of :443 |
 
@@ -106,19 +107,25 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 
 | Threat | Vector | Mitigation |
 |--------|--------|------------|
-| Member → admin via API | Missing role check | All admin routes will require `CurrentUser.role == "admin"` (extractor in Hafta 2) |
+| Member → admin via API | Missing role check | Admin routes require the `AdminUser` extractor (role == admin **and** a 2FA-satisfied session) |
 | First-user-becomes-admin abuse | Anyone signs up first | Already used — Mustafa is admin |
 | Container escape | Kernel exploit | Non-root user (`burncpu:1001`) inside image; no `--privileged` |
 | Stolen .env → full DB | SSH compromise | chmod 600; defense-in-depth via fail2ban + ssh key-only (VPS hardening) |
 
 ## Specific risks accepted (for now)
 
-1. **No 2FA on admin yet.** Schema is ready (`user_totp`); enrollment flow lands Hafta 2. Until then, magic link is the only factor — but admin email is on a separate provider with 2FA.
-2. **Federation deferred.** ActivityPub introduces a long tail of abuse vectors (relay spam, remote-content cache, illegal content propagation). We deliberately ship single-instance first and grow the moderation muscle.
-3. **No automated backups yet.** Postgres data is on VPS volume; nightly `pg_dump` to S3-compatible storage lands Hafta 2.
-4. **AI moderation is a future feature.** Until then, spam relies on rate limits + manual admin review.
-5. **No WAF rules beyond Cloudflare defaults.** Customized rules require pattern observation — wait for real traffic.
-6. **Audit log fills indefinitely until cron.** 90-day retention is documented (`audit_log` table COMMENT) but cleanup job is manual.
+1. **Federation is flag-gated, not battle-tested.** ActivityPub is implemented (HTTP Signatures, WebFinger, NodeInfo) but ships behind `FEDERATION_ENABLED`. It carries a long tail of abuse vectors (relay spam, remote-content cache, illegal content propagation); we widen deliberately as the moderation muscle grows.
+2. **AI/heuristic spam filtering is still a future feature.** Until it lands, spam relies on invite-gating, per-(IP, email) rate limits, and manual admin review.
+3. **No custom WAF rules beyond Cloudflare defaults.** Tailored rules need real traffic patterns to observe first.
+4. **Single admin / no fine-grained RBAC.** One admin role gated by 2FA; multi-admin separation of duties is future work.
+5. **No media CDN.** Uploads are served from the origin (EXIF-stripped, re-encoded, size-capped); a CDN is deferred.
+
+### Resolved since the foundation
+
+TOTP 2FA on admin · CSRF middleware · request body + timeout limits · the
+`AdminUser` (role + 2FA) extractor · SMTP delivery · nightly Postgres
+backups (7-day rotation) · audit-log retention jobs (`cleanup.rs`) — all
+live. The threat tables above reflect these as active mitigations.
 
 ## Operational hygiene
 

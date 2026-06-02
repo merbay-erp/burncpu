@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Güvenlik açığı bildirimi
+    url: https://github.com/merbay-erp/burncpu/blob/main/SECURITY.md
+    about: Güvenlik açıklarını ASLA public issue olarak açmayın — SECURITY.md'i izleyin.
+  - name: 📚 Dokümanlar
+    url: https://burncpu.com/docs
+    about: API ve kullanım dokümanları.

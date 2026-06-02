@@ -30,6 +30,30 @@ Mümkünse mesajı PGP ile şifreleyin (anahtar [keys.openpgp.org](https://keys.
 - 3rd party kütüphanedeki public CVE'ler (önce upstream'e bildir)
 - Sosyal mühendislik / fiziksel saldırı
 
+## Güvenli liman (safe harbor)
+
+İyi niyetli güvenlik araştırması memnuniyetle karşılanır. Aşağıdaki
+kurallara uyduğunuz sürece, bildiriminizi yasal işlem başlatmadan
+karşılarız:
+
+- Yalnızca **kendi** test hesabınızla çalışın; başka kullanıcıların
+  verisine erişmeyin, değiştirmeyin, sızdırmayın.
+- Gizlilik / veri bütünlüğü / hizmet sürekliliğini bozmayın
+  (otomatik yük testi / DoS yapmayın).
+- Açığı kamuya açıklamadan önce bize **koordineli açıklama** süresi tanıyın
+  (varsayılan: fix + deploy sonrası).
+
+## Yapay zeka / otomatik tarama
+
+Düşük-sinyalli, otomatik tarayıcı çıktısı (örn. ham ZAP/nuclei raporu)
+**bağlam ve doğrulama olmadan** kabul edilmez. Gerçek bir etki ve net bir
+yeniden-üretim adımı paylaşın.
+
+## Mimari & kapsam
+
+Sistem güven sınırları ve kabul edilen riskler için
+[THREAT_MODEL.md](THREAT_MODEL.md)'e bakın.
+
 ## Hall of Fame
 
 Geçerli güvenlik bildiriminde bulunanlar burada listelenecek.

@@ -1,0 +1,89 @@
+# burncpu — web
+
+The SolidJS frontend. A small, reactive SPA served by nginx in production and
+proxied to the live API in development.
+
+> Part of [burncpu](../README.md). For the system design see
+> [ARCHITECTURE.md → Frontend](../ARCHITECTURE.md#10-frontend-architecture).
+
+## Stack
+
+- **[SolidJS](https://www.solidjs.com/) 1.9** + `@solidjs/router`
+- **TypeScript 5.7** (`noUnusedLocals` / `noUnusedParameters` on)
+- **Vite 6** (build target `es2022`)
+- **Tailwind 3.4** via CSS-variable tokens + `@tailwindcss/forms`
+- `qrcode` (2FA enrollment) — that's the entire dependency list
+
+No component library, no state-management library, no CSS framework beyond
+Tailwind. Solid's fine-grained reactivity does the work.
+
+## Develop
+
+```bash
+npm install
+npm run dev      # http://localhost:5173
+```
+
+The dev server **proxies `/api` → https://burncpu.com** (see
+`vite.config.ts`), so you can build and test the UI against real production
+data **without running the backend locally**.
+
+To act as a logged-in user during local testing, the app reads a session
+cookie; against prod you'll be anonymous unless you sign in. (Internally we
+also fake auth in a headless preview via `setCachedMe(...)` from `auth.ts`.)
+
+```bash
+npm run build    # tsc -b && vite build  →  dist/
+npm run preview  # serve the production build on :4173
+```
+
+## Structure
+
+```
+src/
+├── main.tsx          Router + route table (lazy-loaded pages)
+├── Layout.tsx        Root shell: top nav, sidebars, bottom nav, overlays, SSE
+├── api.ts            fetch wrapper (/api/v1, credentials: include) + types
+├── auth.ts           session probe, me() signal, unread count
+├── i18n.ts           flat t(key) dictionary (TR/EN)
+├── theme.ts          dark/light toggle (+ no-flash inline script in index.html)
+├── styles.css        Ember tokens, animations (keyframes), scrollbar
+├── util.ts           url helpers, linkify, relative time
+├── pages/            one component per route (21)
+└── components/       Post, Avatar, Compose, CommandPalette, LinkCard,
+                      EmojiPicker, Skeleton, AuthGate, Toast, Lightbox, … (18)
+```
+
+## Conventions
+
+- **Styling** — only Tailwind utilities + CSS-variable tokens,
+  `rgb(var(--c-NAME) / <alpha-value>)`. Never hard-code colors. Dark is the
+  default; light is `html.light`. The **Ember** palette (warm charcoal /
+  cream) lives in `styles.css`; font is Geist Mono.
+- **i18n** — every user-facing string is a `t('key')` with **both** `tr` and
+  `en` entries in `i18n.ts`. No bare literals in JSX.
+- **API** — call through `api.{get,post,patch,del}` from `api.ts`; add the
+  response shape to its `interface`s.
+- **Reuse primitives** — `<Post>`, `<Avatar>`, `<Skeleton>`, `<AuthGate>`,
+  `<LinkCard>`, `InfiniteList`. The **synthesize-PostView** pattern turns lean
+  rows into a `PostView` so every list reuses `<Post>` (reactions, link
+  previews, menus) instead of bespoke cards.
+- **Real-time** — `Layout` holds the single SSE connection and re-broadcasts
+  as DOM `CustomEvent`s (`burncpu:posted`, `burncpu:newpost`,
+  `burncpu:typing`, `burncpu:notification`); pages subscribe.
+- **TypeScript** — unused locals/imports fail the build. Keep imports tight.
+
+## Before you push a UI change
+
+- ✅ `npx tsc -b` and `npm run build` clean
+- ✅ Looks right in **light and dark** themes
+- ✅ No horizontal overflow at mobile width (≈390px)
+- ✅ No console errors
+
+## Build & deploy
+
+`npm run build` emits hashed assets to `dist/`. In production these are
+served by nginx; deployment happens automatically when changes land on
+`main` (see [ARCHITECTURE.md → Deployment](../ARCHITECTURE.md#deployment--ci)).
+A deploy is verified by matching the live `index-*.js` hash to the local
+build.

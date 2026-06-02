@@ -1,6 +1,6 @@
 import { Show, For, createSignal, createEffect, onCleanup } from 'solid-js';
 import { A } from '@solidjs/router';
-import type { PostView } from '../api';
+import type { PostView, PostEditVersion } from '../api';
 import { api } from '../api';
 import { me } from '../auth';
 import { pushToast } from './Toast';
@@ -90,7 +90,22 @@ export default function Post(props: {
   const [editBody, setEditBody] = createSignal(props.post.body);
   const [body, setBody] = createSignal(props.post.body);
   const [bodyHtml, setBodyHtml] = createSignal(props.post.body_html);
-  const [edited, setEdited] = createSignal(false);
+  const [edited, setEdited] = createSignal(!!props.post.edited_at);
+  // Edit history (prior versions), lazily fetched the first time it's opened.
+  const [showHistory, setShowHistory] = createSignal(false);
+  const [history, setHistory] = createSignal<PostEditVersion[] | null>(null);
+  const [historyErr, setHistoryErr] = createSignal(false);
+  const toggleHistory = async () => {
+    const next = !showHistory();
+    setShowHistory(next);
+    if (next && history() === null) {
+      try {
+        setHistory(await api.get<PostEditVersion[]>(`/posts/${props.post.id}/history`));
+      } catch {
+        setHistoryErr(true);
+      }
+    }
+  };
   // Link unfurl: hide the raw URL from the body once a preview card renders for
   // it (optimistically — restored if the link turns out to have no preview).
   const [noPreview, setNoPreview] = createSignal(false);
@@ -235,8 +250,18 @@ export default function Post(props: {
                 @{props.post.author.username}
               </A>
               <A href={`/posts/${props.post.id}`} class="text-on-surface-variant font-mono text-[12px] shrink-0 hover:text-primary transition-colors">
-                · {relTime(props.post.created_at)}<Show when={edited()}> · {t('post.edit_marker')}</Show>
+                · {relTime(props.post.created_at)}
               </A>
+              <Show when={edited()}>
+                <button
+                  type="button"
+                  onClick={toggleHistory}
+                  title={t('post.history_title')}
+                  class="text-on-surface-variant font-mono text-[12px] shrink-0 hover:text-primary transition-colors cursor-pointer"
+                >
+                  · {t('post.edit_marker')}
+                </button>
+              </Show>
               <Show when={isRecent()}>
                 <span class="w-2 h-2 rounded-full bg-primary signal-pulse shrink-0"></span>
               </Show>
@@ -319,6 +344,32 @@ export default function Post(props: {
               <button onClick={saveEdit} disabled={busy() || !editBody().trim()} class="px-3 py-1 bg-primary text-on-primary font-bold rounded font-mono">
                 {t('post.save_edit')}
               </button>
+            </div>
+          </Show>
+
+          {/* Edit history — prior versions, newest first */}
+          <Show when={showHistory()}>
+            <div class="mt-3 p-3 bg-surface-container border border-outline-variant rounded-lg">
+              <div class="text-[10px] font-mono uppercase tracking-widest text-on-surface-variant mb-2">
+                {t('post.history_title')}
+              </div>
+              <Show when={historyErr()}>
+                <div class="text-error font-mono text-[12px]">{t('post.history_error')}</div>
+              </Show>
+              <Show when={history() === null && !historyErr()}>
+                <div class="text-on-surface-variant font-mono text-[12px]">…</div>
+              </Show>
+              <Show when={history() && history()!.length === 0}>
+                <div class="text-on-surface-variant text-[12px]">{t('post.history_empty')}</div>
+              </Show>
+              <For each={history() ?? []}>
+                {(v) => (
+                  <div class="py-2 border-t border-outline-variant first:border-t-0">
+                    <div class="text-[10px] font-mono text-on-surface-variant/70 mb-1">{relTime(v.edited_at)}</div>
+                    <div class="text-on-surface-variant text-[13px] whitespace-pre-wrap break-words">{v.body}</div>
+                  </div>
+                )}
+              </For>
             </div>
           </Show>
 

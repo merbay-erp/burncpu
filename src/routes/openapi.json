@@ -112,6 +112,10 @@
       "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
       "get": { "tags": ["Posts"], "summary": "Full conversation (root + descendants, max depth 6)", "security": [], "responses": { "200": { "description": "Thread", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } } } }
     },
+    "/posts/{id}/history": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "get": { "tags": ["Posts"], "summary": "Edit history (prior versions, newest first)", "description": "As visible as the post itself. Empty if never edited.", "security": [], "responses": { "200": { "description": "Prior versions", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/PostEdit" } } } } }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
     "/posts/{id}/repost": {
       "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
       "post": { "tags": ["Posts"], "summary": "Repost (optional quote body)", "requestBody": { "required": false, "content": { "application/json": { "schema": { "type": "object", "properties": { "body": { "type": "string", "description": "Quote text (omit for a plain repost)" } } } } } }, "responses": { "201": { "description": "Reposted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
@@ -414,6 +418,7 @@
           "content_warning": { "type": "string" },
           "reactions_count": { "type": "integer" },
           "replies_count": { "type": "integer" },
+          "edited_at": { "type": "string", "format": "date-time", "description": "Present if the post has been edited; see /posts/{id}/history." },
           "viewer_reacted": { "type": "boolean", "description": "Present only for authenticated viewers." },
           "viewer_bookmarked": { "type": "boolean", "description": "Present only for authenticated viewers." },
           "created_at": { "type": "string", "format": "date-time" }
@@ -613,6 +618,14 @@
           "name": { "type": ["string", "null"] },
           "created_at": { "type": "string", "format": "date-time" },
           "last_used_at": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "PostEdit": {
+        "type": "object", "required": ["body", "body_html", "edited_at"],
+        "properties": {
+          "body": { "type": "string", "description": "The body of this prior version." },
+          "body_html": { "type": "string", "description": "Sanitized HTML of the prior version." },
+          "edited_at": { "type": "string", "format": "date-time", "description": "When this version was superseded." }
         }
       }
     }

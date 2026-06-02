@@ -65,7 +65,7 @@ async fn home(
         SELECT
             p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at,
+            p.reactions_count, p.replies_count, p.created_at, p.edited_at,
             EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $1) AS viewer_reacted,
             EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.user_id = $1) AS viewer_bookmarked
         FROM posts p

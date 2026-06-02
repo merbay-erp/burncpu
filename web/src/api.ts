@@ -80,6 +80,8 @@ export interface PostView {
   reactions_count: number;
   replies_count: number;
   created_at: string;
+  // Present if the post has been edited; the badge links to /posts/{id}/history.
+  edited_at?: string;
   // 19 May 2026 — viewer-spesifik state. Anonim icin undefined, giris yapmissa true/false.
   // Post.tsx createEffect ile setReacted/setBookmarked initial state sync.
   viewer_reacted?: boolean;
@@ -91,6 +93,13 @@ export interface PostView {
 export interface CreateResponse {
   post?: PostView;
   quarantined: boolean;
+}
+
+// A prior version of a post, from GET /posts/{id}/history (newest first).
+export interface PostEditVersion {
+  body: string;
+  body_html: string;
+  edited_at: string;
 }
 
 export interface Timeline {

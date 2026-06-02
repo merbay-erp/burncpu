@@ -43,6 +43,7 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/reactions", get(reactions))
         .route("/{id}/replies", get(replies))
         .route("/{id}/thread", get(thread))
+        .route("/{id}/history", get(post_history))
         .route("/{id}/repost", post(repost))
         .route("/{id}/restore", post(restore))
 }
@@ -115,6 +116,8 @@ pub struct PostView {
     content_warning: Option<String>,
     reactions_count: i32,
     replies_count: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edited_at: Option<DateTime<Utc>>,
     // 19 May 2026 — Viewer-spesifik state. Frontend Post.tsx sayfa refresh
     // sonrasi react/bookmark butonlarinin DOGRU state'te yuklenebilmesi icin.
     // Onceden setReacted(false) ile basliyordu → refresh sonrasi 🐢 ikonu
@@ -472,7 +475,7 @@ async fn timeline(
         SELECT
             p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at,
+            p.reactions_count, p.replies_count, p.created_at, p.edited_at,
             CASE WHEN $3::uuid IS NOT NULL THEN
                 EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $3)
             ELSE NULL END AS viewer_reacted,
@@ -533,6 +536,33 @@ async fn get_post(
 ) -> Result<Json<PostView>, AppError> {
     let view = fetch_post(&state, id, viewer_opt.as_ref().map(|u| u.user_id)).await?;
     Ok(Json(view))
+}
+
+// ── GET /posts/:id/history — prior versions of an edited post ────
+
+#[derive(Serialize, sqlx::FromRow)]
+struct PostEdit {
+    body: String,
+    body_html: String,
+    edited_at: DateTime<Utc>,
+}
+
+async fn post_history(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    viewer_opt: Option<CurrentUser>,
+) -> Result<Json<Vec<PostEdit>>, AppError> {
+    // Visibility gate: fetch_post returns NotFound if the viewer can't see the
+    // post, so its history is exactly as visible as the post itself.
+    fetch_post(&state, id, viewer_opt.as_ref().map(|u| u.user_id)).await?;
+    let edits = sqlx::query_as::<_, PostEdit>(
+        "SELECT body, body_html, edited_at FROM post_edits
+         WHERE post_id = $1 ORDER BY edited_at DESC, id DESC",
+    )
+    .bind(id)
+    .fetch_all(&state.pg)
+    .await?;
+    Ok(Json(edits))
 }
 
 // ── DELETE /posts/:id ───────────────────────────────────────────
@@ -617,8 +647,16 @@ async fn edit_post(
         return Err(AppError::Forbidden);
     }
     let body_html = render_markdown(body);
+    // Snapshot the version we're about to replace into post_edits, then update —
+    // atomically in one statement. The data-modifying CTE reads `posts` as of the
+    // start of the statement, so it captures the OLD body even though the main
+    // UPDATE replaces it.
     sqlx::query(
         r#"
+        WITH snapshot AS (
+            INSERT INTO post_edits (post_id, body, body_html)
+            SELECT id, body, body_html FROM posts WHERE id = $3
+        )
         UPDATE posts SET body = $1, body_html = $2, edited_at = NOW(), updated_at = NOW()
         WHERE id = $3
         "#,
@@ -964,6 +1002,10 @@ pub(crate) struct PostRow {
     reactions_count: i32,
     replies_count: i32,
     created_at: DateTime<Utc>,
+    // Set when the post has been edited; drives the "edited" badge + history.
+    // sqlx default → lean queries that omit the column just get None.
+    #[sqlx(default)]
+    edited_at: Option<DateTime<Utc>>,
     // 19 May 2026 — SQL'de EXISTS subquery ile cekilir. NULL = anonim viewer.
     #[sqlx(default)]
     viewer_reacted: Option<bool>,
@@ -996,6 +1038,7 @@ impl PostRow {
             reactions_count: self.reactions_count,
             replies_count: self.replies_count,
             created_at: self.created_at,
+            edited_at: self.edited_at,
             viewer_reacted: self.viewer_reacted,
             viewer_bookmarked: self.viewer_bookmarked,
         }
@@ -1193,7 +1236,7 @@ async fn fetch_post(
         SELECT
             p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at,
+            p.reactions_count, p.replies_count, p.created_at, p.edited_at,
             CASE WHEN $2::uuid IS NOT NULL THEN
                 EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $2)
             ELSE NULL END AS viewer_reacted,
@@ -1257,7 +1300,7 @@ async fn replies(
         SELECT
             p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at,
+            p.reactions_count, p.replies_count, p.created_at, p.edited_at,
             CASE WHEN $3::uuid IS NOT NULL THEN
                 EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $3)
             ELSE NULL END AS viewer_reacted,
@@ -1371,7 +1414,7 @@ async fn thread(
         SELECT
             p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at,
+            p.reactions_count, p.replies_count, p.created_at, p.edited_at,
             CASE WHEN $2::uuid IS NOT NULL THEN
                 EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $2)
             ELSE NULL END AS viewer_reacted,

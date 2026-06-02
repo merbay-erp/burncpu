@@ -1,4 +1,4 @@
-import { createSignal, For, Show, onMount, onCleanup } from 'solid-js';
+import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api, type Timeline, type PostView } from '../api';
 import Post from '../components/Post';
@@ -38,6 +38,11 @@ export default function Feed() {
   };
 
   const prepend = (p: PostView) => setPosts((cur) => [p, ...cur]);
+  // Load the first page as soon as we know who's logged in — don't wait for the
+  // infinite-scroll sentinel (the loading skeletons push it below the fold).
+  createEffect(() => {
+    if (me() && !initialized() && !loading()) void loadMore();
+  });
   // Global compose FAB broadcasts new posts — your own show in your feed live.
   onMount(() => {
     const onPosted = (e: Event) => {

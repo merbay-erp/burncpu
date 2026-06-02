@@ -37,6 +37,10 @@ export default function Home() {
   const prepend = (p: PostView) => setPosts((cur) => [p, ...cur]);
   // The global compose FAB broadcasts new posts — show public ones live here.
   onMount(() => {
+    // Load the first page immediately — don't wait for the infinite-scroll
+    // sentinel to intersect (the loading skeletons push it below the fold, so
+    // it never fired on open and the timeline sat on skeletons until a scroll).
+    void loadMore();
     const onPosted = (e: Event) => {
       const p = (e as CustomEvent).detail as PostView;
       if (p?.visibility === 'public') prepend(p);

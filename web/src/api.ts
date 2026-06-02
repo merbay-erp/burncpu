@@ -86,6 +86,13 @@ export interface PostView {
   viewer_bookmarked?: boolean;
 }
 
+// POST /posts result. `quarantined` (a new-account post sent to the moderation
+// queue) → `post` is absent and nothing should be prepended to the timeline.
+export interface CreateResponse {
+  post?: PostView;
+  quarantined: boolean;
+}
+
 export interface Timeline {
   posts: PostView[];
   next_before: string | null;

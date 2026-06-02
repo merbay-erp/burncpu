@@ -165,6 +165,50 @@ const POST_RATE_LIMIT_MAX_IP: u32 = 50;
 const POST_RATE_LIMIT_WINDOW_SECS: u64 = 600;
 const CONTENT_DEDUP_WINDOW_SECS: u64 = 86_400;
 
+// Trust gate: a brand-new account's top-level public posts go to the moderation
+// queue (moderation_state='quarantine') instead of the public timeline, until
+// the account ages past QUARANTINE_MIN_AGE_HOURS or earns QUARANTINE_MIN_LIVE_POSTS
+// approved posts. Admins/mods, replies, and non-public posts are never gated.
+// The admin queue already exists: GET /admin/posts?state=quarantine + PATCH
+// /admin/posts/{id} (approve → live / reject → removed). Tunable consts.
+const QUARANTINE_MIN_AGE_HOURS: i64 = 24;
+const QUARANTINE_MIN_LIVE_POSTS: i64 = 2;
+
+async fn should_quarantine(state: &AppState, user: &CurrentUser) -> bool {
+    if matches!(user.role.as_str(), "admin" | "mod") {
+        return false;
+    }
+    let row: Option<(bool, i64)> = sqlx::query_as(
+        r#"
+        SELECT
+            (u.created_at < NOW() - ($2 || ' hours')::interval) AS aged,
+            (SELECT COUNT(*) FROM posts p
+                WHERE p.author_id = u.id AND p.moderation_state = 'live' AND p.deleted_at IS NULL
+            ) AS live_posts
+        FROM users u WHERE u.id = $1
+        "#,
+    )
+    .bind(user.user_id)
+    .bind(QUARANTINE_MIN_AGE_HOURS.to_string())
+    .fetch_optional(&state.pg)
+    .await
+    .ok()
+    .flatten();
+    // Fail OPEN on any error — better to let a rare post through than to hide a
+    // legitimate user's content on a transient glitch.
+    match row {
+        Some((aged, live_posts)) => !(aged || live_posts >= QUARANTINE_MIN_LIVE_POSTS),
+        None => false,
+    }
+}
+
+#[derive(Serialize)]
+struct CreateResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    post: Option<PostView>,
+    quarantined: bool,
+}
+
 async fn create_post(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -279,10 +323,17 @@ async fn create_post(
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|s| s.chars().take(140).collect::<String>());
+
+    // New-account top-level public posts go to the moderation queue.
+    let quarantine = input.reply_to_id.is_none()
+        && input.visibility == "public"
+        && should_quarantine(&state, &user).await;
+    let moderation_state = if quarantine { "quarantine" } else { "live" };
+
     let id: Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO posts (author_id, body, body_html, visibility, reply_to_id, content_warning)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO posts (author_id, body, body_html, visibility, reply_to_id, content_warning, moderation_state)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
         "#,
     )
@@ -292,6 +343,7 @@ async fn create_post(
     .bind(&input.visibility)
     .bind(input.reply_to_id)
     .bind(cw)
+    .bind(moderation_state)
     .fetch_one(&state.pg)
     .await?;
 
@@ -313,6 +365,17 @@ async fn create_post(
             )
             .await;
         }
+    }
+
+    // Quarantined posts are invisible (no fetch, fanout, index, mention pings,
+    // or timeline pill) until an admin approves them — the author just learns
+    // it's pending review.
+    if quarantine {
+        tracing::info!(user_id = %user.user_id, post_id = %id, "post quarantined (new account)");
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(CreateResponse { post: None, quarantined: true }),
+        ));
     }
 
     let post = fetch_post(&state, id, Some(user.user_id)).await?;
@@ -371,7 +434,10 @@ async fn create_post(
     }
 
     tracing::info!(user_id = %user.user_id, post_id = %id, "post created");
-    Ok((StatusCode::CREATED, Json(post)))
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateResponse { post: Some(post), quarantined: false }),
+    ))
 }
 
 // ── GET /posts (timeline) ───────────────────────────────────────

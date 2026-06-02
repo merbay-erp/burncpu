@@ -388,7 +388,7 @@ export default function Layout(props: { children?: JSX.Element }) {
                 <span class="material-symbols-outlined">close</span>
               </button>
             </div>
-            <Compose autofocus onPosted={onComposed} />
+            <Compose autofocus onPosted={onComposed} onPending={() => setComposeOpen(false)} />
           </div>
         </div>
       </Show>

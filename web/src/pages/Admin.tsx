@@ -96,6 +96,15 @@ export default function Admin() {
     refetchReports();
   };
 
+  // Quarantine queue: new-account posts awaiting approval.
+  const [pending, { refetch: refetchPending }] = createResource<AdminPost[]>(() =>
+    api.get<AdminPost[]>('/admin/posts?state=quarantine&limit=50'),
+  );
+  const moderate = async (id: string, moderation_state: 'live' | 'removed') => {
+    await api.patch(`/admin/posts/${id}`, { moderation_state });
+    refetchPending();
+  };
+
   return (
     <>
       <h2 class="page-title">
@@ -178,6 +187,22 @@ export default function Admin() {
               </For>
             </div>
           )}
+        </Show>
+
+        <Show when={(pending()?.length ?? 0) > 0}>
+          <h3>{t('admin.pending_review')}</h3>
+          <div style="margin-bottom: 22px;">
+            <For each={pending()}>
+              {(p) => (
+                <div style="padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: baseline; font-size: 13px;">
+                  <A href={`/u/${p.author_username}`} class="handle">@{p.author_username}</A>
+                  <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{p.body.slice(0, 200)}</span>
+                  <button class="ghost tiny" onClick={() => moderate(p.id, 'live')}>{t('admin.approve')}</button>
+                  <button class="ghost tiny" onClick={() => moderate(p.id, 'removed')}>{t('admin.reject')}</button>
+                </div>
+              )}
+            </For>
+          </div>
         </Show>
 
         <h3>{t('admin.recent_posts')}</h3>

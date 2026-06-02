@@ -115,7 +115,7 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 ## Specific risks accepted (for now)
 
 1. **Federation is live but young.** ActivityPub (HTTP Signatures, WebFinger, NodeInfo) is **enabled in production** (`FEDERATION_ENABLED=true`). It carries a long tail of abuse vectors (relay spam, remote-content cache, illegal content propagation); remote actor fetches are now size-capped via a streaming read (`net_safety::read_capped_bytes`), but the surface is still maturing — moderation tooling grows alongside it.
-2. **AI/heuristic spam filtering is still a future feature.** Until it lands, spam relies on invite-gating, per-(IP, email) rate limits, and manual admin review.
+2. **AI/ML spam classification is still future.** A first heuristic layer now exists — a trust gate sends brand-new accounts' top-level public posts to a moderation queue (`moderation_state='quarantine'`) for admin approval — on top of invite-gating and per-(IP, email) rate limits. A learned/scored classifier (`spam_score`) is the next layer.
 3. **No custom WAF rules beyond Cloudflare defaults.** Tailored rules need real traffic patterns to observe first.
 4. **Single admin / no fine-grained RBAC.** One admin role gated by 2FA; multi-admin separation of duties is future work.
 5. **No media CDN.** Uploads are served from the origin (EXIF-stripped, re-encoded, size-capped); a CDN is deferred.

@@ -1,10 +1,11 @@
 import { createSignal, createMemo, createEffect, Show, For, onMount } from 'solid-js';
-import { api, type PostView } from '../api';
+import { api, type PostView, type CreateResponse } from '../api';
 import { visibleLength, firstUrl } from '../util';
 import { t } from '../i18n';
 import EmojiPicker from './EmojiPicker';
 import LinkCard from './LinkCard';
 import Avatar from './Avatar';
+import { pushToast } from './Toast';
 import { me } from '../auth';
 
 const MAX = 5000;
@@ -21,6 +22,9 @@ export default function Compose(props: {
   // composer opts in — not the FAB popup or inline reply boxes).
   persistDraft?: boolean;
   onPosted?: (p: PostView) => void;
+  // Fired when a post was accepted but sent to the moderation queue (new
+  // account) — no PostView to prepend; the composer shows a "pending" toast.
+  onPending?: () => void;
 }) {
   const readDraft = (): { body: string; cw: string } => {
     if (!props.persistDraft) return { body: '', cw: '' };
@@ -95,14 +99,19 @@ export default function Compose(props: {
     if (!text) return;
     setBusy(true); setErr(null);
     try {
-      const p = await api.post<PostView>('/posts', {
+      const r = await api.post<CreateResponse>('/posts', {
         body: text,
         reply_to_id: props.replyToId ?? null,
         content_warning: cw().trim() || null,
       });
       setBody(''); setCw(''); setMentions([]);
       setPreviewUrl(null); setDismissedUrl(null);
-      props.onPosted?.(p);
+      if (r.quarantined) {
+        pushToast(t('compose.pending_review'), 'ok');
+        props.onPending?.();
+      } else if (r.post) {
+        props.onPosted?.(r.post);
+      }
     } catch (e) { setErr((e as Error).message || t('compose.error')); }
     finally { setBusy(false); }
   };

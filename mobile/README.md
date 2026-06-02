@@ -30,13 +30,22 @@ npx expo export --platform ios   # validates the Metro bundle
 
 ## What's here (v1 foundation)
 
-- **Theme** — `src/theme.ts`: exact dark/light Ember tokens + Geist fonts.
-- **API/auth/i18n** — `src/api.ts`, `src/auth.ts` (global `useMe()`), `src/i18n.ts` (tr/en).
+- **Theme** — `src/theme.ts`: exact dark/light Ember tokens + Geist fonts; live
+  theme + language (tr/en) switch in Settings.
+- **API/auth/i18n** — `src/api.ts`, `src/auth.ts` (global `useMe()`), `src/i18n.ts`.
 - **Tabs** — Home, Search, Notifications, DMs, Profile (mirrors the web mobile nav).
-- **Screens** — timeline (Bana Özel / Global), post detail + replies, profile
-  (self + others, follow), search, notifications, DM thread list, compose, login.
-- **Post** — author/handle/time, edited badge → edit-history, reactions (🐢) /
-  reply / bookmark, content warnings.
+- **Timeline** — Bana Özel / Global, infinite scroll, pull-to-refresh.
+- **Post** — rich body (tappable links / @mentions / #hashtags / **bold**), embedded
+  `![](media)` images, content-warning reveal, edited badge → edit history, reply /
+  reaction (long-press 🐢 → emoji picker) / bookmark, and a "…" menu
+  (edit + delete on your own posts, report on others').
+- **Compose** — new post, **reply**, **edit**, image attach (→ `/media`), char count.
+- **Profile** — self + others, follow/unfollow, tappable follower/following lists,
+  **profile edit** (name, bio, avatar), and a "…" menu (mute / block / report).
+- **DMs** — thread list + **conversation screen** (send, mark-read, bubbles).
+- **Search** — live text search + **trending hashtags**; **hashtag feed** with follow.
+- **Notifications**, **Bookmarks**, **Settings** (theme, language, 2FA/passkey/session
+  summary, logout), **post detail + replies**, **login** (magic link).
 
 ## Auth on mobile
 
@@ -52,8 +61,16 @@ cookie. That requires server-side association files (one-time):
 
 `app.json` already declares `associatedDomains` + the Android intent filter.
 
-## Next
+## Requires a native dev build (not Expo Go)
 
-- Native passkey sign-in (react-native-passkeys / Credential Manager).
-- DM thread screen + send, push notifications (expo-notifications + the existing
-  `/push` endpoints), media upload (expo-image-picker → `/media`), markdown render.
+These need `npx expo run:ios` / `eas build` (Expo Go can't load native modules or
+remote push), plus a little backend/server work:
+
+- **Push notifications** — `expo-notifications` for an APNs/FCM (or Expo) token;
+  the backend `/push` currently expects a Web Push subscription, so it needs a
+  mobile-token path. Expo Go dropped remote push, so this only runs in a dev build.
+- **Native passkey sign-in** — `react-native-passkeys` (iOS ASAuthorization /
+  Android Credential Manager) + the association files below.
+- **Magic-link completion in-app** — the `auth/verify/[token]` route is wired and
+  `app.json` declares `associatedDomains` + the Android intent filter; it activates
+  once the server serves the one-time association files (see "Auth on mobile").

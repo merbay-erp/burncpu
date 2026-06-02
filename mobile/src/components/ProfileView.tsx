@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text, Pressable, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, Pressable, FlatList, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import Avatar from './Avatar';
 import Post from './Post';
+import Sheet from './Sheet';
 import { api, type Profile, type PostView, type Timeline } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
@@ -23,6 +24,9 @@ export default function ProfileView({ username }: { username: string }) {
   const [posts, setPosts] = useState<PostView[]>([]);
   const [loading, setLoading] = useState(true);
   const [following, setFollowing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [muted, setMuted] = useState(false);
 
   const self = me?.username === username;
 
@@ -34,6 +38,8 @@ export default function ProfileView({ username }: { username: string }) {
       ]);
       setProfile(p);
       setFollowing(p.is_following);
+      setBlocked(p.is_blocked_by_viewer);
+      setMuted(p.is_muted_by_viewer);
       setPosts(Array.isArray(t2) ? t2 : t2.posts);
     } catch {
       /* ignore */
@@ -58,6 +64,39 @@ export default function ProfileView({ username }: { username: string }) {
     }
   };
 
+  const toggleBlock = async () => {
+    const next = !blocked;
+    setBlocked(next);
+    if (next) setFollowing(false);
+    try {
+      if (next) await api.post(`/users/${username}/block`);
+      else await api.del(`/users/${username}/block`);
+    } catch {
+      setBlocked(!next);
+    }
+  };
+
+  const toggleMute = async () => {
+    const next = !muted;
+    setMuted(next);
+    try {
+      if (next) await api.post(`/users/${username}/mute`);
+      else await api.del(`/users/${username}/mute`);
+    } catch {
+      setMuted(!next);
+    }
+  };
+
+  const reportUser = async () => {
+    if (!profile) return;
+    try {
+      await api.post('/reports', { target_kind: 'user', target_id: profile.id, reason: 'inappropriate' });
+      Alert.alert('burncpu', t('post.reported'));
+    } catch {
+      /* ignore */
+    }
+  };
+
   if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: insets.top + 60 }} />;
   if (!profile)
     return (
@@ -76,11 +115,16 @@ export default function ProfileView({ username }: { username: string }) {
             <Text style={s.outlineBtnText}>{t('nav.settings')}</Text>
           </Pressable>
         ) : (
-          <Pressable style={following ? s.outlineBtn : s.solidBtn} onPress={toggleFollow}>
-            <Text style={following ? s.outlineBtnText : s.solidBtnText}>
-              {following ? t('profile.following') : t('profile.follow')}
-            </Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Pressable style={s.menuBtn} onPress={() => setMenuOpen(true)} hitSlop={8}>
+              <Ionicons name="ellipsis-horizontal" size={18} color={colors.onBackground} />
+            </Pressable>
+            <Pressable style={following ? s.outlineBtn : s.solidBtn} onPress={toggleFollow}>
+              <Text style={following ? s.outlineBtnText : s.solidBtnText}>
+                {blocked ? t('profile.blocked') : following ? t('profile.following') : t('profile.follow')}
+              </Text>
+            </Pressable>
+          </View>
         )}
       </View>
       <Text style={s.name}>{profile.display_name}</Text>
@@ -105,13 +149,25 @@ export default function ProfileView({ username }: { username: string }) {
   );
 
   return (
-    <FlatList
-      style={{ backgroundColor: colors.background }}
-      data={posts}
-      keyExtractor={(p) => p.id}
-      ListHeaderComponent={header}
-      renderItem={({ item }) => <Post post={item} />}
-    />
+    <>
+      <FlatList
+        style={{ backgroundColor: colors.background }}
+        data={posts}
+        keyExtractor={(p) => p.id}
+        ListHeaderComponent={header}
+        renderItem={({ item }) => <Post post={item} />}
+      />
+      <Sheet
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        title={`@${username}`}
+        options={[
+          { label: muted ? t('profile.unmute') : t('profile.mute'), icon: muted ? 'volume-high-outline' : 'volume-mute-outline', onPress: toggleMute },
+          { label: blocked ? t('profile.unblock') : t('profile.block'), icon: 'ban-outline', danger: true, onPress: toggleBlock },
+          { label: t('post.report'), icon: 'flag-outline', onPress: reportUser },
+        ]}
+      />
+    </>
   );
 }
 
@@ -131,5 +187,6 @@ const styles = (c: Palette) =>
     solidBtnText: { color: c.onPrimary, fontFamily: fonts.bold, fontSize: 13 },
     outlineBtn: { borderColor: c.outline, borderWidth: 1, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9 },
     gearBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderColor: c.outline, borderWidth: 1, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 },
+    menuBtn: { borderColor: c.outline, borderWidth: 1, borderRadius: 999, width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
     outlineBtnText: { color: c.onBackground, fontFamily: fonts.semibold, fontSize: 13 },
   });

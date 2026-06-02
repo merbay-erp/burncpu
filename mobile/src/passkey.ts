@@ -6,7 +6,12 @@
 // throws if imported there. So we load it lazily + guarded — the app still runs
 // in Expo Go (passkeys simply hidden) and works in a native dev build.
 
+import Constants from 'expo-constants';
 import { api } from './api';
+
+// In Expo Go the native module is absent and even require()-ing it throws, so
+// never touch react-native-passkeys there. Only a dev/standalone build has it.
+const IS_EXPO_GO = Constants.executionEnvironment === 'storeClient';
 
 // Manual interface (NOT `typeof import(...)`) so nothing references the native
 // module until the lazy require() runs.
@@ -19,6 +24,7 @@ type AnyOptions = Record<string, unknown>;
 
 let cached: RNPasskeys | null | undefined;
 function passkeys(): RNPasskeys | null {
+  if (IS_EXPO_GO) return null;
   if (cached === undefined) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports

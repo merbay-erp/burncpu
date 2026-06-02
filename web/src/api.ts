@@ -138,9 +138,12 @@ export interface SearchHit {
   id: string;
   author_id: string;
   author_username: string;
+  author_display_name?: string;
   author_avatar_url?: string | null;
   body: string;
   tags: string[];
+  reactions_count?: number;
+  replies_count?: number;
   created_at: number;
   _formatted?: { body: string };
 }

@@ -77,24 +77,27 @@ async fn enrich_avatars(state: &AppState, result: &mut Value) {
     if ids.is_empty() {
         return;
     }
-    let rows: Vec<(Uuid, Option<String>)> =
-        sqlx::query_as("SELECT id, avatar_url FROM users WHERE id = ANY($1)")
+    let rows: Vec<(Uuid, String, Option<String>)> =
+        sqlx::query_as("SELECT id, display_name, avatar_url FROM users WHERE id = ANY($1)")
             .bind(&ids)
             .fetch_all(&state.pg)
             .await
             .unwrap_or_default();
-    let map: HashMap<Uuid, String> = rows
+    let map: HashMap<Uuid, (String, Option<String>)> = rows
         .into_iter()
-        .filter_map(|(id, a)| a.filter(|s| !s.is_empty()).map(|a| (id, a)))
+        .map(|(id, name, avatar)| (id, (name, avatar.filter(|s| !s.is_empty()))))
         .collect();
     for h in hits.iter_mut() {
-        let avatar = h
+        let entry = h
             .get("author_id")
             .and_then(Value::as_str)
             .and_then(|s| Uuid::parse_str(s).ok())
             .and_then(|id| map.get(&id).cloned());
-        if let (Some(avatar), Some(obj)) = (avatar, h.as_object_mut()) {
-            obj.insert("author_avatar_url".to_string(), Value::String(avatar));
+        if let (Some((name, avatar)), Some(obj)) = (entry, h.as_object_mut()) {
+            obj.insert("author_display_name".to_string(), Value::String(name));
+            if let Some(avatar) = avatar {
+                obj.insert("author_avatar_url".to_string(), Value::String(avatar));
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 import { createSignal, createEffect, For, Show, onMount, onCleanup, type JSX } from 'solid-js';
 import { A } from '@solidjs/router';
+import AuthGate from '../components/AuthGate';
 import { api, type Notification } from '../api';
 import { me, refetchUnread } from '../auth';
 import { relTime } from '../util';
@@ -117,7 +118,7 @@ export default function NotificationsPage() {
   return (
     <Show
       when={me()}
-      fallback={<p class="text-on-surface-variant">Önce <A href="/login" class="text-primary">Giriş yap</A>.</p>}
+      fallback={<AuthGate icon="notifications" title={t('auth.gate.notifications')} />}
     >
       {/* Header */}
       <div class="flex items-center justify-between gap-3 mb-3">

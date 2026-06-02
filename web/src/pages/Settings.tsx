@@ -1,4 +1,5 @@
 import { createSignal, Show, For, createResource, onMount } from 'solid-js';
+import AuthGate from '../components/AuthGate';
 import QRCode from 'qrcode';
 import { api, type Profile } from '../api';
 import { me, setCachedMe } from '../auth';
@@ -26,7 +27,7 @@ export default function Settings() {
       </h1>
       <Show
         when={me()}
-        fallback={<p class="text-on-surface-variant">{t('settings.login_required')}</p>}
+        fallback={<AuthGate icon="settings" title={t('auth.gate.settings')} />}
       >
         {/* Segmented tab control */}
         <div class="flex gap-1 p-1 bg-surface-container-low border border-outline-variant rounded-xl mb-6 overflow-x-auto">

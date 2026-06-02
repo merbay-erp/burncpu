@@ -1,5 +1,5 @@
 import { createResource, For, Show } from 'solid-js';
-import { A } from '@solidjs/router';
+import AuthGate from '../components/AuthGate';
 import { api, type PostView } from '../api';
 import Post from '../components/Post';
 import { PostSkeletonList } from '../components/Skeleton';
@@ -51,11 +51,7 @@ export default function Bookmarks() {
       <h1 class="text-[24px] md:text-[28px] font-bold tracking-tight text-on-background mb-5">{t('nav.bookmarks')}</h1>
       <Show
         when={me()}
-        fallback={
-          <p class="text-on-surface-variant">
-            {t('auth.login_prefix')} <A href="/login" class="text-primary hover:underline">{t('auth.login_link')}</A>.
-          </p>
-        }
+        fallback={<AuthGate icon="bookmark" title={t('auth.gate.bookmarks')} />}
       >
         <Show when={list()} fallback={<PostSkeletonList count={4} />}>
           {(rows) => (

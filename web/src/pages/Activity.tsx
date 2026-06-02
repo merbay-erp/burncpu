@@ -1,5 +1,5 @@
 import { createResource, createSignal, For, Show } from 'solid-js';
-import { A } from '@solidjs/router';
+import AuthGate from '../components/AuthGate';
 import { api } from '../api';
 import { me } from '../auth';
 import { t } from '../i18n';
@@ -60,7 +60,7 @@ export default function ActivityPage() {
           </For>
         </small>
       </h2>
-      <Show when={me()} fallback={<p class="muted">{t('auth.login_prefix')} <A href="/login">{t('auth.login_link')}</A>.</p>}>
+      <Show when={me()} fallback={<AuthGate icon="monitoring" title={t('auth.gate.activity')} />}>
         <Show when={data()} fallback={<p class="muted">{t('common.loading')}</p>}>
           {(d) => (
             <>

@@ -1,5 +1,6 @@
 import { createResource, createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import { useParams, A } from '@solidjs/router';
+import AuthGate from '../components/AuthGate';
 import { api } from '../api';
 import { me } from '../auth';
 import { relTime } from '../util';
@@ -129,11 +130,7 @@ export default function DMThread() {
     <div>
       <Show
         when={me()}
-        fallback={
-          <p class="text-on-surface-variant text-[14px]">
-            {t('dmthread.login_prefix')} <A href="/login" class="text-primary hover:underline">{t('nav.login_action')}</A>.
-          </p>
-        }
+        fallback={<AuthGate icon="mail" title={t('auth.gate.dms')} />}
       >
         <Show when={data() as ThreadView | null | undefined} fallback={<div class="p-6 text-on-surface-variant font-mono text-center text-[14px]">{t('loading')}</div>}>
           {(th) => (

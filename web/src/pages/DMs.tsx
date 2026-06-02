@@ -1,5 +1,6 @@
 import { createMemo, createResource, createSignal, For, Show, onMount, onCleanup } from 'solid-js';
 import { A, useNavigate } from '@solidjs/router';
+import AuthGate from '../components/AuthGate';
 import { api } from '../api';
 import { me } from '../auth';
 import { relTime } from '../util';
@@ -114,7 +115,7 @@ export default function DMs() {
 
       <Show
         when={me()}
-        fallback={<p class="text-on-surface-variant">Önce <A href="/login" class="text-primary">{t('nav.login')}</A>.</p>}
+        fallback={<AuthGate icon="mail" title={t('auth.gate.dms')} />}
       >
         {/* New-message composer */}
         <Show when={composing()}>

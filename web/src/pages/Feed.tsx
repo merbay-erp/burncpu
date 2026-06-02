@@ -1,5 +1,5 @@
 import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
-import { A } from '@solidjs/router';
+import AuthGate from '../components/AuthGate';
 import { api, type Timeline, type PostView } from '../api';
 import Post from '../components/Post';
 import Compose from '../components/Compose';
@@ -67,11 +67,7 @@ export default function Feed() {
       <TimelineTabs />
       <Show
         when={me()}
-        fallback={
-          <p class="text-on-surface-variant">
-            <A href="/login" class="text-primary hover:underline">{t('feed.login_required')}</A>
-          </p>
-        }
+        fallback={<AuthGate icon="dynamic_feed" title={t('feed.login_required')} />}
       >
         <Compose persistDraft onPosted={prepend} />
         <InfiniteList onLoadMore={loadMore} loading={loading()} done={done()}>

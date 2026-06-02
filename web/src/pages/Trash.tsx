@@ -1,5 +1,5 @@
 import { createResource, For, Show } from 'solid-js';
-import { A } from '@solidjs/router';
+import AuthGate from '../components/AuthGate';
 import { api } from '../api';
 import { me } from '../auth';
 import { relTime } from '../util';
@@ -35,11 +35,7 @@ export default function Trash() {
 
       <Show
         when={me()}
-        fallback={
-          <p class="text-on-surface-variant">
-            {t('auth.login_prefix')} <A href="/login" class="text-primary hover:underline">{t('auth.login_link')}</A>.
-          </p>
-        }
+        fallback={<AuthGate icon="delete" title={t('auth.gate.trash')} />}
       >
         <Show when={list()} fallback={<RowSkeletonList count={4} />}>
           {(rows) => (

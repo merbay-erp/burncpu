@@ -46,6 +46,15 @@ async fn stream(
         let uid = user.user_id;
         async move {
             match item {
+                // Firehose: a new public post fans out to every connected
+                // client except its author (they already see it prepended).
+                Ok(ev) if ev.kind == "new_post" => {
+                    if ev.actor_id == Some(uid) {
+                        None
+                    } else {
+                        Event::default().event("notification").json_data(&ev).ok().map(Ok)
+                    }
+                }
                 Ok(ev) if ev.user_id == uid => Event::default()
                     .event("notification")
                     .json_data(&ev)

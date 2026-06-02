@@ -95,6 +95,17 @@ export default function Layout(props: { children?: JSX.Element }) {
     pushToast(t('compose.posted'), 'ok');
     window.dispatchEvent(new CustomEvent('burncpu:posted', { detail: p }));
   };
+  // Re-trigger a gentle fade on the main content whenever the route changes.
+  let mainRef: HTMLDivElement | undefined;
+  createEffect(() => {
+    loc.pathname; // track navigation
+    const el = mainRef;
+    if (!el) return;
+    el.classList.remove('route-fade');
+    void el.offsetWidth; // force reflow so the animation replays
+    el.classList.add('route-fade');
+  });
+
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setComposeOpen(false); };
   // The command palette ("New signal" action) asks Layout to open the composer.
   const onComposeReq = () => setComposeOpen(true);
@@ -128,6 +139,12 @@ export default function Layout(props: { children?: JSX.Element }) {
         // toast, no unread badge, no persistence.
         if (ev.kind === 'typing') {
           window.dispatchEvent(new CustomEvent('burncpu:typing', { detail: ev }));
+          return;
+        }
+        // New public post firehose → the global timeline's live pill. No toast,
+        // no unread badge — purely the "N new signals" affordance.
+        if (ev.kind === 'new_post') {
+          window.dispatchEvent(new CustomEvent('burncpu:newpost', { detail: ev }));
           return;
         }
         pushToast(eventText(ev));
@@ -308,7 +325,7 @@ export default function Layout(props: { children?: JSX.Element }) {
               unbreakable token (e.g. a pasted URL) would stretch the column
               past the viewport on mobile. This lets it shrink so text wraps. */}
           <main class="min-w-0 min-h-[calc(100vh-4rem)] py-8 px-4 md:px-8 lg:px-10 xl:px-6 lg:border-r xl:border-r border-outline-variant">
-            <div class="max-w-[680px] mx-auto">
+            <div ref={mainRef} class="max-w-[680px] mx-auto route-fade">
               {props.children}
             </div>
           </main>

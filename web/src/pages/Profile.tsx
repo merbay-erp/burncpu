@@ -1,4 +1,4 @@
-import { createResource, createSignal, createEffect, For, Show } from 'solid-js';
+import { createResource, createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
 import { useParams, A } from '@solidjs/router';
 import { api, type Profile, type PostView } from '../api';
 import Post from '../components/Post';
@@ -15,6 +15,30 @@ interface BriefPost {
   reactions_count: number;
   replies_count: number;
   created_at: string;
+}
+
+// Animated counter — eases from its previous value to the new one (so a
+// follow toggle nudges by one rather than re-counting from zero).
+function CountUp(props: { value: number; class?: string }) {
+  const [n, setN] = createSignal(0);
+  let from = 0;
+  let raf = 0;
+  createEffect(() => {
+    const target = props.value || 0;
+    const begin = from;
+    const start = performance.now();
+    cancelAnimationFrame(raf);
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - start) / 700);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setN(Math.round(begin + (target - begin) * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else from = target;
+    };
+    raf = requestAnimationFrame(tick);
+  });
+  onCleanup(() => cancelAnimationFrame(raf));
+  return <span class={props.class}>{n()}</span>;
 }
 
 export default function ProfilePage() {
@@ -132,9 +156,9 @@ export default function ProfilePage() {
           <>
             {/* ── Header card ── */}
             <header class="relative overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-low p-6 mb-6">
-              <div class="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-primary/10 to-transparent pointer-events-none"></div>
+              <div class="absolute inset-x-0 top-0 h-28 profile-cover pointer-events-none"></div>
               <div class="relative flex items-start gap-4">
-                <div class="w-20 h-20 rounded-2xl bg-surface-container-highest ring-2 ring-primary/30 flex items-center justify-center text-[40px] shrink-0 overflow-hidden">
+                <div class="w-20 h-20 rounded-2xl bg-surface-container-highest ring-2 ring-primary/40 shadow-lg shadow-primary/15 flex items-center justify-center text-[40px] shrink-0 overflow-hidden">
                   <Show when={p().avatar_url} fallback={<>🐢</>}>
                     <img src={p().avatar_url!} alt="" class="w-full h-full object-cover" />
                   </Show>
@@ -157,13 +181,13 @@ export default function ProfilePage() {
 
               <div class="relative flex flex-wrap items-center gap-x-5 gap-y-1 mt-4 text-[13px]">
                 <span class="text-on-surface-variant">
-                  <strong class="text-on-background font-semibold">{p().counts.posts}</strong> {t('profile.posts_count')}
+                  <CountUp value={p().counts.posts} class="text-on-background font-semibold" /> {t('profile.posts_count')}
                 </span>
                 <A href={`/u/${p().username}/followers`} class="text-on-surface-variant hover:text-primary transition-colors">
-                  <strong class="text-on-background font-semibold">{p().counts.followers}</strong> {t('profile.followers')}
+                  <CountUp value={p().counts.followers} class="text-on-background font-semibold" /> {t('profile.followers')}
                 </A>
                 <A href={`/u/${p().username}/following`} class="text-on-surface-variant hover:text-primary transition-colors">
-                  <strong class="text-on-background font-semibold">{p().counts.following}</strong> {t('profile.following')}
+                  <CountUp value={p().counts.following} class="text-on-background font-semibold" /> {t('profile.following')}
                 </A>
                 <span class="text-on-surface-variant/70 font-mono text-[11px] sm:ml-auto">
                   {t('profile.joined')} {relTime(p().created_at)}

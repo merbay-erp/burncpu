@@ -1,4 +1,4 @@
-import { Show, createSignal, createEffect } from 'solid-js';
+import { Show, For, createSignal, createEffect, onCleanup } from 'solid-js';
 import { A } from '@solidjs/router';
 import type { PostView } from '../api';
 import { api } from '../api';
@@ -15,7 +15,13 @@ import { t } from '../i18n';
 const REACT_EMOJI = '\u{1F422}'; // 🐢
 const MAX_LEN = 5000;
 
-const ACTION_BTN = 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors';
+const ACTION_BTN = 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] text-on-surface-variant hover:text-primary hover:bg-surface-container transition-all active:scale-90';
+
+// Reaction burst — 6 sparks radiating from the heart on a fresh react.
+const REACT_SPARKS = Array.from({ length: 6 }, (_, i) => {
+  const a = (i * 60 - 90) * (Math.PI / 180);
+  return { x: Math.round(Math.cos(a) * 22), y: Math.round(Math.sin(a) * 22) };
+});
 
 export default function Post(props: {
   post: PostView;
@@ -42,6 +48,20 @@ export default function Post(props: {
   // the reply box via `onReply`, so this stays closed there.
   const [replyOpen, setReplyOpen] = createSignal(false);
   const [repliesTotal, setRepliesTotal] = createSignal(props.post.replies_count);
+  // Reaction flourish: a quick icon pop + radiating sparks on a fresh react.
+  const [burst, setBurst] = createSignal(false);
+  const [popping, setPopping] = createSignal(false);
+  let burstT: ReturnType<typeof setTimeout> | undefined;
+  let popT: ReturnType<typeof setTimeout> | undefined;
+  const fireBurst = () => {
+    setBurst(false); setPopping(false);
+    requestAnimationFrame(() => { setBurst(true); setPopping(true); });
+    if (popT) clearTimeout(popT);
+    if (burstT) clearTimeout(burstT);
+    popT = setTimeout(() => setPopping(false), 450);
+    burstT = setTimeout(() => setBurst(false), 700);
+  };
+  onCleanup(() => { if (popT) clearTimeout(popT); if (burstT) clearTimeout(burstT); });
 
   createEffect(() => {
     if (typeof props.post.viewer_reacted === 'boolean') setReacted(props.post.viewer_reacted);
@@ -103,6 +123,7 @@ export default function Post(props: {
         await api.post(`/posts/${props.post.id}/react`, { emoji: REACT_EMOJI });
         setReacted(true);
         setReactionsTotal((n) => n + 1);
+        fireBurst();
       }
     } finally { setBusy(false); }
   };
@@ -331,11 +352,19 @@ export default function Post(props: {
               disabled={!me() || busy()}
               title={me() ? t('post.react') : t('post.react_login')}
             >
-              <span
-                class="material-symbols-outlined"
-                style={reacted() ? "font-size: 18px; font-variation-settings: 'FILL' 1;" : 'font-size: 18px;'}
-              >
-                favorite
+              <span class="relative inline-flex items-center justify-center">
+                <span
+                  class="material-symbols-outlined"
+                  classList={{ 'react-pop': popping() }}
+                  style={reacted() ? "font-size: 18px; font-variation-settings: 'FILL' 1;" : 'font-size: 18px;'}
+                >
+                  favorite
+                </span>
+                <Show when={burst()}>
+                  <For each={REACT_SPARKS}>
+                    {(s) => <span class="react-spark" style={`--tx:${s.x}px;--ty:${s.y}px`} />}
+                  </For>
+                </Show>
               </span>
               <Show when={reactionsTotal() > 0}>
                 <span class={`font-mono text-[12px] ${reacted() ? 'text-primary' : ''}`}>

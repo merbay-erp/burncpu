@@ -114,7 +114,7 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 
 ## Specific risks accepted (for now)
 
-1. **Federation is live but young.** ActivityPub (HTTP Signatures, WebFinger, NodeInfo) is **enabled in production** (`FEDERATION_ENABLED=true`). It carries a long tail of abuse vectors (relay spam, remote-content cache, illegal content propagation); remote actor fetches are now size-capped via a streaming read (`net_safety::read_capped_bytes`), but the surface is still maturing — moderation tooling grows alongside it.
+1. **Federation is live but young.** ActivityPub (HTTP Signatures, WebFinger, NodeInfo) is **enabled in production** (`FEDERATION_ENABLED=true`). It carries a long tail of abuse vectors (relay spam, remote-content cache, illegal content propagation); remote actor fetches are now size-capped via a streaming read (`net_safety::read_capped_bytes`), and an admin instance-level defederation blocklist (`federation_blocks`) lets a malicious host be cut off — its inbound activities are rejected and it is skipped on outbound fanout. The surface is still maturing; moderation tooling grows alongside it.
 2. **AI/ML spam classification is still future.** A first heuristic layer now exists — a trust gate sends brand-new accounts' top-level public posts to a moderation queue (`moderation_state='quarantine'`) for admin approval — on top of invite-gating and per-(IP, email) rate limits. A learned/scored classifier (`spam_score`) is the next layer.
 3. **No custom WAF rules beyond Cloudflare defaults.** Tailored rules need real traffic patterns to observe first.
 4. **Single admin / no fine-grained RBAC.** One admin role gated by 2FA; multi-admin separation of duties is future work.
@@ -145,6 +145,10 @@ live. The threat tables above reflect these as active mitigations.
   now re-hosted through the media pipeline on save (SSRF-guarded fetch, size
   cap, EXIF strip, content-addressed `/media`), so viewing a profile no longer
   leaks the viewer to a third party. Per-user rate-limited; fail-closed.
+- **Instance-level defederation**: an admin blocklist (`federation_blocks`,
+  host-keyed) is the one moderation lever federation needed — a blocked host's
+  inbound `POST /inbox` activities are rejected (`403`) and the host is skipped
+  on outbound fanout. Managed from the admin panel (Federated instances).
 - **Clickjacking / missing headers on the SPA**: the full security-header set
   (HSTS, CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, COOP,
   CORP) is now applied to static/SPA responses, not just proxied routes. The

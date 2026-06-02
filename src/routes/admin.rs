@@ -25,7 +25,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, patch},
+    routing::{delete, get, patch, post},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
@@ -53,6 +53,102 @@ pub fn router() -> Router<AppState> {
         .route("/audit", get(audit))
         .route("/sessions", get(sessions))
         .route("/moderation_log", get(mod_log))
+        .route("/federation/instances", get(fed_instances))
+        .route("/federation/blocks", post(fed_block))
+        .route("/federation/blocks/{host}", delete(fed_unblock))
+}
+
+// ─── Federation: instance list + defederation blocklist ─────────
+
+#[derive(Serialize, sqlx::FromRow)]
+struct FedInstance {
+    host: String,
+    followers: i64,
+    blocked: bool,
+    reason: Option<String>,
+}
+
+async fn fed_instances(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<Json<Vec<FedInstance>>, AppError> {
+    // Known instances (with remote-follower counts) unioned with blocked hosts
+    // that may have no actors yet.
+    let rows: Vec<FedInstance> = sqlx::query_as(
+        r#"
+        SELECT host,
+               SUM(followers)::bigint AS followers,
+               bool_or(blocked)       AS blocked,
+               MAX(reason)            AS reason
+        FROM (
+            SELECT fa.host AS host,
+                   COUNT(DISTINCT ff.local_user_id) AS followers,
+                   false AS blocked,
+                   NULL::text AS reason
+            FROM federation_actors fa
+            LEFT JOIN federation_followers ff ON ff.remote_actor_uri = fa.uri
+            GROUP BY fa.host
+            UNION ALL
+            SELECT host, 0, true, reason FROM federation_blocks
+        ) x
+        GROUP BY host
+        ORDER BY blocked DESC, followers DESC, host
+        LIMIT 200
+        "#,
+    )
+    .fetch_all(&state.pg)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Deserialize)]
+pub struct BlockBody {
+    host: String,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+fn normalize_host(raw: &str) -> Option<String> {
+    let h = raw.trim().trim_start_matches("https://").trim_start_matches("http://");
+    let h = h.split('/').next().unwrap_or("").to_lowercase();
+    if h.is_empty()
+        || h.len() > 253
+        || !h.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+    {
+        return None;
+    }
+    Some(h)
+}
+
+async fn fed_block(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(input): Json<BlockBody>,
+) -> Result<StatusCode, AppError> {
+    let host = normalize_host(&input.host)
+        .ok_or_else(|| AppError::BadRequest("invalid host".into()))?;
+    // The federation_blocks row (host, reason, created_at) is the audit record.
+    sqlx::query(
+        "INSERT INTO federation_blocks (host, reason) VALUES ($1, $2)
+         ON CONFLICT (host) DO UPDATE SET reason = EXCLUDED.reason",
+    )
+    .bind(&host)
+    .bind(input.reason.as_deref())
+    .execute(&state.pg)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn fed_unblock(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Path(host): Path<String>,
+) -> Result<StatusCode, AppError> {
+    sqlx::query("DELETE FROM federation_blocks WHERE host = $1")
+        .bind(host.to_lowercase())
+        .execute(&state.pg)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Serialize)]

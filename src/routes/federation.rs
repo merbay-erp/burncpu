@@ -323,6 +323,14 @@ async fn inbox(
     let activity: IncomingActivity = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::BadRequest(format!("invalid AS2: {e}")))?;
 
+    // Defederation: reject activities from a blocked instance before any
+    // outbound actor fetch (so a blocked host can't even make us GET its actor).
+    if let Some(host) = crate::federation::host_of(&activity.actor)
+        && crate::federation::is_host_blocked(&state, &host).await
+    {
+        return Err(AppError::Forbidden);
+    }
+
     // The signing key must live on the same origin as the claimed actor, so a
     // request can't point keyId at one host and actor at another to make us
     // fetch an unrelated target.

@@ -1,4 +1,4 @@
-import { createResource, For, Show } from 'solid-js';
+import { createResource, createSignal, For, Show } from 'solid-js';
 import { A } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
@@ -69,6 +69,13 @@ interface ReportRow {
   resolution: string | null;
 }
 
+interface FedInstance {
+  host: string;
+  followers: number;
+  blocked: boolean;
+  reason: string | null;
+}
+
 const fmtBytes = (n: number) => {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -103,6 +110,34 @@ export default function Admin() {
   const moderate = async (id: string, moderation_state: 'live' | 'removed') => {
     await api.patch(`/admin/posts/${id}`, { moderation_state });
     refetchPending();
+  };
+
+  const [instances, { refetch: refetchInstances }] = createResource<FedInstance[]>(() =>
+    api.get<FedInstance[]>('/admin/federation/instances'),
+  );
+  const [blockHost, setBlockHost] = createSignal('');
+  const [fedBusy, setFedBusy] = createSignal(false);
+  const blockInstance = async (host: string, reason?: string) => {
+    const h = host.trim();
+    if (!h || fedBusy()) return;
+    setFedBusy(true);
+    try {
+      await api.post('/admin/federation/blocks', { host: h, reason: reason || null });
+      setBlockHost('');
+      await refetchInstances();
+    } finally {
+      setFedBusy(false);
+    }
+  };
+  const unblockInstance = async (host: string) => {
+    if (fedBusy()) return;
+    setFedBusy(true);
+    try {
+      await api.del(`/admin/federation/blocks/${encodeURIComponent(host)}`);
+      await refetchInstances();
+    } finally {
+      setFedBusy(false);
+    }
   };
 
   return (
@@ -203,6 +238,62 @@ export default function Admin() {
               )}
             </For>
           </div>
+        </Show>
+
+        <h3 style="margin-top: 22px;">{t('admin.federation')}</h3>
+        <p class="muted tiny" style="margin: -4px 0 10px;">{t('admin.fed_hint')}</p>
+        <form
+          style="display: flex; gap: 8px; margin-bottom: 12px;"
+          onSubmit={(e) => {
+            e.preventDefault();
+            blockInstance(blockHost());
+          }}
+        >
+          <input
+            type="text"
+            placeholder="spam.example"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck={false}
+            value={blockHost()}
+            onInput={(e) => setBlockHost(e.currentTarget.value)}
+            style="flex: 1; min-width: 0;"
+          />
+          <button type="submit" class="primary" disabled={!blockHost().trim() || fedBusy()}>
+            {t('admin.fed_block')}
+          </button>
+        </form>
+        <Show when={instances()} fallback={<p class="muted">…</p>}>
+          {(rows) => (
+            <div style="margin-bottom: 22px;">
+              <For each={rows()} fallback={<p class="muted tiny">{t('admin.fed_none')}</p>}>
+                {(i) => (
+                  <div style="padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: baseline; font-size: 13px;">
+                    <code style="font-size: 12px;">{i.host}</code>
+                    <span class="tiny muted">{i.followers} {t('admin.fed_followers')}</span>
+                    <Show when={i.blocked}>
+                      <span class="tiny" style="color: var(--bad);">
+                        {t('admin.fed_blocked')}{i.reason ? ` · ${i.reason}` : ''}
+                      </span>
+                    </Show>
+                    <span style="margin-left: auto;" />
+                    <Show
+                      when={i.blocked}
+                      fallback={
+                        <button class="ghost tiny" disabled={fedBusy()} onClick={() => blockInstance(i.host)}>
+                          {t('admin.fed_block')}
+                        </button>
+                      }
+                    >
+                      <button class="ghost tiny" disabled={fedBusy()} onClick={() => unblockInstance(i.host)}>
+                        {t('admin.fed_unblock')}
+                      </button>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </div>
+          )}
         </Show>
 
         <h3>{t('admin.recent_posts')}</h3>

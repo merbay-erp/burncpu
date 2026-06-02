@@ -390,6 +390,24 @@ pub async fn fetch_actor(state: &AppState, uri: &str) -> Result<RemoteActor> {
 
 // ─── Outbound: fan a local public Create to remote followers ──
 
+/// Extract the lowercased host from an actor/object URI.
+pub fn host_of(uri: &str) -> Option<String> {
+    url::Url::parse(uri)
+        .ok()?
+        .host_str()
+        .map(|h| h.to_lowercase())
+}
+
+/// Whether an instance is defederated (admin blocklist). Fail-open: a transient
+/// DB error must not silently sever all federation.
+pub async fn is_host_blocked(state: &AppState, host: &str) -> bool {
+    sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM federation_blocks WHERE host = $1)")
+        .bind(host)
+        .fetch_one(&state.pg)
+        .await
+        .unwrap_or(false)
+}
+
 pub async fn fanout_post(state: &AppState, post_id: Uuid) {
     if !state.config.federation_enabled {
         return;
@@ -424,6 +442,7 @@ pub async fn fanout_post(state: &AppState, post_id: Uuid) {
         FROM federation_followers f
         JOIN federation_actors a ON a.uri = f.remote_actor_uri
         WHERE f.local_user_id = $1 AND f.accepted = true
+          AND a.host NOT IN (SELECT host FROM federation_blocks)
         "#,
     )
     .bind(author_id)

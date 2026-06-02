@@ -15,8 +15,8 @@
 use crate::{errors::AppError, middleware::session::CurrentUser, state::AppState};
 use axum::{
     Json, Router,
-    extract::State,
-    http::{HeaderMap, HeaderValue, header},
+    extract::{Path, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::IntoResponse,
     routing::{delete, get, post},
 };
@@ -32,6 +32,57 @@ pub fn router() -> Router<AppState> {
         .route("/vapid-public-key", get(vapid_public))
         .route("/subscribe", post(subscribe))
         .route("/unsubscribe", delete(unsubscribe))
+        .route("/device", post(register_device))
+        .route("/device/{token}", delete(unregister_device))
+}
+
+// ── Native mobile push tokens (APNs / FCM) ──────────────────────
+//
+// The iOS/Android app registers its device token here. Delivery to these
+// tokens needs an APNs key / FCM credential configured server-side (the web
+// path above uses Web Push/VAPID); storage + lifecycle are handled regardless.
+
+#[derive(Deserialize)]
+struct DeviceTokenBody {
+    token: String,
+    platform: String,
+}
+
+async fn register_device(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Json(body): Json<DeviceTokenBody>,
+) -> Result<StatusCode, AppError> {
+    if body.token.trim().is_empty() || body.token.len() > 512 {
+        return Err(AppError::BadRequest("invalid token".into()));
+    }
+    let platform = match body.platform.as_str() {
+        "ios" | "android" => body.platform.as_str(),
+        _ => "unknown",
+    };
+    sqlx::query(
+        "INSERT INTO device_push_tokens (user_id, token, platform) VALUES ($1, $2, $3)
+         ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform",
+    )
+    .bind(user.user_id)
+    .bind(&body.token)
+    .bind(platform)
+    .execute(&state.pg)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn unregister_device(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(token): Path<String>,
+) -> Result<StatusCode, AppError> {
+    sqlx::query("DELETE FROM device_push_tokens WHERE user_id = $1 AND token = $2")
+        .bind(user.user_id)
+        .bind(&token)
+        .execute(&state.pg)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // Known Web Push provider host suffixes. `validate_public_http_url` blocks

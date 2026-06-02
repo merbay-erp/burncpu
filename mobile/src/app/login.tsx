@@ -4,6 +4,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { api } from '@/api';
+import { probeSession } from '@/auth';
+import { loginWithPasskey, passkeySupported } from '@/passkey';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
 
@@ -18,6 +20,23 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [pkBusy, setPkBusy] = useState(false);
+
+  const passkey = async () => {
+    if (pkBusy) return;
+    setPkBusy(true);
+    setErr(null);
+    try {
+      await loginWithPasskey();
+      await probeSession();
+      router.back();
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg && msg !== 'cancelled') setErr(t('login.passkey_error'));
+    } finally {
+      setPkBusy(false);
+    }
+  };
 
   const submit = async () => {
     if (!email.trim() || busy) return;
@@ -100,6 +119,20 @@ export default function Login() {
             >
               <Text style={s.submitText}>{busy ? t('login.sending') : t('login.submit')}</Text>
             </Pressable>
+
+            {passkeySupported() ? (
+              <>
+                <View style={s.divider}>
+                  <View style={s.line} />
+                  <Text style={s.or}>{t('login.or')}</Text>
+                  <View style={s.line} />
+                </View>
+                <Pressable style={[s.passkey, pkBusy && { opacity: 0.4 }]} onPress={passkey} disabled={pkBusy}>
+                  <Ionicons name="key-outline" size={18} color={colors.onBackground} />
+                  <Text style={s.passkeyText}>{pkBusy ? t('login.passkey_busy') : t('login.passkey')}</Text>
+                </Pressable>
+              </>
+            ) : null}
           </>
         )}
       </View>
@@ -140,6 +173,11 @@ const styles = (c: Palette) =>
     err: { color: c.error, fontFamily: fonts.mono, fontSize: 13, marginBottom: 12 },
     submit: { backgroundColor: c.primary, borderRadius: radius, paddingVertical: 13, alignItems: 'center' },
     submitText: { color: c.onPrimary, fontFamily: fonts.bold, fontSize: 14 },
+    divider: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 16 },
+    line: { flex: 1, height: 1, backgroundColor: c.outlineVariant },
+    or: { color: c.fg3, fontFamily: fonts.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 },
+    passkey: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderColor: c.outlineVariant, borderWidth: 1, borderRadius: radius, paddingVertical: 12 },
+    passkeyText: { color: c.onBackground, fontFamily: fonts.bold, fontSize: 14 },
     sent: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', backgroundColor: `${c.primary}1a`, borderColor: `${c.primary}4d`, borderWidth: 1, borderRadius: 12, padding: 16 },
     sentTitle: { color: c.onBackground, fontFamily: fonts.bold, fontSize: 14, marginBottom: 2 },
     sentBody: { color: c.onSurfaceVariant, fontSize: 13, lineHeight: 19 },

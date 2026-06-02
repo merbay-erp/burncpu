@@ -12,7 +12,10 @@
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.burncpu.app",
       "supportsTablet": true,
-      "associatedDomains": ["applinks:burncpu.com"]
+      "associatedDomains": [
+        "applinks:burncpu.com",
+        "webcredentials:burncpu.com"
+      ]
     },
     "android": {
       "package": "com.burncpu.app",
@@ -27,8 +30,17 @@
         {
           "action": "VIEW",
           "autoVerify": true,
-          "data": [{ "scheme": "https", "host": "burncpu.com", "pathPrefix": "/auth/verify" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "https",
+              "host": "burncpu.com",
+              "pathPrefix": "/auth/verify"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -46,6 +58,13 @@
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 76
           }
+        }
+      ],
+      "expo-build-properties",
+      [
+        "expo-notifications",
+        {
+          "color": "#ff8a3c"
         }
       ]
     ],

@@ -69,6 +69,8 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "PATCH  /api/v1/notifications/read":   "bulk mark all read",
                         "PATCH  /api/v1/notifications/{id}/read": "mark single read",
                         "GET    /api/v1/notifications/stream": "SSE live notifications",
+                        "POST   /api/v1/push/device":          "register a native APNs/FCM device token (auth)",
+                        "DELETE /api/v1/push/device/{token}":  "remove a device token (auth)",
                         "POST   /api/v1/media":                "upload image (multipart, max 5 MiB)",
                         "GET    /api/v1/media":                "list your uploads",
                         "DELETE /api/v1/media/{id}":           "delete own upload",

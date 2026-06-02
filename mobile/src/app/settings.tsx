@@ -4,8 +4,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
+import { Alert } from 'react-native';
 import { api } from '@/api';
 import { useMe, logout } from '@/auth';
+import { registerPasskey, listPasskeys, deletePasskey, passkeySupported, type PasskeyInfo } from '@/passkey';
 import { fonts, radius, useTheme, type Palette, type Scheme } from '@/theme';
 import { t, useLocale, setLocale, type Locale } from '@/i18n';
 
@@ -23,15 +25,36 @@ export default function Settings() {
   const s = styles(colors);
 
   const [sessions, setSessions] = useState<number | null>(null);
-  const [passkeys, setPasskeys] = useState<number | null>(null);
   const [twofa, setTwofa] = useState<boolean | null>(null);
+  const [passkeyList, setPasskeyList] = useState<PasskeyInfo[]>([]);
+  const [pkBusy, setPkBusy] = useState(false);
+
+  const loadPasskeys = () => listPasskeys().then(setPasskeyList).catch(() => {});
 
   useEffect(() => {
     if (!me) return;
     api.get<SecurityInfo>('/users/me/security').then((r) => setSessions(r.sessions?.length ?? 0)).catch(() => {});
-    api.get<unknown[]>('/auth/passkeys').then((r) => setPasskeys(r.length)).catch(() => {});
     api.get<{ confirmed?: boolean }>('/auth/2fa/status').then((r) => setTwofa(!!r.confirmed)).catch(() => {});
+    loadPasskeys();
   }, [me]);
+
+  const addPasskey = async () => {
+    if (pkBusy) return;
+    setPkBusy(true);
+    try {
+      await registerPasskey();
+      loadPasskeys();
+    } catch (e) {
+      const m = (e as Error).message;
+      if (m && m !== 'cancelled') Alert.alert('burncpu', t('settings.passkey_error'));
+    } finally {
+      setPkBusy(false);
+    }
+  };
+  const removePasskey = async (id: string) => {
+    await deletePasskey(id);
+    loadPasskeys();
+  };
 
   const Segmented = <T extends string>({
     value,
@@ -90,7 +113,27 @@ export default function Settings() {
           <>
             <Text style={s.section}>{t('settings.security')}</Text>
             <InfoRow label={t('settings.twofa')} value={twofa == null ? '…' : twofa ? t('settings.on') : t('settings.off')} c={colors} />
-            <InfoRow label={t('settings.passkeys')} value={passkeys == null ? '…' : String(passkeys)} c={colors} />
+            {passkeySupported() ? (
+              <>
+                <View style={s.row}>
+                  <Text style={s.rowLabel}>{t('settings.passkeys')}</Text>
+                  <Pressable style={[s.addBtn, pkBusy && { opacity: 0.5 }]} onPress={addPasskey} disabled={pkBusy}>
+                    <Ionicons name="add" size={15} color={colors.onPrimary} />
+                    <Text style={s.addText}>{t('settings.add_passkey')}</Text>
+                  </Pressable>
+                </View>
+                {passkeyList.map((pk) => (
+                  <View key={pk.id} style={[s.row, { borderTopWidth: 1, borderTopColor: colors.outlineVariant }]}>
+                    <Text style={s.rowLabel}>🔑 {pk.name || t('settings.passkey')}</Text>
+                    <Pressable onPress={() => removePasskey(pk.id)} hitSlop={8}>
+                      <Ionicons name="trash-outline" size={18} color={colors.error} />
+                    </Pressable>
+                  </View>
+                ))}
+              </>
+            ) : (
+              <InfoRow label={t('settings.passkeys')} value={String(passkeyList.length)} c={colors} />
+            )}
             <InfoRow label={t('settings.sessions')} value={sessions == null ? '…' : String(sessions)} c={colors} />
 
             <Text style={s.section}>{t('settings.account')}</Text>
@@ -137,6 +180,8 @@ const styles = (c: Palette) =>
     segActive: { backgroundColor: c.primary },
     segText: { color: c.onSurfaceVariant, fontFamily: fonts.semibold, fontSize: 13 },
     segTextActive: { color: c.onPrimary },
+    addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.primary, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+    addText: { color: c.onPrimary, fontFamily: fonts.bold, fontSize: 12 },
     logout: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 16, marginTop: 8 },
     logoutText: { color: c.error, fontFamily: fonts.semibold, fontSize: 15 },
   });

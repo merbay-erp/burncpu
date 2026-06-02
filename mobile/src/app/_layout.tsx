@@ -15,7 +15,8 @@ import {
 import { GeistMono_400Regular, GeistMono_500Medium } from '@expo-google-fonts/geist-mono';
 
 import { palettes, ThemeContext, type Scheme } from '@/theme';
-import { hydrate as hydrateAuth } from '@/auth';
+import { hydrate as hydrateAuth, probeSession } from '@/auth';
+import { registerPushToken } from '@/push';
 import { hydrateLocale } from '@/i18n';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -47,6 +48,12 @@ export default function RootLayout() {
         /* ignore */
       }
       setBooted(true);
+      // refresh the session against the server, then register for push if signed in
+      probeSession()
+        .then((ok) => {
+          if (ok) registerPushToken();
+        })
+        .catch(() => {});
     })();
   }, []);
 

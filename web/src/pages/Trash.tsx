@@ -3,6 +3,8 @@ import { A } from '@solidjs/router';
 import { api } from '../api';
 import { me } from '../auth';
 import { relTime } from '../util';
+import Avatar from '../components/Avatar';
+import { RowSkeletonList } from '../components/Skeleton';
 import { t } from '../i18n';
 
 interface TrashedPost {
@@ -23,46 +25,65 @@ export default function Trash() {
     refetch();
   };
 
-  const daysLeft = (deleted_at: string): number => {
-    const d = Date.parse(deleted_at);
-    const left = 30 - Math.floor((Date.now() - d) / 86400000);
-    return Math.max(0, left);
-  };
+  const daysLeft = (d: string): number =>
+    Math.max(0, 30 - Math.floor((Date.now() - Date.parse(d)) / 86400000));
 
   return (
-    <>
-      <h2 class="page-title">
-        {t('nav.trash')} <small>{t('trash.retention_note')}</small>
-      </h2>
-      <Show when={me()} fallback={<p class="muted">{t('auth.login_prefix')} <A href="/login">{t('auth.login_link')}</A>.</p>}>
-        <Show when={list()} fallback={<p class="muted">{t('common.loading')}</p>}>
+    <div>
+      <h1 class="text-[24px] md:text-[28px] font-bold tracking-tight text-on-background mb-1">{t('nav.trash')}</h1>
+      <p class="text-on-surface-variant font-mono text-[12px] mb-5">{t('trash.retention_note')}</p>
+
+      <Show
+        when={me()}
+        fallback={
+          <p class="text-on-surface-variant">
+            {t('auth.login_prefix')} <A href="/login" class="text-primary hover:underline">{t('auth.login_link')}</A>.
+          </p>
+        }
+      >
+        <Show when={list()} fallback={<RowSkeletonList count={4} />}>
           {(rows) => (
-            <For each={rows()} fallback={<p class="muted">{t('trash.empty')}</p>}>
-              {(p) => (
-                <article class="post">
-                  <div class="post-head">
-                    <span class="time" style="color: var(--fg-3);">
-                      {t('trash.deleted_prefix')} {relTime(p.deleted_at)}
-                    </span>
-                    <span class="tiny" style={`margin-left: auto; color: ${daysLeft(p.deleted_at) <= 3 ? 'var(--bad)' : 'var(--warn)'};`}>
-                      {daysLeft(p.deleted_at)} {t('trash.days_left')}
-                    </span>
-                  </div>
-                  <div
-                    class="post-body muted"
-                    style="white-space: pre-wrap;"
-                  >
-                    {p.body}
-                  </div>
-                  <div class="post-foot tiny">
-                    <button class="primary tiny" onClick={() => restore(p.id)}>{t('trash.restore')}</button>
-                  </div>
-                </article>
-              )}
-            </For>
+            <Show
+              when={rows().length > 0}
+              fallback={
+                <div class="p-10 border border-dashed border-outline-variant rounded-2xl text-center">
+                  <div class="text-[32px] mb-2">🗑️</div>
+                  <p class="text-on-surface-variant font-mono text-[14px]">{t('trash.empty')}</p>
+                </div>
+              }
+            >
+              <div class="space-y-3">
+                <For each={rows()}>
+                  {(p) => (
+                    <article class="p-4 bg-surface-container-low border border-outline-variant rounded-2xl">
+                      <div class="flex gap-3">
+                        <Avatar url={me()?.avatar_url} name={me()?.display_name} size={36} class="rounded-xl opacity-60" />
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2 text-[12px] font-mono mb-1.5">
+                            <span class="text-on-surface-variant">{t('trash.deleted_prefix')} {relTime(p.deleted_at)}</span>
+                            <span class={`ml-auto ${daysLeft(p.deleted_at) <= 3 ? 'text-error' : 'text-on-surface-variant/70'}`}>
+                              {daysLeft(p.deleted_at)} {t('trash.days_left')}
+                            </span>
+                          </div>
+                          <p class="text-on-surface/80 text-[14px] leading-relaxed line-clamp-3 whitespace-pre-wrap break-words">
+                            {p.body}
+                          </p>
+                          <button
+                            onClick={() => restore(p.id)}
+                            class="mt-3 px-3 py-1.5 rounded-lg bg-primary text-on-primary font-bold font-mono text-[12px] hover:opacity-90 active:scale-95 transition-all inline-flex items-center gap-1.5"
+                          >
+                            <span class="material-symbols-outlined" style="font-size:15px;">restore</span> {t('trash.restore')}
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  )}
+                </For>
+              </div>
+            </Show>
           )}
         </Show>
       </Show>
-    </>
+    </div>
   );
 }

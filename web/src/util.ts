@@ -42,6 +42,56 @@ export function firstUrl(text: string): string | null {
   return u.length > 10 && /^https?:\/\/[^/]+\.[^/]/i.test(u) ? u : null;
 }
 
+/// Remove a URL from rendered post HTML once it's shown as a preview card, so
+/// the raw link doesn't appear twice. DOM-based (robust to anchors vs plain
+/// text); tidies up the now-trailing <br> / empty paragraph it leaves behind.
+export function stripUrl(html: string, url: string): string {
+  if (!html || !url || typeof document === 'undefined') return html;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  let removed = false;
+  // 1) An anchor that *is* this URL.
+  for (const a of Array.from(tmp.querySelectorAll('a'))) {
+    if (a.getAttribute('href') === url || (a.textContent || '').trim() === url) {
+      const prev = a.previousSibling;
+      a.remove();
+      if (prev && prev.nodeName === 'BR') prev.remove();
+      removed = true;
+      break;
+    }
+  }
+  // 2) A plain-text occurrence.
+  if (!removed) {
+    const walker = document.createTreeWalker(tmp, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      const text = node.nodeValue || '';
+      const idx = text.indexOf(url);
+      if (idx !== -1) {
+        node.nodeValue = text.slice(0, idx) + text.slice(idx + url.length);
+        if (!(node.nodeValue || '').trim()) {
+          const prev = (node as ChildNode).previousSibling;
+          if (prev && prev.nodeName === 'BR') prev.remove();
+        }
+        break;
+      }
+      node = walker.nextNode();
+    }
+  }
+  // 3) Tidy: drop trailing <br>/whitespace and any now-empty paragraph.
+  for (const p of Array.from(tmp.querySelectorAll('p'))) {
+    while (
+      p.lastChild &&
+      (p.lastChild.nodeName === 'BR' ||
+        (p.lastChild.nodeType === 3 && !(p.lastChild.nodeValue || '').trim()))
+    ) {
+      p.lastChild.remove();
+    }
+    if (!(p.textContent || '').trim() && !p.querySelector('img, a')) p.remove();
+  }
+  return tmp.innerHTML;
+}
+
 /// Lightweight linkifier for snippet / search-result views that only have the
 /// raw post body (Meilisearch hits carry `body`, not the server-rendered
 /// `body_html`). HTML-escapes first, then turns @mentions and #hashtags into

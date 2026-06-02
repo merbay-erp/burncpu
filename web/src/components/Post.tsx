@@ -7,7 +7,7 @@ import { pushToast } from './Toast';
 import Compose from './Compose';
 import LinkCard from './LinkCard';
 import Avatar from './Avatar';
-import { relTime, visibleLength, firstUrl } from '../util';
+import { relTime, visibleLength, firstUrl, stripUrl } from '../util';
 import { t } from '../i18n';
 
 // "Yaşlı mühendis kulübü" pact: single-emoji react (the brand turtle).
@@ -71,6 +71,15 @@ export default function Post(props: {
   const [body, setBody] = createSignal(props.post.body);
   const [bodyHtml, setBodyHtml] = createSignal(props.post.body_html);
   const [edited, setEdited] = createSignal(false);
+  // Link unfurl: hide the raw URL from the body once a preview card renders for
+  // it (optimistically — restored if the link turns out to have no preview).
+  const [noPreview, setNoPreview] = createSignal(false);
+  const previewUrl = () => firstUrl(body());
+  const displayHtml = () => {
+    const u = previewUrl();
+    const html = bodyHtml() || body();
+    return u && !noPreview() ? stripUrl(html, u) : html;
+  };
   const [deleted, setDeleted] = createSignal(false);
   const [cwOpen, setCwOpen] = createSignal(false);
   const [menuOpen, setMenuOpen] = createSignal(false);
@@ -254,9 +263,9 @@ export default function Post(props: {
                 when={props.post.content_warning && !cwOpen()}
                 fallback={
                   <>
-                    <div class="post-body mt-2 text-on-surface text-body-md" innerHTML={bodyHtml() || body()} />
-                    <Show when={firstUrl(body())}>
-                      {(u) => <LinkCard url={u()} />}
+                    <div class="post-body mt-2 text-on-surface text-body-md" innerHTML={displayHtml()} />
+                    <Show when={previewUrl()}>
+                      {(u) => <LinkCard url={u()} onResolved={(has) => setNoPreview(!has)} />}
                     </Show>
                   </>
                 }

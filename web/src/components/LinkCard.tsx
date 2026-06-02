@@ -1,4 +1,4 @@
-import { Show, createResource, createMemo, type JSX } from 'solid-js';
+import { Show, createResource, createMemo, createEffect, type JSX } from 'solid-js';
 import { fetchLinkPreview, type LinkPreview } from '../api';
 
 // Dedupe across every card in the session: the same URL is fetched once, and
@@ -36,10 +36,17 @@ export default function LinkCard(props: {
   url: string;
   interactive?: boolean;
   onRemove?: () => void;
+  // Fired once the fetch settles: true if a card rendered, false if no preview.
+  onResolved?: (hasPreview: boolean) => void;
 }) {
   const [data] = createResource(() => props.url, load);
   const preview = createMemo(() => data() ?? null);
   const interactive = () => props.interactive !== false;
+
+  createEffect(() => {
+    if (data.loading) return;
+    props.onResolved?.(preview() != null);
+  });
 
   const Inner = (p: LinkPreview): JSX.Element => (
     <>

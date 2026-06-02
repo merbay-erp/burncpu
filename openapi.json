@@ -1,0 +1,592 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "burncpu API",
+    "version": "0.0.0",
+    "summary": "Public HTTP API for the burncpu social platform.",
+    "description": "Machine-readable description of the burncpu API.\n\n## Authentication\n\nTwo schemes are supported:\n\n- **cookieAuth** — the `burncpu_session` HttpOnly cookie set by the magic-link\n  flow (`/auth/verify/{token}`). Required for all account-sensitive and admin\n  endpoints. State-changing requests are also CSRF-protected (same-origin).\n- **bearerAuth** — `Authorization: Bearer <token>` using an API token from\n  `POST /tokens`. Works on scoped, non-session endpoints only (e.g. read\n  timelines, create posts); it does **not** satisfy admin or 2FA-gated routes.\n\nEndpoints with no `security` are public. The `version` field is stamped from\nthe running server build.",
+    "contact": { "name": "burncpu", "url": "https://burncpu.com" },
+    "license": { "name": "Proprietary" }
+  },
+  "servers": [
+    { "url": "https://burncpu.com/api/v1", "description": "Production" }
+  ],
+  "tags": [
+    { "name": "Auth", "description": "Passwordless magic-link auth + TOTP 2FA" },
+    { "name": "Posts", "description": "Create, read, react, reply, repost" },
+    { "name": "Feed", "description": "Personal home timeline" },
+    { "name": "Users", "description": "Profiles, follows, account" },
+    { "name": "Relations", "description": "Block + mute" },
+    { "name": "Notifications", "description": "Inbox + live stream" },
+    { "name": "Media", "description": "Image uploads" },
+    { "name": "Bookmarks", "description": "Saved posts" },
+    { "name": "Direct Messages", "description": "1:1 DMs (mutual-follow gated)" },
+    { "name": "Search", "description": "Full-text + hashtag search and follow" },
+    { "name": "Trending", "description": "Trending hashtags + posts" },
+    { "name": "Invites", "description": "Invite codes" },
+    { "name": "Tokens", "description": "API bearer tokens" },
+    { "name": "Webhooks", "description": "Outgoing event webhooks" },
+    { "name": "Reports", "description": "User reports" },
+    { "name": "Admin", "description": "Moderation + operations (admin session)" }
+  ],
+  "paths": {
+    "/auth/request": {
+      "post": {
+        "tags": ["Auth"], "summary": "Request a magic-link email",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["email"], "properties": { "email": { "type": "string", "format": "email" } } } } } },
+        "responses": { "204": { "description": "Always 204 (no account enumeration); rate-limited per (IP, email)." }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/auth/verify/{token}": {
+      "parameters": [ { "$ref": "#/components/parameters/TokenPath" } ],
+      "get": {
+        "tags": ["Auth"], "summary": "Scanner-safe redirect to the confirmation page", "security": [],
+        "responses": { "303": { "description": "Redirect to the SPA confirmation page (does not consume the token)." } }
+      },
+      "post": {
+        "tags": ["Auth"], "summary": "Consume token and start a session", "security": [],
+        "responses": { "200": { "description": "Session established; sets the burncpu_session cookie.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Me" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/auth/logout": {
+      "post": { "tags": ["Auth"], "summary": "Revoke the current session", "responses": { "204": { "description": "Session revoked; cookie cleared." } } }
+    },
+    "/auth/2fa/enroll": {
+      "post": { "tags": ["Auth"], "summary": "Enroll TOTP", "description": "Returns an otpauth:// URI and one-time recovery codes.", "security": [ { "cookieAuth": [] } ],
+        "responses": { "200": { "description": "Enrollment payload", "content": { "application/json": { "schema": { "type": "object", "properties": { "otpauth_uri": { "type": "string" }, "recovery_codes": { "type": "array", "items": { "type": "string" } } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/auth/2fa/confirm": {
+      "post": { "tags": ["Auth"], "summary": "Activate TOTP by confirming the first code", "security": [ { "cookieAuth": [] } ], "requestBody": { "$ref": "#/components/requestBodies/TotpCode" }, "responses": { "204": { "description": "TOTP activated." }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" } } }
+    },
+    "/auth/2fa/challenge": {
+      "post": { "tags": ["Auth"], "summary": "Satisfy 2FA on a pending session", "security": [ { "cookieAuth": [] } ], "requestBody": { "$ref": "#/components/requestBodies/TotpCode" }, "responses": { "204": { "description": "2FA satisfied; session fully authenticated." }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" } } }
+    },
+    "/auth/2fa/disable": {
+      "post": { "tags": ["Auth"], "summary": "Remove TOTP (requires a current code)", "security": [ { "cookieAuth": [] } ], "requestBody": { "$ref": "#/components/requestBodies/TotpCode" }, "responses": { "204": { "description": "TOTP removed." }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" } } }
+    },
+
+    "/posts": {
+      "get": { "tags": ["Posts"], "summary": "Public timeline", "security": [], "parameters": [ { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ], "responses": { "200": { "description": "Paginated public posts", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } } } },
+      "post": { "tags": ["Posts"], "summary": "Create a post", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreatePost" } } } }, "responses": { "201": { "description": "Created and live", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreatePostResponse" } } } }, "202": { "description": "Accepted into the moderation queue (new-account trust gate)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreatePostResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" } } }
+    },
+    "/posts/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "get": { "tags": ["Posts"], "summary": "Fetch a single post", "security": [], "responses": { "200": { "description": "Post", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "patch": { "tags": ["Posts"], "summary": "Edit a post (author only)", "description": "Sets `edited_at`.", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["body"], "properties": { "body": { "type": "string" }, "content_warning": { "type": "string" } } } } } }, "responses": { "200": { "description": "Updated post", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "delete": { "tags": ["Posts"], "summary": "Soft-delete a post (author or admin)", "responses": { "204": { "description": "Deleted." }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/posts/{id}/react": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "post": { "tags": ["Posts"], "summary": "React with an emoji", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["emoji"], "properties": { "emoji": { "type": "string" } } } } } }, "responses": { "200": { "description": "Reaction recorded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReactionTally" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Posts"], "summary": "Remove your reaction", "responses": { "200": { "description": "Reaction removed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReactionTally" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/posts/{id}/reactions": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "get": { "tags": ["Posts"], "summary": "Reaction tallies + your reaction", "security": [], "responses": { "200": { "description": "Tallies", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReactionTally" } } } } } }
+    },
+    "/posts/{id}/replies": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ],
+      "get": { "tags": ["Posts"], "summary": "Direct replies", "security": [], "responses": { "200": { "description": "Replies", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } } } }
+    },
+    "/posts/{id}/thread": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "get": { "tags": ["Posts"], "summary": "Full conversation (root + descendants, max depth 6)", "security": [], "responses": { "200": { "description": "Thread", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } } } }
+    },
+    "/posts/{id}/repost": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "post": { "tags": ["Posts"], "summary": "Repost (optional quote body)", "requestBody": { "required": false, "content": { "application/json": { "schema": { "type": "object", "properties": { "body": { "type": "string", "description": "Quote text (omit for a plain repost)" } } } } } }, "responses": { "201": { "description": "Reposted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/feed": {
+      "get": { "tags": ["Feed"], "summary": "Personal home timeline", "parameters": [ { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ], "responses": { "200": { "description": "Followed authors + followed hashtags", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/link_preview": {
+      "get": { "tags": ["Posts"], "summary": "Open Graph link preview (cached)", "parameters": [ { "name": "url", "in": "query", "required": true, "schema": { "type": "string", "format": "uri" } } ], "responses": { "200": { "description": "OG metadata", "content": { "application/json": { "schema": { "type": "object", "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "image": { "type": "string" }, "site_name": { "type": "string" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/users/{username}": {
+      "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
+      "get": { "tags": ["Users"], "summary": "Fetch a profile", "security": [], "responses": { "200": { "description": "Profile", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Profile" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/users/{username}/posts": {
+      "parameters": [ { "$ref": "#/components/parameters/UsernamePath" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ],
+      "get": { "tags": ["Users"], "summary": "Author's posts", "security": [], "responses": { "200": { "description": "Posts", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } } } }
+    },
+    "/users/{username}/followers": {
+      "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
+      "get": { "tags": ["Users"], "summary": "Followers list", "security": [], "responses": { "200": { "description": "Users", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Author" } } } } } } }
+    },
+    "/users/{username}/following": {
+      "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
+      "get": { "tags": ["Users"], "summary": "Following list", "security": [], "responses": { "200": { "description": "Users", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Author" } } } } } } }
+    },
+    "/users/{username}/follow": {
+      "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
+      "post": { "tags": ["Users"], "summary": "Follow a user", "responses": { "204": { "description": "Following." }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Users"], "summary": "Unfollow a user", "responses": { "204": { "description": "Unfollowed." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/users/lookup": {
+      "get": { "tags": ["Users"], "summary": "Username typeahead", "parameters": [ { "name": "prefix", "in": "query", "required": true, "schema": { "type": "string" } } ], "responses": { "200": { "description": "Matches", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Author" } } } } } } }
+    },
+    "/users/me": {
+      "patch": { "tags": ["Users"], "summary": "Edit your profile", "description": "An external https avatar_url is re-hosted through the media pipeline.", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "display_name": { "type": "string" }, "bio": { "type": "string" }, "avatar_url": { "type": "string", "format": "uri" } } } } } }, "responses": { "200": { "description": "Updated profile", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Profile" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Users"], "summary": "Delete your account", "description": "Requires the `X-Confirm-Username` header to match.", "security": [ { "cookieAuth": [] } ], "parameters": [ { "name": "X-Confirm-Username", "in": "header", "required": true, "schema": { "type": "string" } } ], "responses": { "204": { "description": "Account deleted." }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/users/me/security": {
+      "get": { "tags": ["Users"], "summary": "Active sessions + recent security events", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Sessions and events", "content": { "application/json": { "schema": { "type": "object", "properties": { "sessions": { "type": "array", "items": { "$ref": "#/components/schemas/Session" } }, "events": { "type": "array", "items": { "$ref": "#/components/schemas/SecurityEvent" } } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/users/me/sessions": {
+      "delete": { "tags": ["Users"], "summary": "Revoke all other sessions", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Other sessions revoked." }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" } } }
+    },
+    "/users/me/sessions/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "delete": { "tags": ["Users"], "summary": "Revoke a single session", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Session revoked." }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/users/me/export": {
+      "get": { "tags": ["Users"], "summary": "GDPR data export (JSON)", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Full account export", "content": { "application/json": { "schema": { "type": "object" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/users/me/pin/{post_id}": {
+      "parameters": [ { "name": "post_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } ],
+      "post": { "tags": ["Users"], "summary": "Pin a post to your profile", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Pinned." }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Users"], "summary": "Unpin", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Unpinned." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/users/{username}/block": {
+      "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
+      "post": { "tags": ["Relations"], "summary": "Block a user (drops mutual follow)", "responses": { "204": { "description": "Blocked." }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Relations"], "summary": "Unblock a user", "responses": { "204": { "description": "Unblocked." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/users/{username}/mute": {
+      "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
+      "post": { "tags": ["Relations"], "summary": "Mute a user (silent to them)", "responses": { "204": { "description": "Muted." }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Relations"], "summary": "Unmute a user", "responses": { "204": { "description": "Unmuted." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/users/me/blocks": {
+      "get": { "tags": ["Relations"], "summary": "Your block list", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Blocked users", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Author" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/users/me/mutes": {
+      "get": { "tags": ["Relations"], "summary": "Your mute list", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Muted users", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Author" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/notifications": {
+      "get": { "tags": ["Notifications"], "summary": "Notification inbox", "parameters": [ { "name": "unread_only", "in": "query", "schema": { "type": "integer", "enum": [0, 1] } }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ], "responses": { "200": { "description": "Notifications", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/notifications/count": {
+      "get": { "tags": ["Notifications"], "summary": "Unread count for the badge", "responses": { "200": { "description": "Count", "content": { "application/json": { "schema": { "type": "object", "properties": { "unread": { "type": "integer" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/notifications/read": {
+      "patch": { "tags": ["Notifications"], "summary": "Mark all read", "responses": { "204": { "description": "All marked read." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/notifications/{id}/read": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "patch": { "tags": ["Notifications"], "summary": "Mark one read", "responses": { "204": { "description": "Marked read." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/notifications/stream": {
+      "get": { "tags": ["Notifications"], "summary": "Live notifications (SSE)", "description": "Server-Sent Events stream; `text/event-stream`.", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Event stream", "content": { "text/event-stream": { "schema": { "type": "string" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/media": {
+      "get": { "tags": ["Media"], "summary": "List your uploads", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Uploads", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Media" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "post": { "tags": ["Media"], "summary": "Upload an image", "description": "multipart/form-data; max 5 MiB. EXIF-stripped + re-encoded.", "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "properties": { "file": { "type": "string", "format": "binary" } } } } } }, "responses": { "201": { "description": "Stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Media" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "413": { "description": "Payload too large" } } }
+    },
+    "/media/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "delete": { "tags": ["Media"], "summary": "Delete your upload", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Deleted." }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+
+    "/bookmarks": {
+      "get": { "tags": ["Bookmarks"], "summary": "Your bookmarked posts", "parameters": [ { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ], "responses": { "200": { "description": "Posts", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/bookmarks/{post_id}": {
+      "parameters": [ { "name": "post_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } ],
+      "post": { "tags": ["Bookmarks"], "summary": "Bookmark a post", "responses": { "204": { "description": "Bookmarked." }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Bookmarks"], "summary": "Remove a bookmark", "responses": { "204": { "description": "Removed." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/dm/threads": {
+      "get": { "tags": ["Direct Messages"], "summary": "DM thread list", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Threads", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/DmThread" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/dm/threads/{username}": {
+      "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
+      "get": { "tags": ["Direct Messages"], "summary": "Open / fetch a thread", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Messages", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/DmMessage" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "post": { "tags": ["Direct Messages"], "summary": "Send a DM (requires mutual follow)", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["body"], "properties": { "body": { "type": "string" } } } } } }, "responses": { "201": { "description": "Sent", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DmMessage" } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/dm/threads/{username}/read": {
+      "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
+      "patch": { "tags": ["Direct Messages"], "summary": "Mark thread read", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Marked read." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/dm/messages/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "delete": { "tags": ["Direct Messages"], "summary": "Soft-delete your message", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Deleted." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/search": {
+      "get": { "tags": ["Search"], "summary": "Full-text + hashtag search", "security": [], "parameters": [ { "name": "q", "in": "query", "schema": { "type": "string" } }, { "name": "tag", "in": "query", "schema": { "type": "string" } } ], "responses": { "200": { "description": "Matching live public posts", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } } } }
+    },
+    "/search/reindex": {
+      "post": { "tags": ["Admin"], "summary": "Re-index live public posts", "security": [ { "cookieAuth": [] } ], "responses": { "202": { "description": "Re-index started." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/hashtags/{tag}": {
+      "parameters": [ { "$ref": "#/components/parameters/TagPath" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ],
+      "get": { "tags": ["Search"], "summary": "Posts tagged with #tag", "security": [], "responses": { "200": { "description": "Posts", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } } } }
+    },
+    "/hashtags/{tag}/follow": {
+      "parameters": [ { "$ref": "#/components/parameters/TagPath" } ],
+      "get": { "tags": ["Search"], "summary": "Follow state for a hashtag", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "State", "content": { "application/json": { "schema": { "type": "object", "properties": { "following": { "type": "boolean" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "post": { "tags": ["Search"], "summary": "Follow a hashtag", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Followed." }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Search"], "summary": "Unfollow a hashtag", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Unfollowed." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/trending/hashtags": {
+      "get": { "tags": ["Trending"], "summary": "Trending hashtags", "security": [], "parameters": [ { "name": "window", "in": "query", "schema": { "type": "string", "example": "24h" } } ], "responses": { "200": { "description": "Hashtag counts", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "properties": { "tag": { "type": "string" }, "count": { "type": "integer" } } } } } } } } }
+    },
+    "/trending/posts": {
+      "get": { "tags": ["Trending"], "summary": "Most-reacted public posts", "security": [], "responses": { "200": { "description": "Posts", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } } } }
+    },
+
+    "/invites": {
+      "get": { "tags": ["Invites"], "summary": "List your invites", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Invites", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Invite" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "post": { "tags": ["Invites"], "summary": "Create an invite code", "description": "Rate-limited to 5/day.", "security": [ { "cookieAuth": [] } ], "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Invite" } } } }, "429": { "$ref": "#/components/responses/RateLimited" } } }
+    },
+    "/invites/{code}": {
+      "parameters": [ { "name": "code", "in": "path", "required": true, "schema": { "type": "string" } } ],
+      "get": { "tags": ["Invites"], "summary": "Check code validity", "security": [], "responses": { "200": { "description": "Validity", "content": { "application/json": { "schema": { "type": "object", "properties": { "valid": { "type": "boolean" } } } } } }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "delete": { "tags": ["Invites"], "summary": "Revoke an unredeemed invite", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Revoked." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/tokens": {
+      "get": { "tags": ["Tokens"], "summary": "List API tokens", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Tokens (no secrets)", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Token" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "post": { "tags": ["Tokens"], "summary": "Create a bearer token", "description": "The raw token is shown ONCE.", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "scope": { "type": "string" }, "expires_at": { "type": "string", "format": "date-time" } } } } } }, "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreatedToken" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/tokens/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "delete": { "tags": ["Tokens"], "summary": "Revoke a token", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Revoked." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/webhooks": {
+      "get": { "tags": ["Webhooks"], "summary": "List outgoing webhooks", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Webhooks (no secrets)", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Webhook" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "post": { "tags": ["Webhooks"], "summary": "Create a webhook", "description": "URL must be https. The signing secret is shown ONCE.", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["url", "events"], "properties": { "url": { "type": "string", "format": "uri" }, "events": { "type": "array", "items": { "type": "string" } } } } } } }, "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreatedWebhook" } } } }, "400": { "$ref": "#/components/responses/BadRequest" } } }
+    },
+    "/webhooks/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "patch": { "tags": ["Webhooks"], "summary": "Toggle active / events", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "active": { "type": "boolean" }, "events": { "type": "array", "items": { "type": "string" } } } } } } }, "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Webhook" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "delete": { "tags": ["Webhooks"], "summary": "Remove a webhook", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Removed." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/webhooks/{id}/deliveries": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "get": { "tags": ["Webhooks"], "summary": "Recent delivery attempts (last 20)", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Deliveries", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/WebhookDelivery" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/webhooks/{id}/test": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "post": { "tags": ["Webhooks"], "summary": "Send a test ping", "security": [ { "cookieAuth": [] } ], "responses": { "202": { "description": "Test enqueued." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/reports": {
+      "post": { "tags": ["Reports"], "summary": "Report a post / user / dm", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["target_kind", "target_id", "reason"], "properties": { "target_kind": { "type": "string", "enum": ["post", "user", "dm"] }, "target_id": { "type": "string", "format": "uuid" }, "reason": { "type": "string" } } } } } }, "responses": { "204": { "description": "Reported." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/admin/posts": {
+      "get": { "tags": ["Admin"], "summary": "Moderation queue", "security": [ { "cookieAuth": [] } ], "parameters": [ { "name": "state", "in": "query", "schema": { "type": "string", "enum": ["live", "quarantine", "removed"] } }, { "$ref": "#/components/parameters/Limit" } ], "responses": { "200": { "description": "Posts", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/AdminPost" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/posts/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "patch": { "tags": ["Admin"], "summary": "Change moderation_state", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["moderation_state"], "properties": { "moderation_state": { "type": "string", "enum": ["live", "quarantine", "removed"] }, "reason": { "type": "string" } } } } } }, "responses": { "204": { "description": "Updated." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/users": {
+      "get": { "tags": ["Admin"], "summary": "User list + counts", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Users", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/users/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "patch": { "tags": ["Admin"], "summary": "Suspend / unsuspend a user", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "role": { "type": "string" } } } } } }, "responses": { "204": { "description": "Updated." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/login_attempts": {
+      "get": { "tags": ["Admin"], "summary": "Recent login attempts", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Attempts", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/audit": {
+      "get": { "tags": ["Admin"], "summary": "Request audit log", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Audit rows", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/sessions": {
+      "get": { "tags": ["Admin"], "summary": "Active / flagged sessions", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Sessions", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/moderation_log": {
+      "get": { "tags": ["Admin"], "summary": "Append-only moderation history", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Log", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/reports": {
+      "get": { "tags": ["Admin"], "summary": "Report queue", "security": [ { "cookieAuth": [] } ], "parameters": [ { "name": "open", "in": "query", "schema": { "type": "integer", "enum": [0, 1] } } ], "responses": { "200": { "description": "Reports", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/reports/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "patch": { "tags": ["Admin"], "summary": "Resolve a report", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "resolution": { "type": "string" } } } } } }, "responses": { "204": { "description": "Resolved." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/federation/instances": {
+      "get": { "tags": ["Admin"], "summary": "Known federated instances + block state", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Instances", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/FedInstance" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/federation/blocks": {
+      "post": { "tags": ["Admin"], "summary": "Defederate (block) an instance", "description": "Inbound activities from the host are rejected; the host is skipped on outbound fanout.", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["host"], "properties": { "host": { "type": "string", "description": "Hostname; normalized + validated server-side." }, "reason": { "type": "string" } } } } } }, "responses": { "204": { "description": "Blocked." }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/federation/blocks/{host}": {
+      "parameters": [ { "name": "host", "in": "path", "required": true, "schema": { "type": "string" } } ],
+      "delete": { "tags": ["Admin"], "summary": "Re-federate (unblock) an instance", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Unblocked." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": { "type": "apiKey", "in": "cookie", "name": "burncpu_session", "description": "Session cookie from the magic-link flow. HttpOnly; CSRF-protected." },
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "API token from POST /tokens. Scoped, non-session endpoints only." }
+    },
+    "parameters": {
+      "IdPath": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "UsernamePath": { "name": "username", "in": "path", "required": true, "schema": { "type": "string" } },
+      "TagPath": { "name": "tag", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-z0-9_]{2,32}$" } },
+      "TokenPath": { "name": "token", "in": "path", "required": true, "schema": { "type": "string" } },
+      "Limit": { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+      "Before": { "name": "before", "in": "query", "required": false, "description": "Pagination cursor — return items older than this.", "schema": { "type": "string" } }
+    },
+    "requestBodies": {
+      "TotpCode": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["code"], "properties": { "code": { "type": "string", "description": "6-digit TOTP or a recovery code" } } } } } }
+    },
+    "responses": {
+      "Unauthorized": { "description": "Authentication required or invalid.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Forbidden": { "description": "Authenticated but not permitted.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotFound": { "description": "Resource not found.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "BadRequest": { "description": "Malformed or invalid input.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "RateLimited": { "description": "Too many requests.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object", "required": ["error", "message"],
+        "properties": {
+          "error": { "type": "string", "enum": ["not_found", "unauthorized", "forbidden", "bad_request", "rate_limited", "internal"] },
+          "message": { "type": "string" }
+        }
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "user_id": { "type": "string", "format": "uuid" },
+          "username": { "type": "string" },
+          "display_name": { "type": "string" },
+          "avatar_url": { "type": ["string", "null"] },
+          "role": { "type": "string" },
+          "pending_2fa": { "type": "boolean" },
+          "session_flagged": { "type": "boolean" }
+        }
+      },
+      "Author": {
+        "type": "object", "required": ["id", "username", "display_name"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "username": { "type": "string" },
+          "display_name": { "type": "string" },
+          "avatar_url": { "type": "string" }
+        }
+      },
+      "Post": {
+        "type": "object", "required": ["id", "author", "body", "body_html", "visibility", "reactions_count", "replies_count", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "author": { "$ref": "#/components/schemas/Author" },
+          "body": { "type": "string" },
+          "body_html": { "type": "string", "description": "Sanitized HTML render of body." },
+          "visibility": { "type": "string", "enum": ["public", "unlisted", "followers"] },
+          "reply_to_id": { "type": ["string", "null"], "format": "uuid" },
+          "parent": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "author_username": { "type": "string" }, "excerpt": { "type": "string" } } },
+          "content_warning": { "type": "string" },
+          "reactions_count": { "type": "integer" },
+          "replies_count": { "type": "integer" },
+          "viewer_reacted": { "type": "boolean", "description": "Present only for authenticated viewers." },
+          "viewer_bookmarked": { "type": "boolean", "description": "Present only for authenticated viewers." },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreatePost": {
+        "type": "object", "required": ["body"],
+        "properties": {
+          "body": { "type": "string", "maxLength": 5000 },
+          "visibility": { "type": "string", "enum": ["public", "unlisted", "followers"], "default": "public" },
+          "reply_to_id": { "type": "string", "format": "uuid" },
+          "content_warning": { "type": "string" }
+        }
+      },
+      "CreatePostResponse": {
+        "type": "object", "required": ["quarantined"],
+        "properties": {
+          "post": { "$ref": "#/components/schemas/Post", "description": "Present when the post went live (HTTP 201)." },
+          "quarantined": { "type": "boolean", "description": "True when held for moderation (HTTP 202); `post` is then omitted." }
+        }
+      },
+      "ReactionTally": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "integer" },
+          "by_emoji": { "type": "object", "additionalProperties": { "type": "integer" } },
+          "viewer_reacted": { "type": "boolean" }
+        }
+      },
+      "Profile": {
+        "type": "object", "required": ["id", "username", "display_name", "role", "created_at", "counts", "is_following", "is_followed_by", "mutual_follow", "is_blocked_by_viewer", "is_muted_by_viewer"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "username": { "type": "string" },
+          "display_name": { "type": "string" },
+          "bio": { "type": ["string", "null"] },
+          "avatar_url": { "type": ["string", "null"] },
+          "role": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "last_seen_at": { "type": ["string", "null"], "format": "date-time" },
+          "pinned_post_id": { "type": ["string", "null"], "format": "uuid" },
+          "counts": { "$ref": "#/components/schemas/ProfileCounts" },
+          "is_following": { "type": "boolean" },
+          "is_followed_by": { "type": "boolean" },
+          "mutual_follow": { "type": "boolean" },
+          "is_blocked_by_viewer": { "type": "boolean" },
+          "is_muted_by_viewer": { "type": "boolean" }
+        }
+      },
+      "ProfileCounts": {
+        "type": "object", "required": ["posts", "followers", "following"],
+        "properties": {
+          "posts": { "type": "integer" },
+          "followers": { "type": "integer" },
+          "following": { "type": "integer" }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "kind": { "type": "string", "description": "e.g. follow, reaction, reply, mention, repost, dm" },
+          "actor": { "$ref": "#/components/schemas/Author" },
+          "post_id": { "type": ["string", "null"], "format": "uuid" },
+          "read": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Media": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "url": { "type": "string", "description": "Content-addressed /media path." },
+          "width": { "type": "integer" },
+          "height": { "type": "integer" },
+          "bytes": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DmThread": {
+        "type": "object",
+        "properties": {
+          "other": { "$ref": "#/components/schemas/Author" },
+          "last_message": { "type": "string" },
+          "unread": { "type": "integer" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DmMessage": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "sender_id": { "type": "string", "format": "uuid" },
+          "body": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "deleted_at": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "Invite": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "redeemed_at": { "type": ["string", "null"], "format": "date-time" },
+          "redeemed_by": { "type": ["string", "null"] }
+        }
+      },
+      "Token": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "scope": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "last_used_at": { "type": ["string", "null"], "format": "date-time" },
+          "expires_at": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "CreatedToken": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Token" },
+          { "type": "object", "required": ["token"], "properties": { "token": { "type": "string", "description": "Raw bearer token — shown ONCE." } } }
+        ]
+      },
+      "Webhook": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "url": { "type": "string", "format": "uri" },
+          "events": { "type": "array", "items": { "type": "string" } },
+          "active": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreatedWebhook": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Webhook" },
+          { "type": "object", "required": ["secret"], "properties": { "secret": { "type": "string", "description": "HMAC signing secret — shown ONCE." } } }
+        ]
+      },
+      "WebhookDelivery": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "event": { "type": "string" },
+          "status_code": { "type": ["integer", "null"] },
+          "ok": { "type": "boolean" },
+          "error": { "type": ["string", "null"] },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "current": { "type": "boolean" },
+          "ip": { "type": "string" },
+          "user_agent": { "type": "string" },
+          "flagged": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "last_seen_at": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "SecurityEvent": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string" },
+          "ip": { "type": "string" },
+          "user_agent": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AdminPost": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "author_username": { "type": "string" },
+          "body": { "type": "string" },
+          "moderation_state": { "type": "string", "enum": ["live", "quarantine", "removed"] },
+          "deleted_at": { "type": ["string", "null"], "format": "date-time" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "FedInstance": {
+        "type": "object", "required": ["host", "followers", "blocked"],
+        "properties": {
+          "host": { "type": "string" },
+          "followers": { "type": "integer", "description": "Local users following any actor on this host." },
+          "blocked": { "type": "boolean" },
+          "reason": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

@@ -180,6 +180,26 @@ export default function Docs() {
           <li>{tx('Tarih biçimi: ISO‑8601 (UTC)', 'Date format: ISO‑8601 (UTC)')}</li>
           <li>{tx('Sayfalama: keyset (before / before_id)', 'Pagination: keyset (before / before_id)')}</li>
         </ul>
+        <div class="mt-4 rounded-xl border border-outline-variant bg-surface-container-low p-4">
+          <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+            <Pill method="GET" />
+            <code class="font-mono text-[13px] text-primary break-all">{BASE}/openapi.json</code>
+          </div>
+          <p class="text-on-surface-variant text-[13.5px] leading-relaxed">
+            {tx(
+              'Makine‑okur OpenAPI 3.1 tanımı. Postman, Insomnia veya openapi‑generator gibi araçlara doğrudan içe aktar; istemci kütüphanesi üret. Sürüm, çalışan yapıdan damgalanır.',
+              'Machine‑readable OpenAPI 3.1 description. Import it straight into Postman, Insomnia, or openapi‑generator to generate a client. The version is stamped from the running build.',
+            )}
+          </p>
+          <a
+            href={`${BASE}/openapi.json`}
+            target="_blank"
+            rel="noreferrer"
+            class="inline-flex items-center gap-1 mt-2 text-[13px] font-mono text-primary hover:underline"
+          >
+            openapi.json →
+          </a>
+        </div>
       </Section>
 
       {/* ── Auth ── */}

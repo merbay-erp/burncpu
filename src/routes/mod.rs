@@ -12,6 +12,7 @@ pub mod invites;
 pub mod link_preview;
 pub mod media;
 pub mod notifications;
+pub mod openapi;
 pub mod posts;
 pub mod push;
 pub mod relations;

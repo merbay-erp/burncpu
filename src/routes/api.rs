@@ -1,8 +1,8 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
 use super::{
-    admin, auth, bookmarks, dm, feed, invites, link_preview, media, notifications, posts, push,
-    relations, reports, search, tokens, trending, users, webhooks,
+    admin, auth, bookmarks, dm, feed, invites, link_preview, media, notifications, openapi, posts,
+    push, relations, reports, search, tokens, trending, users, webhooks,
 };
 use crate::state::AppState;
 use axum::{Router, routing::get};
@@ -102,10 +102,13 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "GET    /api/v1/admin/reports":        "report queue (admin, ?open=1)",
                         "PATCH  /api/v1/admin/reports/{id}":   "resolve { resolution } (admin)",
                         "GET    /healthz":                     "liveness probe",
+                        "GET    /api/v1/openapi.json":         "machine-readable OpenAPI 3.1 spec",
                     },
+                    "openapi": "/api/v1/openapi.json",
                 }))
             }),
         )
+        .merge(openapi::router())
         .nest("/auth", auth::router())
         .nest("/posts", posts::router())
         .nest("/users", users::router())

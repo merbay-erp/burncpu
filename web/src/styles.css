@@ -202,6 +202,46 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 @keyframes skeleton-shimmer { 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
 
+/* ─── Brand "burn" fire effects ────────────────────────────── */
+/* Flame logo: gentle flicker + warm glow, like a live ember. */
+.logo-flame {
+  transform-origin: 50% 70%;
+  filter: drop-shadow(0 0 3px rgba(255, 138, 26, 0.45));
+  animation: logo-flicker 2.6s ease-in-out infinite;
+  will-change: transform, filter;
+}
+@keyframes logo-flicker {
+  0%, 100% { transform: scale(1) rotate(0deg);     filter: drop-shadow(0 0 3px rgba(255, 138, 26, 0.4)); }
+  20%      { transform: scale(1.05) rotate(-2deg); }
+  40%      { transform: scale(0.98) rotate(1.5deg); filter: drop-shadow(0 0 7px rgba(255, 80, 30, 0.65)); }
+  60%      { transform: scale(1.03) rotate(-1deg); }
+  80%      { transform: scale(1) rotate(1deg);      filter: drop-shadow(0 0 4px rgba(255, 138, 26, 0.5)); }
+}
+
+/* "burn" wordmark: a fire gradient that flows like flames. */
+.burn-text {
+  background-image: linear-gradient(0deg, #ff2d1a 0%, #ff7a1a 50%, #ffce4a 100%);
+  background-size: 100% 230%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  text-shadow: 0 0 7px rgba(255, 100, 20, 0.35);
+  animation: burn-shift 2.4s ease-in-out infinite;
+}
+@keyframes burn-shift {
+  0%, 100% { background-position: 50% 100%; }
+  50%      { background-position: 50% 30%; }
+}
+
+/* Stoke the flames on hover. */
+.group:hover .logo-flame { animation-duration: 1.3s; }
+.group:hover .burn-text { animation-duration: 1.2s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-flame, .burn-text { animation: none; }
+}
+
 /* ─── DM "is typing" dots ──────────────────────────────────── */
 .typing-dot {
   width: 6px; height: 6px; border-radius: 9999px;

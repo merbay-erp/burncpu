@@ -170,11 +170,13 @@ export default function Layout(props: { children?: JSX.Element }) {
     <div class="min-h-screen bg-background text-on-background">
       {/* ─── Top Nav (full viewport, glassmorphic) ─────── */}
       <nav class="fixed top-0 inset-x-0 z-50 h-16 bg-background/80 backdrop-blur-md border-b border-outline-variant">
-        <div class="max-w-[1300px] mx-auto h-full px-4 md:px-6 flex justify-between items-center">
+        <div class="max-w-[1300px] mx-auto h-full px-4 md:px-6 lg:pl-3 flex justify-between items-center">
           <A href="/" class="flex items-center gap-2.5 group" title="burncpu — 1 vps yeter">
-            <Logo size={28} class="shrink-0 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110" />
+            <Logo size={28} class="shrink-0 logo-flame" />
             <div class="leading-none">
-              <div class="font-bold text-[20px] md:text-[22px] tracking-tight text-on-background">burncpu</div>
+              <div class="font-bold text-[20px] md:text-[22px] tracking-tight">
+                <span class="burn-text">burn</span><span class="text-on-background">cpu</span>
+              </div>
               <div class="hidden sm:block text-[8px] text-on-surface-variant/70 font-mono tracking-[0.3em] uppercase mt-1">1 vps yeter</div>
             </div>
           </A>

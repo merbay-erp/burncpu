@@ -1,7 +1,8 @@
 // GET /api/v1/openapi.json — machine-readable OpenAPI 3.1 description of the
-// public API. The document is authored as a static file (openapi.json at the
-// crate root, tooling-friendly + lintable); the `info.version` is stamped from
-// CARGO_PKG_VERSION at first access so it can never drift from the build.
+// public API. The document is authored as a static file (src/routes/openapi.json,
+// tooling-friendly + lintable, and inside the Docker build context); the
+// `info.version` is stamped from CARGO_PKG_VERSION at first access so it can
+// never drift from the build.
 
 use crate::state::AppState;
 use axum::{Router, http::header, response::IntoResponse, routing::get};
@@ -10,7 +11,7 @@ use std::sync::LazyLock;
 static SPEC: LazyLock<String> = LazyLock::new(build_spec);
 
 fn build_spec() -> String {
-    let raw = include_str!("../../openapi.json");
+    let raw = include_str!("openapi.json");
     let mut doc: serde_json::Value =
         serde_json::from_str(raw).expect("openapi.json is valid JSON");
     doc["info"]["version"] = serde_json::Value::String(env!("CARGO_PKG_VERSION").to_string());
@@ -36,7 +37,7 @@ mod tests {
     use serde_json::Value;
 
     fn spec() -> Value {
-        serde_json::from_str(include_str!("../../openapi.json")).expect("valid json")
+        serde_json::from_str(include_str!("openapi.json")).expect("valid json")
     }
 
     #[test]

@@ -1,23 +1,39 @@
 // Native passkeys (WebAuthn) via react-native-passkeys — iOS ASAuthorization /
-// Android Credential Manager. The library speaks the same base64url JSON the
-// server (webauthn-rs) emits/expects, so we pass the options through and send
-// the result back, mirroring web/src/passkey.ts. Requires a dev build + the
-// webcredentials Associated Domain (see app.json) and the server AASA.
+// Android Credential Manager. Talks to the same /auth/passkeys/* backend as the
+// web; react-native-passkeys speaks the same base64url JSON the server emits.
+//
+// react-native-passkeys is a NATIVE module: it doesn't exist in Expo Go and
+// throws if imported there. So we load it lazily + guarded — the app still runs
+// in Expo Go (passkeys simply hidden) and works in a native dev build.
 
-import { create, get, isSupported } from 'react-native-passkeys';
 import { api } from './api';
 
+type RNPasskeys = typeof import('react-native-passkeys');
 type AnyOptions = Record<string, unknown>;
+
+let cached: RNPasskeys | null | undefined;
+function passkeys(): RNPasskeys | null {
+  if (cached === undefined) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      cached = require('react-native-passkeys') as RNPasskeys;
+    } catch {
+      cached = null;
+    }
+  }
+  return cached;
+}
 
 export const passkeySupported = (): boolean => {
   try {
-    return isSupported();
+    const m = passkeys();
+    return !!m && m.isSupported();
   } catch {
     return false;
   }
 };
 
-// webauthn-rs includes `extensions` (cred-protect) + sometimes `hints`, which
+// webauthn-rs adds `extensions` (cred-protect) + sometimes `hints`, which
 // react-native-passkeys' typed request doesn't accept — drop them.
 function clean(publicKey: AnyOptions): AnyOptions {
   const o: AnyOptions = { ...publicKey };
@@ -27,17 +43,21 @@ function clean(publicKey: AnyOptions): AnyOptions {
 }
 
 export async function registerPasskey(name?: string): Promise<void> {
+  const m = passkeys();
+  if (!m) throw new Error('passkeys unavailable');
   const { publicKey } = await api.post<{ publicKey: AnyOptions }>('/auth/passkeys/register/start');
-  const credential = await create(clean(publicKey) as Parameters<typeof create>[0]);
+  const credential = await m.create(clean(publicKey) as Parameters<typeof m.create>[0]);
   if (!credential) throw new Error('cancelled');
   await api.post('/auth/passkeys/register/finish', { name: name?.trim() || undefined, credential });
 }
 
 export async function loginWithPasskey(): Promise<{ ok: boolean; pending_2fa: boolean }> {
+  const m = passkeys();
+  if (!m) throw new Error('passkeys unavailable');
   const start = await api.post<{ ceremony: string; options: { publicKey: AnyOptions } }>(
     '/auth/passkeys/login/start',
   );
-  const credential = await get(clean(start.options.publicKey) as Parameters<typeof get>[0]);
+  const credential = await m.get(clean(start.options.publicKey) as Parameters<typeof m.get>[0]);
   if (!credential) throw new Error('cancelled');
   return api.post('/auth/passkeys/login/finish', { ceremony: start.ceremony, credential });
 }

@@ -1,0 +1,146 @@
+import { useState } from 'react';
+import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+
+import { api } from '@/api';
+import { fonts, radius, useTheme, type Palette } from '@/theme';
+import { t, useLocale } from '@/i18n';
+
+export default function Login() {
+  const { colors } = useTheme();
+  const router = useRouter();
+  useLocale();
+  const s = styles(colors);
+
+  const [email, setEmail] = useState('');
+  const [invite, setInvite] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!email.trim() || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const body: { email: string; invite?: string } = { email: email.trim() };
+      if (invite.trim()) body.invite = invite.trim();
+      await api.post('/auth/request', body);
+      setSent(true);
+    } catch {
+      setErr(t('login.error'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={s.screen}
+    >
+      <Pressable style={s.close} onPress={() => router.back()} hitSlop={10}>
+        <Ionicons name="close" size={24} color={colors.onSurfaceVariant} />
+      </Pressable>
+
+      <View style={s.brandWrap}>
+        <Text style={s.brand}>
+          <Text style={{ color: colors.primary }}>burn</Text>
+          <Text style={{ color: colors.onBackground }}>cpu</Text>
+        </Text>
+        <Text style={s.tagline}>1 VPS YETER</Text>
+      </View>
+
+      <View style={s.card}>
+        <Text style={s.title}>{t('nav.login')}</Text>
+        <Text style={s.note}>{t('login.note')}</Text>
+
+        {sent ? (
+          <View style={s.sent}>
+            <Text style={{ fontSize: 22 }}>🔥</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={s.sentTitle}>{t('login.sent_title')}</Text>
+              <Text style={s.sentBody}>{t('login.sent_body')}</Text>
+            </View>
+          </View>
+        ) : (
+          <>
+            <Text style={s.label}>{t('login.email')}</Text>
+            <TextInput
+              style={s.input}
+              placeholder={t('login.email_placeholder')}
+              placeholderTextColor={colors.fg3}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              inputMode="email"
+              value={email}
+              onChangeText={setEmail}
+              editable={!busy}
+            />
+            <Text style={s.label}>
+              {t('login.invite')} <Text style={s.hint}>{t('login.invite_hint')}</Text>
+            </Text>
+            <TextInput
+              style={s.input}
+              placeholder="xxxxxxxxxxxx"
+              placeholderTextColor={colors.fg3}
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={invite}
+              onChangeText={setInvite}
+              editable={!busy}
+            />
+            {err ? <Text style={s.err}>{err}</Text> : null}
+            <Pressable
+              style={[s.submit, (!email.trim() || busy) && { opacity: 0.4 }]}
+              onPress={submit}
+              disabled={!email.trim() || busy}
+            >
+              <Text style={s.submitText}>{busy ? t('login.sending') : t('login.submit')}</Text>
+            </Pressable>
+          </>
+        )}
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = (c: Palette) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: c.background, padding: 20, justifyContent: 'center' },
+    close: { position: 'absolute', top: 16, right: 16, zIndex: 2 },
+    brandWrap: { alignItems: 'center', marginBottom: 24 },
+    brand: { fontFamily: fonts.bold, fontSize: 30, letterSpacing: -1 },
+    tagline: { color: c.fg3, fontFamily: fonts.mono, fontSize: 9, letterSpacing: 3, marginTop: 6 },
+    card: {
+      backgroundColor: c.surfaceHigh,
+      borderColor: c.outlineVariant,
+      borderWidth: 1,
+      borderRadius: 16,
+      padding: 22,
+    },
+    title: { color: c.onBackground, fontFamily: fonts.bold, fontSize: 22, marginBottom: 6 },
+    note: { color: c.onSurfaceVariant, fontSize: 14, lineHeight: 20, marginBottom: 18 },
+    label: { color: c.onSurfaceVariant, fontFamily: fonts.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 },
+    hint: { textTransform: 'none', letterSpacing: 0, color: c.fg3 },
+    input: {
+      backgroundColor: c.background,
+      borderColor: c.outlineVariant,
+      borderWidth: 1,
+      borderRadius: radius,
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+      color: c.onSurface,
+      fontFamily: fonts.mono,
+      fontSize: 14,
+      marginBottom: 16,
+    },
+    err: { color: c.error, fontFamily: fonts.mono, fontSize: 13, marginBottom: 12 },
+    submit: { backgroundColor: c.primary, borderRadius: radius, paddingVertical: 13, alignItems: 'center' },
+    submitText: { color: c.onPrimary, fontFamily: fonts.bold, fontSize: 14 },
+    sent: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', backgroundColor: `${c.primary}1a`, borderColor: `${c.primary}4d`, borderWidth: 1, borderRadius: 12, padding: 16 },
+    sentTitle: { color: c.onBackground, fontFamily: fonts.bold, fontSize: 14, marginBottom: 2 },
+    sentBody: { color: c.onSurfaceVariant, fontSize: 13, lineHeight: 19 },
+  });

@@ -86,12 +86,17 @@ async fn main() -> Result<()> {
     cleanup::spawn(pg_pool.clone());
     tracing::info!("cleanup task scheduled");
 
+    // Bounded webhook delivery worker — keeps event fan-out from spawning
+    // unbounded outbound tasks.
+    let webhook_tx = routes::webhooks::spawn_dispatcher(pg_pool.clone());
+
     let state = AppState {
         pg: pg_pool,
         redis: redis_mgr,
         config: cfg.clone(),
         search,
         notif_tx,
+        webhook_tx,
     };
 
     // Make sure media dir exists on first boot (idempotent).

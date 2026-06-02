@@ -4,7 +4,7 @@ use crate::{config::Config, search::Search};
 use redis::aio::ConnectionManager;
 use serde::Serialize;
 use sqlx::PgPool;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
 /// One event delivered to every subscribed SSE consumer. The handler
@@ -27,4 +27,6 @@ pub struct AppState {
     pub config: Config,
     pub search: Search,
     pub notif_tx: broadcast::Sender<NotificationEvent>,
+    /// Bounded queue into the webhook delivery worker (see `routes::webhooks`).
+    pub webhook_tx: mpsc::Sender<crate::routes::webhooks::WebhookJob>,
 }

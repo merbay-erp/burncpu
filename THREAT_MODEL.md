@@ -119,8 +119,7 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 3. **No custom WAF rules beyond Cloudflare defaults.** Tailored rules need real traffic patterns to observe first.
 4. **Single admin / no fine-grained RBAC.** One admin role gated by 2FA; multi-admin separation of duties is future work.
 5. **No media CDN.** Uploads are served from the origin (EXIF-stripped, re-encoded, size-capped); a CDN is deferred.
-6. **Webhook signing secrets are stored in plaintext** and delivery fan-out is not concurrency-bounded. Webhooks are now HTTPS-only and per-user-capped (10); secret-at-rest encryption + a bounded dispatch worker pool are planned.
-7. **Remote (https) avatar URLs are allowed**, which lets a third party log requests when a profile is viewed. A media proxy / rehost is planned.
+6. **Remote (https) avatar URLs are allowed**, which lets a third party log requests when a profile is viewed. A media proxy / rehost is planned.
 
 ### Resolved since the foundation
 
@@ -139,7 +138,9 @@ live. The threat tables above reflect these as active mitigations.
 - **Magic-link leak**: the console email backend is refused for a production
   (https) `SITE_ORIGIN` (fail-closed) — magic links can't land in logs.
 - **Webhook SSRF/cleartext**: webhook URLs must be HTTPS and are per-user
-  capped.
+  capped. Signing secrets are encrypted at rest (XChaCha20-Poly1305, like TOTP
+  secrets), and deliveries run through a bounded queue + concurrency-limited
+  worker instead of unbounded per-event `tokio::spawn`s.
 - **Clickjacking / missing headers on the SPA**: the full security-header set
   (HSTS, CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, COOP,
   CORP) is now applied to static/SPA responses, not just proxied routes. The

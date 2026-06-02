@@ -8,6 +8,7 @@ import './styles.css';
 const Home = lazy(() => import('./pages/Home'));
 const Feed = lazy(() => import('./pages/Feed'));
 const Login = lazy(() => import('./pages/Login'));
+const Invite = lazy(() => import('./pages/Invite'));
 const Confirm = lazy(() => import('./pages/Confirm'));
 const TwoFA = lazy(() => import('./pages/TwoFA'));
 const Profile = lazy(() => import('./pages/Profile'));
@@ -57,6 +58,7 @@ render(
       <Route path="/" component={Home} />
       <Route path="/feed" component={Feed} />
       <Route path="/login" component={Login} />
+      <Route path="/invite/:code" component={Invite} />
       <Route path="/auth/confirm/:token" component={Confirm} />
       <Route path="/2fa" component={TwoFA} />
       <Route path="/notifications" component={Notifications} />

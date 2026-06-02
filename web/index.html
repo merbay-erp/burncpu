@@ -2,7 +2,10 @@
 <html lang="tr" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <!-- Apply saved theme before first paint (no flash) -->
+    <!-- Apply saved theme before first paint (no flash).
+         NOTE: this inline script is allowlisted in the production nginx CSP by
+         its SHA-256 hash. If you change its contents, regenerate the hash —
+         see docs/DEPLOYMENT.md → Security headers (nginx). -->
     <script>
       (function () {
         try {

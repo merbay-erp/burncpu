@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="flame" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#ff3d2e"/>
+      <stop offset="0.5" stop-color="#ff8a1a"/>
+      <stop offset="1" stop-color="#ffd24a"/>
+    </linearGradient>
+  </defs>
+  <!-- Full-bleed background: the OS applies its own mask/rounding. -->
+  <rect width="512" height="512" fill="#0d0d0d"/>
+  <!-- Flame kept within the inner ~60% maskable safe zone. -->
+  <g transform="translate(86,74) scale(15)">
+    <path fill="url(#flame)"
+      d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+  </g>
+</svg>

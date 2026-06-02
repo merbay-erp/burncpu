@@ -114,11 +114,13 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 
 ## Specific risks accepted (for now)
 
-1. **Federation is flag-gated, not battle-tested.** ActivityPub is implemented (HTTP Signatures, WebFinger, NodeInfo) but ships behind `FEDERATION_ENABLED`. It carries a long tail of abuse vectors (relay spam, remote-content cache, illegal content propagation); we widen deliberately as the moderation muscle grows.
+1. **Federation is live but young.** ActivityPub (HTTP Signatures, WebFinger, NodeInfo) is **enabled in production** (`FEDERATION_ENABLED=true`). It carries a long tail of abuse vectors (relay spam, remote-content cache, illegal content propagation); remote actor fetches are now size-capped via a streaming read (`net_safety::read_capped_bytes`), but the surface is still maturing — moderation tooling grows alongside it.
 2. **AI/heuristic spam filtering is still a future feature.** Until it lands, spam relies on invite-gating, per-(IP, email) rate limits, and manual admin review.
 3. **No custom WAF rules beyond Cloudflare defaults.** Tailored rules need real traffic patterns to observe first.
 4. **Single admin / no fine-grained RBAC.** One admin role gated by 2FA; multi-admin separation of duties is future work.
 5. **No media CDN.** Uploads are served from the origin (EXIF-stripped, re-encoded, size-capped); a CDN is deferred.
+6. **Webhook signing secrets are stored in plaintext** and delivery fan-out is not concurrency-bounded. Webhooks are now HTTPS-only and per-user-capped (10); secret-at-rest encryption + a bounded dispatch worker pool are planned.
+7. **Remote (https) avatar URLs are allowed**, which lets a third party log requests when a profile is viewed. A media proxy / rehost is planned.
 
 ### Resolved since the foundation
 
@@ -126,6 +128,23 @@ TOTP 2FA on admin · CSRF middleware · request body + timeout limits · the
 `AdminUser` (role + 2FA) extractor · SMTP delivery · nightly Postgres
 backups (7-day rotation) · audit-log retention jobs (`cleanup.rs`) — all
 live. The threat tables above reflect these as active mitigations.
+
+### Hardened (2026-06 security review)
+
+- **2FA brute-force**: TOTP `confirm`/`challenge`/`disable` are now Redis
+  rate-limited (per session, per user, per IP) with every attempt recorded in
+  `login_attempts(kind='totp')`.
+- **Federation memory-DoS**: remote actor documents are read with a streaming
+  byte cap instead of buffering the full body.
+- **Magic-link leak**: the console email backend is refused for a production
+  (https) `SITE_ORIGIN` (fail-closed) — magic links can't land in logs.
+- **Webhook SSRF/cleartext**: webhook URLs must be HTTPS and are per-user
+  capped.
+- **Clickjacking / missing headers on the SPA**: the full security-header set
+  (HSTS, CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, COOP,
+  CORP) is now applied to static/SPA responses, not just proxied routes. The
+  CSP `script-src` carries the SHA-256 of the inline theme-init script in
+  `web/index.html` — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#security-headers-nginx).
 
 ## Operational hygiene
 

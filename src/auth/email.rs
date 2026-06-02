@@ -35,7 +35,10 @@ pub struct SmtpSender {
 }
 
 impl Sender {
-    pub fn from_env() -> Result<Self> {
+    /// Build the sender from env. `site_origin` drives the fail-closed policy:
+    /// a production (https) origin refuses the console backend, which would
+    /// otherwise leak magic-link URLs into `docker logs`.
+    pub fn from_env(site_origin: &str) -> Result<Self> {
         match std::env::var("EMAIL_BACKEND").ok().as_deref() {
             Some("smtp") => match SmtpSender::from_env() {
                 Ok(s) => {
@@ -46,8 +49,23 @@ impl Sender {
             },
             Some(other) => Err(anyhow!("unsupported EMAIL_BACKEND: {other}")),
             _ => {
+                // Fail-closed in production: the console backend writes magic
+                // links to the logs, so anyone with shell access could sign in
+                // as anyone. Refuse it for an https origin unless explicitly
+                // overridden (ALLOW_CONSOLE_EMAIL=1) on a non-prod box.
+                let is_prod = site_origin.starts_with("https://");
+                let override_ok = std::env::var("ALLOW_CONSOLE_EMAIL")
+                    .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+                    .unwrap_or(false);
+                if is_prod && !override_ok {
+                    return Err(anyhow!(
+                        "refusing console email backend for a production (https) SITE_ORIGIN \
+                         — it would leak magic links to logs. Set EMAIL_BACKEND=smtp (configure \
+                         SMTP_*), or ALLOW_CONSOLE_EMAIL=1 to override on a non-prod box."
+                    ));
+                }
                 tracing::warn!(
-                    "EMAIL_BACKEND not set to 'smtp' — magic links emitted to tracing logs only (dev mode)."
+                    "EMAIL_BACKEND not 'smtp' — magic links emitted to tracing logs only (dev mode)."
                 );
                 Ok(Self::Console)
             }

@@ -310,12 +310,10 @@ pub async fn fetch_actor(state: &AppState, uri: &str) -> Result<RemoteActor> {
         .send()
         .await?
         .error_for_status()?;
-    // Cap the actor document — a hostile (or compromised) peer shouldn't be
-    // able to stream an unbounded body into memory.
-    let raw = resp.bytes().await?;
-    if raw.len() > 256 * 1024 {
-        return Err(anyhow!("actor document too large"));
-    }
+    // Cap the actor document with a streaming read — a hostile (or compromised)
+    // peer shouldn't be able to stream an unbounded body into memory before we
+    // notice it's too big.
+    let raw = crate::net_safety::read_capped_bytes(resp, 256 * 1024).await?;
     let body: serde_json::Value = serde_json::from_slice(&raw)?;
     let inbox = body
         .get("inbox")

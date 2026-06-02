@@ -53,7 +53,8 @@ The sender picks a backend from `EMAIL_BACKEND`:
 
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
-| `EMAIL_BACKEND` | | console | `smtp` to send real mail; otherwise console. |
+| `EMAIL_BACKEND` | | console | `smtp` to send real mail; otherwise console. **Refused** for an https `SITE_ORIGIN` unless `ALLOW_CONSOLE_EMAIL` is set. |
+| `ALLOW_CONSOLE_EMAIL` | | `false` | Override the production fail-closed and permit the console backend on an https origin (staging only). |
 | `SMTP_HOST` | with smtp | — | SMTP server host. |
 | `SMTP_PORT` | | `587` | SMTP port. |
 | `SMTP_USERNAME` | with smtp | — | SMTP auth user. |

@@ -41,6 +41,21 @@ async fn main() -> Result<()> {
     let cfg = config::Config::from_env()?;
     tracing::info!(?cfg.bind_addr, "burncpu starting");
 
+    // Loud guardrails for risky production postures. Open signup on a public
+    // (https) origin is almost always a misconfiguration; federation widens the
+    // abuse surface. Warn so it never goes unnoticed in the boot log.
+    let is_prod = cfg.site_origin.starts_with("https://");
+    if is_prod && !cfg.invites_required {
+        tracing::warn!(
+            "⚠️  open signup: INVITES_REQUIRED=false on a production origin ({}). \
+             Set INVITES_REQUIRED=true unless open registration is intended.",
+            cfg.site_origin
+        );
+    }
+    if cfg.federation_enabled {
+        tracing::info!("federation ENABLED (ActivityPub server-to-server is live)");
+    }
+
     let pg_pool = db::connect(&cfg.database_url).await?;
     tracing::info!("postgres connected");
 

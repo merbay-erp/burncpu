@@ -13,16 +13,19 @@
 use crate::{
     auth::{hash_token, token::SESSION_COOKIE, totp},
     errors::AppError,
-    middleware::auth_extractor::SessionUser,
+    middleware::{auth_extractor::SessionUser, client_ip},
+    routes::auth::{log_attempt, read_ua},
     state::AppState,
 };
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{HeaderMap, StatusCode, header},
     routing::post,
 };
+use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -31,6 +34,31 @@ pub fn router() -> Router<AppState> {
         .route("/confirm", post(confirm))
         .route("/challenge", post(challenge))
         .route("/disable", post(disable))
+}
+
+// 2FA is the single factor protecting an admin session, so the code-verifying
+// endpoints are throttled hard: a stolen pending session can't brute the
+// 6-digit code, and every attempt lands in login_attempts(kind='totp').
+const TOTP_RL_WINDOW_SECS: i64 = 900; // 15 min
+const TOTP_RL_MAX: u32 = 10; // verify attempts per window, per key
+
+/// Increment a Redis counter for `key`; returns true once the caller is over
+/// the limit and should be rejected.
+async fn over_limit(state: &AppState, key: &str) -> Result<bool, AppError> {
+    let mut redis = state.redis.clone();
+    let count: u32 = redis.incr(key, 1u32).await?;
+    if count == 1 {
+        let _: () = redis.expire(key, TOTP_RL_WINDOW_SECS).await?;
+    }
+    Ok(count > TOTP_RL_MAX)
+}
+
+fn req_ctx(headers: &HeaderMap, peer: &SocketAddr) -> (String, String) {
+    let ua = read_ua(headers);
+    let ip = client_ip::extract(headers, Some(peer))
+        .map(|i| i.to_string())
+        .unwrap_or_default();
+    (ua, ip)
 }
 
 #[derive(Serialize)]
@@ -145,8 +173,16 @@ type TotpChallengeRow = (
 async fn confirm(
     State(state): State<AppState>,
     user: SessionUser,
+    headers: HeaderMap,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(body): Json<CodeBody>,
 ) -> Result<StatusCode, AppError> {
+    let (ua, ip) = req_ctx(&headers, &peer);
+    if over_limit(&state, &format!("rl:2fa:confirm:{}", user.user_id)).await? {
+        log_attempt(&state, None, "totp", "rate_limited", &ip, &ua, Some(user.user_id)).await;
+        return Err(AppError::RateLimited);
+    }
+
     let row: Option<TotpConfirmRow> =
         sqlx::query_as(
             "SELECT secret_encrypted, secret_nonce, last_used_step, confirmed_at FROM user_totp WHERE user_id = $1",
@@ -160,8 +196,13 @@ async fn confirm(
         return Err(AppError::BadRequest("already confirmed".into()));
     }
 
-    let step = totp::verify_code(&secret, &nonce, &body.code, last_step)
-        .map_err(|_| AppError::Unauthorized)?;
+    let step = match totp::verify_code(&secret, &nonce, &body.code, last_step) {
+        Ok(s) => s,
+        Err(_) => {
+            log_attempt(&state, None, "totp", "invalid", &ip, &ua, Some(user.user_id)).await;
+            return Err(AppError::Unauthorized);
+        }
+    };
 
     sqlx::query(
         "UPDATE user_totp SET confirmed_at = NOW(), last_used_step = $1 WHERE user_id = $2",
@@ -170,6 +211,7 @@ async fn confirm(
     .bind(user.user_id)
     .execute(&state.pg)
     .await?;
+    log_attempt(&state, None, "totp", "ok", &ip, &ua, Some(user.user_id)).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -188,10 +230,22 @@ async fn confirm(
 async fn challenge(
     State(state): State<AppState>,
     headers: HeaderMap,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(body): Json<CodeBody>,
 ) -> Result<StatusCode, AppError> {
+    let (ua, ip) = req_ctx(&headers, &peer);
     let raw = read_cookie(&headers).ok_or(AppError::Unauthorized)?;
     let hash = hash_token(&raw);
+
+    // Throttle before any verify work — by the specific (possibly stolen)
+    // session and by source IP. Either bucket tripping rejects the attempt.
+    let sess_key = format!("rl:2fa:chal:sess:{}", hex::encode(&hash[..8]));
+    if over_limit(&state, &sess_key).await?
+        || over_limit(&state, &format!("rl:2fa:chal:ip:{ip}")).await?
+    {
+        log_attempt(&state, None, "totp", "rate_limited", &ip, &ua, None).await;
+        return Err(AppError::RateLimited);
+    }
 
     // Find session + user's secret
     let row: Option<TotpChallengeRow> =
@@ -254,6 +308,7 @@ async fn challenge(
         }
     };
     if !ok {
+        log_attempt(&state, None, "totp", "invalid", &ip, &ua, Some(user_id)).await;
         return Err(AppError::Unauthorized);
     }
 
@@ -261,6 +316,7 @@ async fn challenge(
         .bind(session_id)
         .execute(&state.pg)
         .await?;
+    log_attempt(&state, None, "totp", "ok", &ip, &ua, Some(user_id)).await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -270,8 +326,16 @@ async fn challenge(
 async fn disable(
     State(state): State<AppState>,
     user: SessionUser,
+    headers: HeaderMap,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(body): Json<CodeBody>,
 ) -> Result<StatusCode, AppError> {
+    let (ua, ip) = req_ctx(&headers, &peer);
+    if over_limit(&state, &format!("rl:2fa:disable:{}", user.user_id)).await? {
+        log_attempt(&state, None, "totp", "rate_limited", &ip, &ua, Some(user.user_id)).await;
+        return Err(AppError::RateLimited);
+    }
+
     let row: Option<(Vec<u8>, Vec<u8>, Option<i64>)> = sqlx::query_as(
         "SELECT secret_encrypted, secret_nonce, last_used_step FROM user_totp WHERE user_id = $1 AND confirmed_at IS NOT NULL",
     )
@@ -279,12 +343,15 @@ async fn disable(
     .fetch_optional(&state.pg)
     .await?;
     let (secret, nonce, last_step) = row.ok_or(AppError::NotFound)?;
-    totp::verify_code(&secret, &nonce, &body.code, last_step)
-        .map_err(|_| AppError::Unauthorized)?;
+    if totp::verify_code(&secret, &nonce, &body.code, last_step).is_err() {
+        log_attempt(&state, None, "totp", "invalid", &ip, &ua, Some(user.user_id)).await;
+        return Err(AppError::Unauthorized);
+    }
     sqlx::query("DELETE FROM user_totp WHERE user_id = $1")
         .bind(user.user_id)
         .execute(&state.pg)
         .await?;
+    log_attempt(&state, None, "totp", "ok", &ip, &ua, Some(user.user_id)).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

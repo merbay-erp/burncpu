@@ -170,7 +170,7 @@ pub async fn request_handler(
 
     // ── Build verify URL + send mail
     let url = format!("{}/api/v1/auth/verify/{}", state.config.site_origin, raw);
-    let sender = Sender::from_env().map_err(AppError::Internal)?;
+    let sender = Sender::from_env(&state.config.site_origin).map_err(AppError::Internal)?;
     let body_text = format!(
         "Hoş geldin!\n\n\
          burncpu.com'a giriş için aşağıdaki linke tıkla (15 dakika geçerli):\n\n\
@@ -404,7 +404,7 @@ pub async fn logout_handler(
 
 // ── helpers ──────────────────────────────────────────────────────
 
-fn read_ua(headers: &HeaderMap) -> String {
+pub(crate) fn read_ua(headers: &HeaderMap) -> String {
     headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
@@ -416,7 +416,7 @@ fn read_ua(headers: &HeaderMap) -> String {
 
 /// Best-effort write to `login_attempts`. Never fails the request — auth
 /// must not 500 just because forensics logging hit a DB hiccup.
-async fn log_attempt(
+pub(crate) async fn log_attempt(
     state: &AppState,
     email: Option<&str>,
     kind: &str,

@@ -1,11 +1,28 @@
 //! Outbound HTTP SSRF guard.
 
 use anyhow::{Result, anyhow, bail};
+use futures_util::StreamExt;
 use reqwest::Client;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 use tokio::net::lookup_host;
 use url::Url;
+
+/// Read a response body, buffering at most `cap` bytes and erroring if the body
+/// would exceed it. Peak memory is bounded by `cap` + one network chunk, so a
+/// hostile (or compromised) peer can't stream an unbounded body into memory.
+pub async fn read_capped_bytes(resp: reqwest::Response, cap: usize) -> Result<Vec<u8>> {
+    let mut stream = resp.bytes_stream();
+    let mut buf: Vec<u8> = Vec::with_capacity(16 * 1024);
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        if buf.len() + chunk.len() > cap {
+            bail!("response body exceeds {cap}-byte cap");
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
+}
 
 pub async fn validate_public_http_url(raw: &str) -> Result<Url> {
     let url = parse_url(raw)?;

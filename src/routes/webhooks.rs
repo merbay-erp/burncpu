@@ -60,6 +60,7 @@ async fn list(
 }
 
 const ALLOWED_EVENTS: &[&str] = &["reaction", "reply", "follow", "mention", "dm"];
+const MAX_WEBHOOKS_PER_USER: i64 = 10;
 
 #[derive(Deserialize)]
 pub struct CreateBody {
@@ -89,6 +90,10 @@ async fn create(
     let safe_url = crate::net_safety::validate_public_http_url(url)
         .await
         .map_err(|e| AppError::BadRequest(format!("url is not a public http(s) endpoint: {e}")))?;
+    // HTTPS-only: a webhook secret + payload must never go out in cleartext.
+    if safe_url.scheme() != "https" {
+        return Err(AppError::BadRequest("webhook url must use https".into()));
+    }
     if input.events.is_empty() {
         return Err(AppError::BadRequest("at least one event required".into()));
     }
@@ -99,6 +104,16 @@ async fn create(
                 ALLOWED_EVENTS.join(", ")
             )));
         }
+    }
+    // Per-user cap so one account can't register an unbounded fan-out.
+    let existing: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM webhooks WHERE user_id = $1")
+        .bind(user.user_id)
+        .fetch_one(&state.pg)
+        .await?;
+    if existing >= MAX_WEBHOOKS_PER_USER {
+        return Err(AppError::BadRequest(format!(
+            "webhook limit reached (max {MAX_WEBHOOKS_PER_USER})"
+        )));
     }
     let mut buf = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut buf);

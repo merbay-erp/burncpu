@@ -128,6 +128,53 @@ Runs on every push, every PR, and daily (06:17 UTC):
 
 A red `security.yml` should block merge.
 
+## Security headers (nginx)
+
+Security headers are set by **nginx**, not the app (the app's responses are
+proxied; the SPA is served statically from `/opt/burncpu/web`). nginx's
+`add_header` is **not inherited** into a `location` that defines its own
+`add_header`, so the headers live in a snippet that is *also* included into
+the SPA `location /`:
+
+```nginx
+# /etc/nginx/snippets/burncpu-headers.conf  — included into location /
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-…'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "no-referrer" always;
+add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), …" always;
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header Cross-Origin-Resource-Policy "same-origin" always;
+```
+
+```nginx
+location / {
+    try_files $uri /index.html;
+    add_header Cache-Control "no-cache" always;
+    include snippets/burncpu-headers.conf;   # <-- restores the security headers
+}
+```
+
+> ⚠️ **CSP / inline-script coupling.** `web/index.html` has one **inline**
+> theme-init script (runs before paint to avoid a theme flash). Under CSP it
+> must be allowlisted by hash, so `script-src` carries its SHA-256. **If you
+> change that inline script, regenerate the hash** and update the snippet:
+>
+> ```bash
+> # from the built file the server actually serves
+> python3 - <<'PY'
+> import re, hashlib, base64
+> s = re.search(r'<script>(.*?)</script>', open('/opt/burncpu/web/index.html').read(), re.S).group(1)
+> print("sha256-" + base64.b64encode(hashlib.sha256(s.encode()).digest()).decode())
+> PY
+> ```
+>
+> Then `nginx -t && systemctl reload nginx`, and verify:
+> `curl -sI --resolve burncpu.com:443:127.0.0.1 https://burncpu.com/ | grep -i content-security`.
+> The snippet lives outside the repo (host config), so it is **not** redeployed
+> by CI — edit it on the host.
+
 ## Incident response
 
 See [THREAT_MODEL.md → Incident response](../THREAT_MODEL.md#incident-response)

@@ -119,7 +119,7 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 3. **No custom WAF rules beyond Cloudflare defaults.** Tailored rules need real traffic patterns to observe first.
 4. **Single admin / no fine-grained RBAC.** One admin role gated by 2FA; multi-admin separation of duties is future work.
 5. **No media CDN.** Uploads are served from the origin (EXIF-stripped, re-encoded, size-capped); a CDN is deferred.
-6. **Remote (https) avatar URLs are allowed**, which lets a third party log requests when a profile is viewed. A media proxy / rehost is planned.
+6. **Federated remote-actor avatars** are still displayed from their origin URLs (local user avatars are now re-hosted — see below). Proxying remote-actor avatars is a separate, larger decision tied to the federation surface.
 
 ### Resolved since the foundation
 
@@ -141,6 +141,10 @@ live. The threat tables above reflect these as active mitigations.
   capped. Signing secrets are encrypted at rest (XChaCha20-Poly1305, like TOTP
   secrets), and deliveries run through a bounded queue + concurrency-limited
   worker instead of unbounded per-event `tokio::spawn`s.
+- **Avatar tracking**: an external `https://` avatar URL set on a profile is
+  now re-hosted through the media pipeline on save (SSRF-guarded fetch, size
+  cap, EXIF strip, content-addressed `/media`), so viewing a profile no longer
+  leaks the viewer to a third party. Per-user rate-limited; fail-closed.
 - **Clickjacking / missing headers on the SPA**: the full security-header set
   (HSTS, CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, COOP,
   CORP) is now applied to static/SPA responses, not just proxied routes. The

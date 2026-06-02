@@ -836,7 +836,7 @@ pub struct PatchMe {
 async fn patch_me(
     State(state): State<AppState>,
     user: CurrentUser,
-    Json(input): Json<PatchMe>,
+    Json(mut input): Json<PatchMe>,
 ) -> Result<Json<Profile>, AppError> {
     if let Some(n) = &input.display_name {
         let n = n.trim();
@@ -857,6 +857,16 @@ async fn patch_me(
         return Err(AppError::BadRequest(
             "avatar_url must be https:// or /media/".into(),
         ));
+    }
+    // Rehost an external https avatar through /media so viewing a profile never
+    // leaks the viewer to a third party — and the EXIF-strip + SSRF + decode
+    // guards that already cover uploads now cover avatars. Already-/media values
+    // pass straight through.
+    if let Some(a) = input.avatar_url.as_deref()
+        && a.starts_with("https://")
+    {
+        let rehosted = rehost_external_avatar(&state, user.user_id, a).await?;
+        input.avatar_url = Some(rehosted);
     }
 
     sqlx::query(
@@ -882,4 +892,52 @@ async fn patch_me(
         .fetch_one(&state.pg)
         .await?;
     get_profile(State(state), Some(user), Path(username)).await
+}
+
+/// Fetch an external avatar URL and re-host it through the media pipeline so it
+/// is served from our own origin (no third-party request leak on profile view)
+/// with EXIF stripped. SSRF-guarded; size-capped; rate-limited; fail-closed.
+async fn rehost_external_avatar(
+    state: &AppState,
+    uid: Uuid,
+    url: &str,
+) -> Result<String, AppError> {
+    use redis::AsyncCommands;
+    // Outbound fetch → rate-limit per user (10/hour).
+    let mut redis = state.redis.clone();
+    let key = format!("avatar_rehost:{uid}");
+    let n: u32 = redis.incr(&key, 1u32).await?;
+    if n == 1 {
+        let _: () = redis.expire(&key, 3600).await?;
+    }
+    if n > 10 {
+        return Err(AppError::RateLimited);
+    }
+
+    let (http, safe_url) = crate::net_safety::safe_client_for(
+        url,
+        "burncpu-avatar/1",
+        std::time::Duration::from_secs(5),
+    )
+    .await
+    .map_err(|e| AppError::BadRequest(format!("avatar_url is not reachable: {e}")))?;
+    let resp = http
+        .get(safe_url.as_str())
+        .send()
+        .await
+        .map_err(|_| AppError::BadRequest("avatar_url could not be fetched".into()))?;
+    // Redirect policy is `none`, so a 3xx is returned as-is — reject non-2xx
+    // rather than chase a redirect that could dodge the IP pin.
+    if !resp.status().is_success() {
+        return Err(AppError::BadRequest(
+            "avatar_url did not return an image".into(),
+        ));
+    }
+    let raw = crate::net_safety::read_capped_bytes(resp, 5 * 1024 * 1024)
+        .await
+        .map_err(|_| AppError::BadRequest("avatar image too large or unreadable".into()))?;
+    let media = crate::routes::media::ingest_image_bytes(state, uid, &raw)
+        .await
+        .map_err(|_| AppError::BadRequest("avatar_url is not a valid image".into()))?;
+    Ok(media.url)
 }

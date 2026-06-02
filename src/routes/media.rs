@@ -52,7 +52,7 @@ const ALLOWED: &[(&str, ImageFormat, &str)] = &[
 #[derive(Serialize)]
 pub struct MediaResponse {
     id: Uuid,
-    url: String,
+    pub(crate) url: String,
     width: Option<i32>,
     height: Option<i32>,
     mime_type: String,
@@ -87,13 +87,27 @@ async fn upload(
         }
     }
     let raw = bytes.ok_or_else(|| AppError::BadRequest("missing 'file' field".into()))?;
+    let resp = ingest_image_bytes(&state, user.user_id, &raw).await?;
+    tracing::info!(user_id = %user.user_id, url = %resp.url, "media uploaded");
+    Ok((StatusCode::CREATED, Json(resp)))
+}
+
+/// The image pipeline shared by the upload endpoint and the avatar rehost:
+/// sniff MIME from bytes → decode + re-encode (strips EXIF/XMP, rejects
+/// bombed/disguised payloads) → content-address → write to `media_dir` →
+/// idempotent INSERT. Returns the stored `media` row.
+pub(crate) async fn ingest_image_bytes(
+    state: &AppState,
+    owner_id: Uuid,
+    raw: &[u8],
+) -> Result<MediaResponse, AppError> {
     if raw.is_empty() {
-        return Err(AppError::BadRequest("empty file".into()));
+        return Err(AppError::BadRequest("empty image".into()));
     }
 
-    // Sniff MIME from the bytes (not from the client's claim)
+    // Sniff MIME from the bytes (not from any client claim).
     let kind =
-        infer::get(&raw).ok_or_else(|| AppError::BadRequest("unrecognized format".into()))?;
+        infer::get(raw).ok_or_else(|| AppError::BadRequest("unrecognized format".into()))?;
     let mime = kind.mime_type();
     let (mime_str, fmt, ext) = ALLOWED
         .iter()
@@ -101,7 +115,7 @@ async fn upload(
         .ok_or_else(|| AppError::BadRequest(format!("unsupported type: {mime}")))?;
 
     // Decode + re-encode → drops metadata (EXIF / XMP) and rejects fake/bombed payloads.
-    let mut reader = ImageReader::new(Cursor::new(raw.as_slice()));
+    let mut reader = ImageReader::new(Cursor::new(raw));
     reader.set_format(*fmt);
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_DIMENSION);
@@ -157,7 +171,7 @@ async fn upload(
         RETURNING id
         "#,
     )
-    .bind(user.user_id)
+    .bind(owner_id)
     .bind(&digest_vec)
     .bind(mime_str)
     .bind(width)
@@ -167,20 +181,14 @@ async fn upload(
     .fetch_one(&state.pg)
     .await?;
 
-    let url = format!("/media/{filename}");
-    tracing::info!(user_id = %user.user_id, %url, w=width, h=height, "media uploaded");
-
-    Ok((
-        StatusCode::CREATED,
-        Json(MediaResponse {
-            id: row.0,
-            url,
-            width: Some(width),
-            height: Some(height),
-            mime_type: mime_str.to_string(),
-            size_bytes,
-        }),
-    ))
+    Ok(MediaResponse {
+        id: row.0,
+        url: format!("/media/{filename}"),
+        width: Some(width),
+        height: Some(height),
+        mime_type: mime_str.to_string(),
+        size_bytes,
+    })
 }
 
 #[derive(Serialize, sqlx::FromRow)]

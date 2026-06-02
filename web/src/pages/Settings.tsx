@@ -371,12 +371,15 @@ function ProfileTab() {
     setBusy(true);
     setMsg(null);
     try {
-      await api.patch('/users/me', {
+      // The server may re-host an external avatar URL into /media (privacy),
+      // so trust the returned profile rather than the typed value.
+      const p = await api.patch<Profile>('/users/me', {
         display_name: displayName().trim(),
         bio: bio(),
         avatar_url: avatarUrl().trim(),
       });
-      setCachedMe({ ...u, display_name: displayName().trim(), avatar_url: avatarUrl().trim() || null });
+      setCachedMe({ ...u, display_name: p.display_name, avatar_url: p.avatar_url });
+      setAvatarUrl(p.avatar_url ?? '');
       setMsg({ kind: 'ok', text: t('settings.profile.saved') });
     } catch (e) {
       setMsg({ kind: 'err', text: (e as Error).message });

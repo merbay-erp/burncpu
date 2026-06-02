@@ -1,0 +1,143 @@
+# burncpu — Deployment & Operations
+
+How burncpu ships and how to operate it. Complements
+[ARCHITECTURE.md](../ARCHITECTURE.md) and [CONFIGURATION.md](CONFIGURATION.md).
+
+The whole platform runs on **one VPS** ("VPS3") behind Cloudflare. There is no
+orchestrator — a single app container plus Postgres, Redis, and Meilisearch on
+a private docker network.
+
+## Continuous deployment
+
+Pushing to `main` deploys automatically:
+
+```
+git push origin main
+   └─ GitHub Actions: "Deploy to VPS3"  (.github/workflows/deploy.yml)
+        runs-on: [self-hosted, mustafaerbay]   # runner lives on VPS3
+        └─ sudo /usr/local/bin/deploy-burncpu.sh "$GITHUB_WORKSPACE"
+             ├─ rsync backend → /opt/burncpu/app
+             ├─ build SPA      → /opt/burncpu/web   (nginx root)
+             ├─ rebuild app container (migrations run on startup)
+             └─ health-gate
+        └─ Verify: curl -fsS https://burncpu.com/healthz
+```
+
+- **Self-hosted runner.** VPS3's outbound 443 to GitHub is restricted, so a
+  self-hosted runner pulls the workspace and runs the deploy. All deploy logic
+  lives in a **root-owned, sudoers-allowlisted** script
+  (`/usr/local/bin/deploy-burncpu.sh`) — the runner can invoke it but not edit
+  it (least privilege).
+- **Concurrency.** `group: burncpu-deploy`, `cancel-in-progress: false` — runs
+  serialize; a deploy never interrupts another.
+- **Timing.** Backend change ≈9 min (Rust rebuild); frontend-only ≈1 min.
+
+### What triggers a deploy
+
+`deploy.yml` filters on `paths`: `src/**`, `web/**`, `Cargo.toml`,
+`Cargo.lock`, `Dockerfile`, `migrations/**`, and the workflow itself.
+Doc-only changes (README, `docs/**`, …) **do not** redeploy. `workflow_dispatch`
+allows a manual run.
+
+### Verifying a deploy
+
+```bash
+# 1. Health endpoint is 200
+curl -fsS https://burncpu.com/healthz
+
+# 2. The live JS bundle matches your local build (frontend changes)
+curl -s https://burncpu.com/ | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1
+ls web/dist/assets | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1
+# the two hashes should be identical
+```
+
+For a backend change, also sanity-check a route that exercises the new code
+(e.g. a new field appears in its JSON response).
+
+## Host layout
+
+```
+/opt/burncpu/
+├── app/            # backend (rsynced) + docker-compose.yml
+├── web/            # built SPA, served by nginx
+└── .env            # secrets — chmod 600, root-owned, NEVER in git
+```
+
+The app listens on `127.0.0.1:<BIND_ADDR port>`; nginx terminates TLS and
+proxies to it; Cloudflare fronts nginx on `:443`.
+
+## Secrets
+
+- Live only in `/opt/burncpu/.env` (chmod 600, root-owned).
+- `.gitignore` covers `*.env*`; `gitleaks` runs in CI on every push.
+- Rotate by editing `.env` and recreating the container:
+  `cd /opt/burncpu/app && docker compose up -d --force-recreate`.
+- Key secrets: `DATABASE_URL`, `MEILI_MASTER_KEY`, `BURNCPU_ENC_KEY`,
+  `SMTP_PASSWORD`, `VAPID_PRIVATE_KEY`. See [CONFIGURATION.md](CONFIGURATION.md).
+
+## Database
+
+- **Migrations** run automatically on app startup (sqlx, ordered files in
+  `migrations/`). To add one, drop a new `00NN_*.sql`; never edit a shipped
+  migration.
+- **Backups** — nightly `pg_dump` with 7-day rotation.
+- **Restore (example)**:
+
+  ```bash
+  # stop the app so nothing writes mid-restore
+  cd /opt/burncpu/app && docker compose stop app
+  gunzip -c /path/to/backup-YYYYMMDD.sql.gz | \
+    docker compose exec -T postgres psql -U burncpu -d burncpu
+  docker compose start app
+  ```
+
+## Manual operations
+
+```bash
+ssh vps3
+cd /opt/burncpu/app
+
+docker compose ps                 # service status
+docker compose logs -f app        # tail app logs (JSON tracing)
+docker compose up -d              # apply compose changes
+docker compose restart app        # bounce the app
+docker compose up -d --force-recreate   # after .env change
+```
+
+Logs are structured JSON; correlate a request by its `x-request-id`.
+
+## Rolling back
+
+1. `git revert <bad-commit>` (or revert the merge) and push to `main` — the
+   normal pipeline redeploys the previous-good state.
+2. If a migration is implicated, **do not** delete it; write a forward-fixing
+   migration. Postgres has no down-migrations here by design.
+3. For an emergency, recreate from the last image/commit on the host and
+   restore the latest backup if data is affected.
+
+## CI checks (security.yml)
+
+Runs on every push, every PR, and daily (06:17 UTC):
+
+| Job | Tool | Gate |
+|-----|------|------|
+| `cargo audit` | RustSec advisory DB | known-vuln crates |
+| `cargo deny` | advisories · licenses · bans · sources | supply-chain policy |
+| `build-check` | `cargo check` · `cargo test --no-run` · `clippy -D warnings` | compile + lint |
+| `secret-scan` | gitleaks | committed secrets |
+
+A red `security.yml` should block merge.
+
+## Incident response
+
+See [THREAT_MODEL.md → Incident response](../THREAT_MODEL.md#incident-response)
+for the compromise runbook (revoke sessions, rotate secrets, inspect
+`audit_log` / `login_attempts`). Report vulnerabilities via
+[SECURITY.md](../SECURITY.md).
+
+## Health & observability
+
+- `GET /healthz` — pings Postgres + Redis; `503` when unhealthy. Used by the
+  deploy gate and any uptime monitor.
+- `tracing` JSON logs; every response carries `x-request-id`.
+- Retention jobs (`src/cleanup.rs`) trim `audit_log`, trash, and expired tokens.

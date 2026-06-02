@@ -22,7 +22,8 @@ Bu doküman geliştirme ortamını, kod standartlarını ve PR sürecini anlatı
 ## Davranış kuralları
 
 Kısa versiyon: **low ego, high signal.** Saygılı ol, somut ol, yapıcı ol.
-Taciz, spam ve kötü niyet hoş görülmez. Sorun bildirimi için
+Taciz, spam ve kötü niyet hoş görülmez. Tam metin →
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Bildirim:
 `mustafa@mustafaerbay.com.tr`.
 
 ## Geliştirme ortamı
@@ -42,7 +43,7 @@ Backend, açılışta migration'ları otomatik koşar.
 
 ```bash
 # Backend
-cp .env.example .env          # DATABASE_URL, REDIS_URL, SITE_ORIGIN, MEILI_* ...
+cp .env.example .env          # boot için tek zorunlu: DATABASE_URL — bkz. docs/CONFIGURATION.md
 cargo run                     # geliştirme (debug). Release için: cargo run --release
 curl localhost:3050/healthz
 

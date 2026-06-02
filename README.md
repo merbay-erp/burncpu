@@ -121,7 +121,7 @@ Detaylar için → **[ARCHITECTURE.md](ARCHITECTURE.md)**
 git clone https://github.com/merbay-erp/burncpu.git
 cd burncpu
 cp .env.example .env
-# .env'i doldur: DATABASE_URL, REDIS_URL, SITE_ORIGIN, MEILI_* ...
+# Boot için tek zorunlu: DATABASE_URL. Tüm değişkenler → docs/CONFIGURATION.md
 
 cargo run --release            # migration'lar açılışta otomatik koşar
 curl localhost:3050/healthz    # {"status":"ok",...}
@@ -145,8 +145,8 @@ ssh vps3 'cd /opt/burncpu && docker compose up -d'
 curl https://burncpu.com/healthz
 ```
 
-Deploy `main`'e push ile otomatiktir (self-hosted runner). Bkz.
-[ARCHITECTURE.md → Deployment](ARCHITECTURE.md#deployment--ci).
+Deploy `main`'e push ile otomatiktir (self-hosted runner). Host yapısı,
+yedek/geri-yükleme ve runbook → **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
 
 ## Proje yapısı
 
@@ -192,7 +192,10 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 |---------|--------|
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | Sistem tasarımı, istek yaşam döngüsü, veri modeli, frontend mimarisi, gerçek-zamanlı, deploy/CI |
 | **[docs/API.md](docs/API.md)** | Tam endpoint referansı (auth, gövde, yanıt) |
+| **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** | Tüm ortam değişkenleri (env) referansı |
+| **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Deploy, host yapısı, yedek/geri-yükleme, runbook |
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Geliştirme akışı, kod standartları, commit & PR kuralları |
+| **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** | Topluluk davranış kuralları |
 | **[web/README.md](web/README.md)** | Frontend stack, dev server, theming, i18n |
 | **[THREAT_MODEL.md](THREAT_MODEL.md)** | STRIDE tehdit modeli, güven sınırları, kabul edilen riskler |
 | **[SECURITY.md](SECURITY.md)** | Güvenlik açığı bildirimi |

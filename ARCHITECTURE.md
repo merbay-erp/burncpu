@@ -231,6 +231,10 @@ Two GitHub Actions workflows:
 Secrets live only in `/opt/burncpu/.env` (chmod 600, root-owned), never in
 the repo (`.gitignore` covers `*.env*`).
 
+Full operations runbook (host layout, backup/restore, rollback) →
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**. Every environment variable →
+**[docs/CONFIGURATION.md](docs/CONFIGURATION.md)**.
+
 ## 12. Observability & operations
 
 - **Tracing** — `tracing` + `tracing-subscriber` (JSON in prod). Every

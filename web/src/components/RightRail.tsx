@@ -23,11 +23,14 @@ const CATEGORY_LABEL = (idx: number): string => {
 };
 
 export default function RightRail() {
-  const [profile] = createResource<Profile | null>(async () => {
-    const u = me();
-    if (!u) return null;
-    try { return await api.get<Profile>(`/users/${u.username}`); } catch { return null; }
-  });
+  // `me` is the reactive SOURCE so the card re-fetches on login and clears on
+  // logout (a falsy source skips the fetcher → profile() is undefined → hidden).
+  const [profile] = createResource(
+    me,
+    async (u) => {
+      try { return await api.get<Profile>(`/users/${u.username}`); } catch { return null; }
+    },
+  );
 
   const [tags] = createResource<TagCount[]>(async () => {
     try { return await api.get<TagCount[]>('/trending/hashtags?window=24h&limit=4'); }

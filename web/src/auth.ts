@@ -51,9 +51,11 @@ export async function probeSession(): Promise<boolean> {
   }
 }
 
+// `me` is the SOURCE so the badge re-fetches on login and clears on logout —
+// reading me() inside the fetcher alone would not re-run it on auth changes.
 export const [unread, { refetch: refetchUnread }] = createResource(
+  me,
   async () => {
-    if (!me()) return 0;
     try {
       const r = await api.get<{ unread: number }>('/notifications/count');
       return r.unread;

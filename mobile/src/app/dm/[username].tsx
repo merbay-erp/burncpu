@@ -15,6 +15,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { api } from '@/api';
+import { openEventStream } from '@/sse';
 import { useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
@@ -46,7 +47,10 @@ export default function DmThread() {
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [typing, setTyping] = useState(false);
   const listRef = useRef<FlatList<DmMessage>>(null);
+  const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingSent = useRef(0);
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +67,35 @@ export default function DmThread() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Live typing indicator via SSE. A "typing" event from the other user shows
+  // the badge; when it stops (3s quiet) we clear it + refetch (they likely sent).
+  useEffect(() => {
+    const close = openEventStream('/notifications/stream', (e) => {
+      const ev = e as { kind?: string; actor_username?: string };
+      if (ev?.kind === 'typing' && ev.actor_username === username) {
+        setTyping(true);
+        if (typingClear.current) clearTimeout(typingClear.current);
+        typingClear.current = setTimeout(() => {
+          setTyping(false);
+          load();
+        }, 3000);
+      }
+    });
+    return () => {
+      close();
+      if (typingClear.current) clearTimeout(typingClear.current);
+    };
+  }, [username, load]);
+
+  const onType = (v: string) => {
+    setText(v);
+    const now = Date.now();
+    if (v.trim() && now - lastTypingSent.current > 2000) {
+      lastTypingSent.current = now;
+      api.post(`/dm/threads/${username}/typing`).catch(() => {});
+    }
+  };
 
   const send = async () => {
     const body = text.trim();
@@ -90,8 +123,9 @@ export default function DmThread() {
         <Pressable onPress={() => router.back()} hitSlop={8}>
           <Ionicons name="chevron-back" size={26} color={colors.onBackground} />
         </Pressable>
-        <Pressable onPress={() => router.push(`/u/${username}`)}>
+        <Pressable onPress={() => router.push(`/u/${username}`)} style={{ alignItems: 'center' }}>
           <Text style={s.title}>@{username}</Text>
+          {typing ? <Text style={s.typing}>{t('dm.typing')}</Text> : null}
         </Pressable>
         <View style={{ width: 26 }} />
       </View>
@@ -126,7 +160,7 @@ export default function DmThread() {
           placeholder="…"
           placeholderTextColor={colors.fg3}
           value={text}
-          onChangeText={setText}
+          onChangeText={onType}
           multiline
         />
         <Pressable style={[s.sendBtn, (!text.trim() || sending) && { opacity: 0.4 }]} onPress={send} disabled={!text.trim() || sending}>
@@ -142,6 +176,7 @@ const styles = (c: Palette) =>
     screen: { flex: 1, backgroundColor: c.background },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: c.outlineVariant },
     title: { color: c.onBackground, fontFamily: fonts.bold, fontSize: 16 },
+    typing: { color: c.primary, fontFamily: fonts.mono, fontSize: 11, marginTop: 1 },
     bubbleRow: { flexDirection: 'row' },
     left: { justifyContent: 'flex-start' },
     right: { justifyContent: 'flex-end' },

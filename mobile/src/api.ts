@@ -265,6 +265,91 @@ export interface Activity {
 export const lookupUsers = (prefix: string) =>
   api.get<Author[]>(`/users/lookup?prefix=${encodeURIComponent(prefix)}`);
 
+// ─── Two-factor login challenge ────────────────────────────────
+export const twoFaChallenge = (code: string) => api.post('/auth/2fa/challenge', { code: code.trim() });
+
+// ─── Webhooks ──────────────────────────────────────────────────
+export const WEBHOOK_EVENTS = ['reaction', 'reply', 'follow', 'mention', 'dm'] as const;
+export interface Webhook {
+  id: string;
+  url: string;
+  events: string[];
+  active: boolean;
+  last_called_at: string | null;
+  last_status: number | null;
+  failure_streak: number;
+  created_at: string;
+}
+export interface WebhookCreated {
+  id: string;
+  url: string;
+  events: string[];
+  secret: string; // shown once
+}
+export interface WebhookDelivery {
+  event: string;
+  status: number | null;
+  ok: boolean;
+  error: string | null;
+  created_at: string;
+}
+
+// ─── Admin ─────────────────────────────────────────────────────
+export interface AdminStats {
+  total_users: number;
+  new_users_24h: number;
+  dau_24h: number;
+  total_posts: number;
+  posts_24h: number;
+  reactions_24h: number;
+  follows_24h: number;
+  requests_24h: number;
+  errors_24h: number;
+  flagged_sessions: number;
+  pending_mod_posts: number;
+  dm_messages_24h: number;
+  media_total: number;
+  media_bytes: number;
+}
+export interface AdminReport {
+  id: string;
+  reporter_username: string;
+  target_kind: string;
+  target_id: string;
+  reason: string;
+  note: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by_username: string | null;
+  resolution: string | null;
+}
+export interface FedInstance {
+  host: string;
+  followers: number;
+  blocked: boolean;
+  reason: string | null;
+}
+export interface AdminUserRow {
+  id: string;
+  username: string;
+  email: string;
+  display_name: string;
+  role: string;
+  created_at: string;
+  last_seen_at: string | null;
+  post_count: number;
+}
+
+// ─── Invite landing (public validation) ────────────────────────
+export interface InviteCheck {
+  code: string;
+  valid: boolean;
+  reason: string | null;
+  inviter_username: string | null;
+  expires_at: string | null;
+}
+export const checkInvite = (code: string) => api.get<InviteCheck>(`/invites/${encodeURIComponent(code)}`);
+
 // Some endpoints (bookmarks, hashtag/search hits) return posts with FLAT author
 // fields (author_username / author_display_name / author_avatar_url) instead of
 // the nested `author` object that <Post> needs. Normalize them into a PostView.

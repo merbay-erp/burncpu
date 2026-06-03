@@ -75,7 +75,16 @@ npx expo export --platform ios   # validates the Metro bundle
   passkeys), **Developer** (invites create/share/revoke, API tokens create/revoke),
   **Profile** (bookmarks, **Activity** analytics with SVG sparklines, **Trash** /
   restore), **Account** (data export via the share sheet, delete account).
-- **Login**, **post detail + replies**, **Bookmarks**.
+- **Login** (+ **2FA challenge** step when a login leaves `pending_2fa`) and an
+  **invite landing** screen (`/invite/[code]` → validate + prefill login).
+- **Settings → Developer**: **Webhooks** (create/test/deliveries/delete) + an **API
+  Docs** screen rendered from `/openapi.json`.
+- **Admin** (role-gated): stats grid, open-reports queue + resolve, **federation
+  instance blocklist** add/remove, user table + suspend.
+- **DM typing indicator** — a tiny XHR-based SSE client (`src/sse.ts`,
+  `/notifications/stream`) shows "typing…" and refetches when it stops; the composer
+  sends throttled typing pings.
+- **post detail + replies**, **Bookmarks**.
 
 > Posts from `/users/{u}/posts` (no author), `/bookmarks` + `/hashtags/{tag}` (flat
 > `author_*` fields) are normalized into the nested `author` shape `<Post>` needs —

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import Brand from '@/components/Brand';
@@ -13,11 +13,12 @@ import { t, useLocale } from '@/i18n';
 export default function Login() {
   const { colors } = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{ invite?: string }>();
   useLocale();
   const s = styles(colors);
 
   const [email, setEmail] = useState('');
-  const [invite, setInvite] = useState('');
+  const [invite, setInvite] = useState(params.invite ?? '');
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -28,7 +29,11 @@ export default function Login() {
     setPkBusy(true);
     setErr(null);
     try {
-      await loginWithPasskey();
+      const res = await loginWithPasskey();
+      if (res?.pending_2fa) {
+        router.replace('/2fa');
+        return;
+      }
       await probeSession();
       router.back();
     } catch (e) {

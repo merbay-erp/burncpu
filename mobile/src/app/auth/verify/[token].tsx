@@ -21,7 +21,11 @@ export default function Verify() {
   useEffect(() => {
     (async () => {
       try {
-        await api.post(`/auth/verify/${token}`);
+        const res = await api.post<{ ok: boolean; pending_2fa?: boolean }>(`/auth/verify/${token}`);
+        if (res?.pending_2fa) {
+          router.replace('/2fa');
+          return;
+        }
         await probeSession();
         router.replace('/');
       } catch {

@@ -206,6 +206,15 @@ export default function Settings() {
             <Text style={s.section}>{t('settings.developer')}</Text>
             <NavRow icon="ticket-outline" label={t('settings.invites')} onPress={() => router.push('/settings/invites')} />
             <NavRow icon="key-outline" label={t('settings.tokens')} onPress={() => router.push('/settings/tokens')} />
+            <NavRow icon="git-network-outline" label={t('settings.webhooks')} onPress={() => router.push('/settings/webhooks')} />
+            <NavRow icon="document-text-outline" label={t('docs.title')} onPress={() => router.push('/docs')} />
+
+            {me.role === 'admin' ? (
+              <>
+                <Text style={s.section}>{t('admin.title')}</Text>
+                <NavRow icon="shield-half-outline" label={t('admin.title')} onPress={() => router.push('/admin')} />
+              </>
+            ) : null}
 
             <Text style={s.section}>{t('settings.account')}</Text>
             <InfoRow label="@" value={me.username} c={colors} />

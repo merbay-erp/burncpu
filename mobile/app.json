@@ -19,6 +19,7 @@
     },
     "android": {
       "package": "com.burncpu.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#171311",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

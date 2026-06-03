@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1077464288642",
+    "project_id": "burncpu-dced9",
+    "storage_bucket": "burncpu-dced9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1077464288642:android:ca177baa51017c2913539b",
+        "android_client_info": {
+          "package_name": "com.burncpu.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8c21sH-NZzu-G_IbFYON8YXdchFj0AVE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

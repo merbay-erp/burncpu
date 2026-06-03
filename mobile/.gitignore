@@ -42,3 +42,7 @@ example
 /ios
 /android
 assets/images/.orig-bak/
+
+# Firebase service-account / Admin SDK keys — secrets, NEVER commit
+*-firebase-adminsdk-*.json
+*service-account*.json

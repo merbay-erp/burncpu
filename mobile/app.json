@@ -73,6 +73,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3ad9565e-90b6-460a-8e6f-a3eb450da8ea"
+      }
+    },
+    "owner": "mustafaerbay"
   }
 }

@@ -39,9 +39,9 @@ pub fn router() -> Router<AppState> {
         .route("/{id}", delete(delete_mine))
 }
 
-const MAX_BYTES: usize = 5 * 1024 * 1024;
-const MAX_DIMENSION: u32 = 8192;
-const MAX_PIXELS: u64 = 25_000_000;
+const MAX_BYTES: usize = 12 * 1024 * 1024; // 12 MiB — modern phone photos are often 5–10 MB
+const MAX_DIMENSION: u32 = 8192; // hard cap on accepted (pre-downscale) source dimensions
+const STORE_MAX_DIMENSION: u32 = 2048; // downscale anything larger than this before storing
 const ALLOWED: &[(&str, ImageFormat, &str)] = &[
     ("image/jpeg", ImageFormat::Jpeg, "jpg"),
     ("image/png", ImageFormat::Png, "png"),
@@ -120,19 +120,27 @@ pub(crate) async fn ingest_image_bytes(
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_DIMENSION);
     limits.max_image_height = Some(MAX_DIMENSION);
-    limits.max_alloc = Some(MAX_PIXELS * 4);
+    // Allow decoding a full MAX_DIMENSION² image (≈268 MB at 4 B/px) so large phone
+    // photos make it past the decoder — we downscale them immediately below.
+    limits.max_alloc = Some((MAX_DIMENSION as u64) * (MAX_DIMENSION as u64) * 4);
     reader.limits(limits);
-    let img = reader
+    let mut img = reader
         .decode()
         .map_err(|e| AppError::BadRequest(format!("decode: {e}")))?;
+    // Downscale oversized uploads. Phone cameras routinely emit 12–48 MP, but an
+    // avatar or post image never displays much above ~1024 px — storing and serving
+    // the full original wastes space/bandwidth, and the raw pixel count used to be
+    // rejected outright (the old hard 25 MP cap is what made large-photo uploads
+    // fail). `resize` preserves aspect ratio, fitting the image inside the box.
+    if img.width() > STORE_MAX_DIMENSION || img.height() > STORE_MAX_DIMENSION {
+        img = img.resize(
+            STORE_MAX_DIMENSION,
+            STORE_MAX_DIMENSION,
+            image::imageops::FilterType::Triangle,
+        );
+    }
     let width = img.width() as i32;
     let height = img.height() as i32;
-    let pixels = (width as u64) * (height as u64);
-    if pixels > MAX_PIXELS {
-        return Err(AppError::BadRequest(format!(
-            "image has too many pixels (max {MAX_PIXELS})"
-        )));
-    }
 
     let mut out = Cursor::new(Vec::with_capacity(raw.len()));
     img.write_to(&mut out, *fmt)

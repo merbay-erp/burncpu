@@ -26,7 +26,7 @@ function splitMedia(body: string): { text: string; images: string[] } {
   return { text: text.trim(), images };
 }
 
-export default function Post({ post, pinned, onPinChange }: { post: PostView; pinned?: boolean; onPinChange?: () => void }) {
+export default function Post({ post, pinned, onPinChange, detail }: { post: PostView; pinned?: boolean; onPinChange?: () => void; detail?: boolean }) {
   const { colors } = useTheme();
   const router = useRouter();
   const me = useMe();
@@ -140,8 +140,8 @@ export default function Post({ post, pinned, onPinChange }: { post: PostView; pi
 
   return (
     <Pressable
-      onPress={() => router.push(`/post/${post.id}`)}
-      style={({ pressed }) => [s.card, pressed && { backgroundColor: colors.surfaceLow }]}
+      onPress={detail ? undefined : () => router.push(`/post/${post.id}`)}
+      style={({ pressed }) => [s.card, !detail && pressed && { backgroundColor: colors.surfaceLow }]}
     >
       <Pressable style={s.menuBtn} onPress={() => setMenuOpen(true)} hitSlop={8}>
         <Ionicons name="ellipsis-horizontal" size={16} color={colors.onSurfaceVariant} />

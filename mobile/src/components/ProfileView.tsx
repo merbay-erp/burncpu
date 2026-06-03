@@ -135,6 +135,11 @@ export default function ProfileView({ username }: { username: string }) {
             <Pressable style={s.menuBtn} onPress={() => setMenuOpen(true)} hitSlop={8}>
               <Ionicons name="ellipsis-horizontal" size={18} color={colors.onBackground} />
             </Pressable>
+            {following && profile.is_followed_by && !blocked ? (
+              <Pressable style={s.menuBtn} onPress={() => router.push(`/dm/${username}`)} hitSlop={8}>
+                <Ionicons name="chatbubble-outline" size={17} color={colors.onBackground} />
+              </Pressable>
+            ) : null}
             <Pressable style={following ? s.outlineBtn : s.solidBtn} onPress={toggleFollow}>
               <Text style={following ? s.outlineBtnText : s.solidBtnText}>
                 {blocked ? t('profile.blocked') : following ? t('profile.following') : t('profile.follow')}

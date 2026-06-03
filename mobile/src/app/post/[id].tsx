@@ -59,7 +59,7 @@ export default function PostDetail() {
           keyExtractor={(p) => p.id}
           ListHeaderComponent={
             <View style={s.mainPost}>
-              <Post post={post} />
+              <Post post={post} detail />
             </View>
           }
           renderItem={({ item }) => <Post post={item} />}

@@ -23,11 +23,16 @@ export default function AvatarCropper(props: {
   let drag: { x: number; y: number; ox: number; oy: number } | null = null;
 
   onMount(() => {
-    const u = URL.createObjectURL(props.file);
-    setUrl(u);
+    // Read the file as a data: URL rather than URL.createObjectURL(). Our CSP
+    // allows `data:` in img-src but NOT `blob:`, so an object URL would be
+    // blocked outright — the <img> never decodes (naturalWidth stays 0), the
+    // crop circle shows empty, and the export canvas draws nothing.
+    const reader = new FileReader();
+    reader.onload = () => setUrl(typeof reader.result === 'string' ? reader.result : '');
+    reader.readAsDataURL(props.file);
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') props.onCancel(); };
     window.addEventListener('keydown', onKey);
-    onCleanup(() => { URL.revokeObjectURL(u); window.removeEventListener('keydown', onKey); });
+    onCleanup(() => { window.removeEventListener('keydown', onKey); });
   });
 
   const dispW = () => nw() * scale();

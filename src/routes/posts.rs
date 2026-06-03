@@ -487,6 +487,7 @@ async fn timeline(
         WHERE p.visibility = 'public'
           AND p.moderation_state = 'live'
           AND p.deleted_at IS NULL
+          AND p.reply_to_id IS NULL
           AND u.role <> 'suspended'
           AND ((p.created_at < $1) OR (p.created_at = $1 AND p.id < $4))
           AND (

@@ -42,13 +42,24 @@ export default function HoverCard() {
     const onOver = (e: MouseEvent) => {
       const a = (e.target as HTMLElement | null)?.closest('a') as HTMLAnchorElement | null;
       if (!a) return;
+      // Only inline @mentions in content should pop the card — skip the profile
+      // links in the top bar / sidebar / bottom nav, where the card is just
+      // noise and (sitting at the right edge) spills off the screen.
+      if (a.closest('nav, aside')) return;
       const href = a.getAttribute('href') ?? '';
       const m = /^\/u\/([a-z0-9_]{3,32})$/.exec(href);
       if (!m) return;
       const username = m[1];
       clearTimers();
       const rect = a.getBoundingClientRect();
-      const x = rect.left + window.scrollX;
+      // Anchor under the trigger, but clamp horizontally so the card's full
+      // width (max-width 320px below) stays inside the viewport.
+      const CARD_W = 320;
+      const MARGIN = 8;
+      const vw = document.documentElement.clientWidth;
+      let x = rect.left + window.scrollX;
+      x = Math.min(x, window.scrollX + vw - CARD_W - MARGIN);
+      x = Math.max(window.scrollX + MARGIN, x);
       const y = rect.bottom + window.scrollY + 4;
 
       const cached = cache.get(username);

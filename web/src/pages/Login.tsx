@@ -114,6 +114,11 @@ export default function Login() {
           <p class="text-[9px] text-on-surface-variant/70 font-mono tracking-[0.3em] uppercase mt-1.5">1 vps yeter</p>
         </div>
 
+        {/* What is this — answers a first-time visitor's "what is BurnCPU?" */}
+        <p class="text-center text-on-surface-variant text-[13.5px] leading-relaxed mb-5 max-w-[380px] mx-auto">
+          Geliştiriciler, sistem yöneticileri ve üreticiler için sinyal ağı.
+        </p>
+
         {/* Card */}
         <div class="bg-surface-container-high border border-outline-variant rounded-2xl p-6 sm:p-8 shadow-xl shadow-black/5">
           <h1 class="text-[22px] font-bold text-on-background mb-1.5">{t('nav.login')}</h1>

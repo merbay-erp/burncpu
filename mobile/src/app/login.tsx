@@ -122,6 +122,8 @@ export default function Login() {
         <Text style={s.tagline}>1 VPS YETER</Text>
       </View>
 
+      <Text style={s.intro}>Geliştiriciler, sistem yöneticileri ve üreticiler için sinyal ağı.</Text>
+
       <View style={s.card}>
         <Text style={s.title}>{t('nav.login')}</Text>
         <Text style={s.note}>{t('login.note')}</Text>
@@ -206,6 +208,7 @@ const styles = (c: Palette) =>
     brandWrap: { alignItems: 'center', marginBottom: 24 },
     brand: { fontFamily: fonts.bold, fontSize: 30, letterSpacing: -1 },
     tagline: { color: c.fg3, fontFamily: fonts.mono, fontSize: 9, letterSpacing: 3, marginTop: 6 },
+    intro: { color: c.onSurfaceVariant, fontSize: 13, lineHeight: 19, textAlign: 'center', marginBottom: 16, paddingHorizontal: 8 },
     card: {
       backgroundColor: c.surfaceHigh,
       borderColor: c.outlineVariant,

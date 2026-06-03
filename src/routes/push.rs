@@ -369,3 +369,65 @@ pub async fn send_to_user(
         });
     }
 }
+
+/// Fan a notification out to the user's registered Expo push tokens via Expo's
+/// push service (which routes to APNs/FCM). No-op until the mobile app produces
+/// real ExponentPushTokens (needs app.json `extra.eas.projectId` + a dev/standalone
+/// build) and the Expo project has FCM/APNs creds. Raw FCM/APNs tokens are skipped.
+pub async fn send_to_device_tokens(
+    state: &AppState,
+    user_id: Uuid,
+    kind: &str,
+    actor_username: Option<&str>,
+    target_kind: &str,
+    target_id: Uuid,
+) {
+    let tokens: Vec<String> =
+        sqlx::query_scalar("SELECT token FROM device_push_tokens WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(&state.pg)
+            .await
+            .unwrap_or_default();
+    let expo: Vec<String> = tokens
+        .into_iter()
+        .filter(|t| t.starts_with("ExponentPushToken") || t.starts_with("ExpoPushToken"))
+        .collect();
+    if expo.is_empty() {
+        return;
+    }
+    let who = actor_username.unwrap_or("biri");
+    let title = match kind {
+        "reaction" => format!("@{who} postuna tepki verdi"),
+        "reply" => format!("@{who} yanıt verdi"),
+        "follow" => format!("@{who} seni takip etti"),
+        "mention" => format!("@{who} seni bahsetti"),
+        "dm" => format!("@{who} mesaj attı"),
+        _ => format!("@{who} → {kind}"),
+    };
+    let url = if target_kind == "post" {
+        format!("/posts/{target_id}")
+    } else if target_kind == "thread" {
+        "/dm".to_string()
+    } else {
+        "/notifications".to_string()
+    };
+    let messages: Vec<serde_json::Value> = expo
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "to": t, "title": title, "body": "burncpu",
+                "sound": "default", "priority": "high", "channelId": "default",
+                "data": { "url": url, "kind": kind },
+            })
+        })
+        .collect();
+    let client = reqwest::Client::new();
+    if let Err(e) = client
+        .post("https://exp.host/--/api/v2/push/send")
+        .json(&messages)
+        .send()
+        .await
+    {
+        tracing::warn!(?e, "expo push send failed");
+    }
+}

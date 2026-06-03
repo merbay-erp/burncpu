@@ -18,6 +18,13 @@ pub struct Config {
     pub allowed_origins: Vec<String>,
     pub media_dir: String,
     pub federation_enabled: bool,
+    /// Apple app identifier `TEAMID.com.burncpu.app` for the AASA file +
+    /// webcredentials. Unset → the apple-app-site-association route 404s.
+    pub ios_app_id: Option<String>,
+    /// Android signing SHA-256 fingerprints (colon-hex) for assetlinks.json.
+    /// Empty → the assetlinks route 404s. Accepts a comma-separated list so
+    /// debug + EAS-managed prod keys can both verify.
+    pub android_cert_fingerprints: Vec<String>,
 }
 
 impl Config {
@@ -49,6 +56,16 @@ impl Config {
             federation_enabled: env::var("FEDERATION_ENABLED")
                 .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
                 .unwrap_or(false),
+            ios_app_id: env::var("IOS_APP_ID")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            android_cert_fingerprints: env::var("ANDROID_CERT_FINGERPRINTS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
         })
     }
 }

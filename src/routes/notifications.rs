@@ -318,6 +318,15 @@ pub async fn notify(
         target_id,
     )
     .await;
+    crate::routes::push::send_to_device_tokens(
+        state,
+        user_id,
+        kind,
+        actor_username_clone.as_deref(),
+        target_kind,
+        target_id,
+    )
+    .await;
 }
 
 async fn notification_suppressed(state: &AppState, user_id: Uuid, actor_id: Uuid) -> bool {

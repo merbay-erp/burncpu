@@ -113,6 +113,14 @@ async fn main() -> Result<()> {
             get(routes::federation::nodeinfo_discovery),
         )
         .route("/nodeinfo/2.1", get(routes::federation::nodeinfo))
+        .route(
+            "/.well-known/apple-app-site-association",
+            get(routes::applinks::apple_app_site_association),
+        )
+        .route(
+            "/.well-known/assetlinks.json",
+            get(routes::applinks::android_assetlinks),
+        )
         .nest("/ap", routes::federation::router())
         .nest("/rss", routes::rss::router())
         .nest("/api/v1", routes::api::router(state.clone()))

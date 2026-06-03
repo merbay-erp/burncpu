@@ -87,7 +87,7 @@ export default function Settings() {
       const r = await fetch(`${API_ORIGIN}/api/v1/users/me`, {
         method: 'DELETE',
         credentials: 'include',
-        headers: { 'X-Confirm-Username': me.username },
+        headers: { 'X-Confirm-Username': me.username, Origin: API_ORIGIN },
       });
       if (!r.ok && r.status !== 204) throw new Error(`HTTP ${r.status}`);
       await logout();

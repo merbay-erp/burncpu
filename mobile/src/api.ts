@@ -16,10 +16,14 @@ export class ApiError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // Send an Origin header so the backend CSRF guard accepts cookie-authed
+  // state-changes — native fetch omits Origin, which the guard would reject.
+  const headers: Record<string, string> = { Origin: API_ORIGIN };
+  if (body != null) headers['Content-Type'] = 'application/json';
   const r = await fetch(`${BASE}${path}`, {
     method,
     credentials: 'include',
-    headers: body != null ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: body != null ? JSON.stringify(body) : undefined,
   });
   if (r.status === 204) return undefined as T;

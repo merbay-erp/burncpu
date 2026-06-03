@@ -95,7 +95,7 @@ export default function Compose() {
           name: asset.fileName ?? 'image.jpg',
           type: asset.mimeType ?? 'image/jpeg',
         } as unknown as Blob);
-        const r = await fetch(`${API_ORIGIN}/api/v1/media`, { method: 'POST', body: fd, credentials: 'include' });
+        const r = await fetch(`${API_ORIGIN}/api/v1/media`, { method: 'POST', body: fd, credentials: 'include', headers: { Origin: API_ORIGIN } });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const m = (await r.json()) as MediaResp;
         setAttachments((a) => [...a, m.url]);

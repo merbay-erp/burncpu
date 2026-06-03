@@ -41,7 +41,7 @@ export default function ProfileEdit() {
     try {
       const fd = new FormData();
       fd.append('file', { uri: asset.uri, name: asset.fileName ?? 'avatar.jpg', type: asset.mimeType ?? 'image/jpeg' } as unknown as Blob);
-      const r = await fetch(`${API_ORIGIN}/api/v1/media`, { method: 'POST', body: fd, credentials: 'include' });
+      const r = await fetch(`${API_ORIGIN}/api/v1/media`, { method: 'POST', body: fd, credentials: 'include', headers: { Origin: API_ORIGIN } });
       if (!r.ok) throw new Error();
       const m = (await r.json()) as { url: string };
       setAvatarUrl(m.url);

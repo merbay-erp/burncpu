@@ -8,7 +8,7 @@ import Sheet from '@/components/Sheet';
 import { api, type AdminStats, type AdminReport, type FedInstance, type AdminUserRow } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
-import { relTime } from '@/util';
+import { relTime, fmtNum } from '@/util';
 import { t, useLocale } from '@/i18n';
 
 type Tab = 'stats' | 'reports' | 'federation' | 'users';
@@ -112,7 +112,7 @@ export default function Admin() {
             <View style={s.grid}>
               {STAT_KEYS.map((k) => (
                 <View key={k} style={s.statCard}>
-                  <Text style={s.statValue}>{stats[k].toLocaleString?.() ?? String(stats[k])}</Text>
+                  <Text style={s.statValue}>{fmtNum(stats[k])}</Text>
                   <Text style={s.statLabel}>{t(`stat.${k}`)}</Text>
                 </View>
               ))}

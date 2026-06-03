@@ -1,5 +1,11 @@
 import { Share } from 'react-native';
 
+// Thousands separator without relying on Intl (Hermes ships no ICU by default),
+// using '.' the Turkish way: 1234567 → "1.234.567".
+export function fmtNum(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
 // Share a string via the OS share sheet (which includes a Copy action). Uses
 // React Native core — no native module, so it works on any build. Displayed
 // secrets are also rendered `selectable` so a long-press copies them directly.

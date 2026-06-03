@@ -8,6 +8,7 @@ import Svg, { Polyline } from 'react-native-svg';
 import { api, type Activity, type ActivityDay } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, useTheme, type Palette } from '@/theme';
+import { fmtNum } from '@/util';
 import { t, useLocale } from '@/i18n';
 
 type Win = '7d' | '30d' | '90d';
@@ -79,17 +80,12 @@ export default function ActivityScreen() {
   );
 }
 
-// Hermes-safe thousands separator (Turkish uses '.') — avoids relying on Intl.
-function fmt(n: number): string {
-  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-}
-
 function StatCard({ label, total, series, c }: { label: string; total: number; series: number[]; c: Palette }) {
   const s = styles(c);
   return (
     <View style={s.card}>
       <View style={{ flex: 1 }}>
-        <Text style={s.cardValue}>{fmt(total)}</Text>
+        <Text style={s.cardValue}>{fmtNum(total)}</Text>
         <Text style={s.cardLabel}>{label}</Text>
       </View>
       <Sparkline values={series} color={c.primary} width={130} height={42} />

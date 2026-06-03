@@ -34,7 +34,7 @@ pub fn hash_token(raw: &str) -> Vec<u8> {
     Sha256::digest(raw.as_bytes()).to_vec()
 }
 
-fn base64url_encode(bytes: &[u8]) -> String {
+pub(crate) fn base64url_encode(bytes: &[u8]) -> String {
     // URL-safe base64 without padding (RFC 4648 §5)
     use std::fmt::Write;
     const CHARSET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";

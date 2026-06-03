@@ -13,6 +13,7 @@ pub mod invites;
 pub mod link_preview;
 pub mod media;
 pub mod notifications;
+pub mod oauth;
 pub mod openapi;
 pub mod passkeys;
 pub mod posts;

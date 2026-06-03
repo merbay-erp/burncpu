@@ -25,6 +25,17 @@ pub struct Config {
     /// Empty → the assetlinks route 404s. Accepts a comma-separated list so
     /// debug + EAS-managed prod keys can both verify.
     pub android_cert_fingerprints: Vec<String>,
+    /// OAuth provider credentials keyed by provider name (google|github|microsoft).
+    /// A provider is "enabled" iff its entry is present here — i.e. both its
+    /// {PROVIDER}_CLIENT_ID and {PROVIDER}_CLIENT_SECRET env vars are set.
+    pub oauth: std::collections::HashMap<String, OAuthProviderCreds>,
+}
+
+/// Static OAuth2 client credentials for one provider.
+#[derive(Debug, Clone)]
+pub struct OAuthProviderCreds {
+    pub client_id: String,
+    pub client_secret: String,
 }
 
 impl Config {
@@ -66,6 +77,26 @@ impl Config {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
+            oauth: {
+                let mut m = std::collections::HashMap::new();
+                for p in ["google", "github", "microsoft"] {
+                    let up = p.to_uppercase();
+                    if let (Ok(id), Ok(secret)) = (
+                        env::var(format!("{up}_CLIENT_ID")),
+                        env::var(format!("{up}_CLIENT_SECRET")),
+                    ) {
+                        let id = id.trim().to_string();
+                        let secret = secret.trim().to_string();
+                        if !id.is_empty() && !secret.is_empty() {
+                            m.insert(
+                                p.to_string(),
+                                OAuthProviderCreds { client_id: id, client_secret: secret },
+                            );
+                        }
+                    }
+                }
+                m
+            },
         })
     }
 }

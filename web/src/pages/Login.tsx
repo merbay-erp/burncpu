@@ -1,4 +1,4 @@
-import { createSignal, Show } from 'solid-js';
+import { createSignal, createResource, For, Show } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import { api } from '../api';
 import { probeSession } from '../auth';
@@ -11,14 +11,32 @@ const inputClass =
   'placeholder:text-on-surface-variant/50 font-mono text-[14px] transition-colors disabled:opacity-50 ' +
   'focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30';
 
+// Display labels for the OAuth providers the backend reports as configured.
+const PROVIDER_LABELS: Record<string, string> = {
+  google: 'Google',
+  github: 'GitHub',
+  microsoft: 'Microsoft',
+  apple: 'Apple',
+};
+
 export default function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = createSignal('');
-  const [invite, setInvite] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [sent, setSent] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
   const [pkBusy, setPkBusy] = createSignal(false);
+
+  // Enabled social-login providers (empty until/unless the backend has creds).
+  const [providers] = createResource(() =>
+    api.get<string[]>('/oauth/providers').catch(() => [] as string[]),
+  );
+
+  const startOAuth = (provider: string) => {
+    // Full-page navigation: backend 302s to the provider, then back to the
+    // callback which sets the session cookie and returns us to the app.
+    window.location.href = `/api/v1/oauth/${provider}/start`;
+  };
 
   const passkey = async () => {
     if (pkBusy()) return;
@@ -43,9 +61,7 @@ export default function Login() {
     setBusy(true);
     setErr(null);
     try {
-      const payload: { email: string; invite?: string } = { email: email().trim() };
-      if (invite().trim()) payload.invite = invite().trim();
-      await api.post('/auth/request', payload);
+      await api.post('/auth/request', { email: email().trim() });
       setSent(true);
     } catch (e) {
       setErr((e as Error).message || t('login.error'));
@@ -53,6 +69,8 @@ export default function Login() {
       setBusy(false);
     }
   };
+
+  const hasAlternatives = () => (providers()?.length ?? 0) > 0 || passkeySupported();
 
   return (
     <div class="min-h-[70vh] flex items-center justify-center py-10">
@@ -101,21 +119,6 @@ export default function Login() {
                 />
               </div>
 
-              <div>
-                <label for="invite" class="block font-mono text-[11px] uppercase tracking-widest text-on-surface-variant mb-1.5">
-                  {t('login.invite')} <span class="normal-case tracking-normal text-on-surface-variant/60">{t('login.invite_hint')}</span>
-                </label>
-                <input
-                  id="invite"
-                  type="text"
-                  class={inputClass}
-                  placeholder="xxxxxxxxxxxx"
-                  value={invite()}
-                  onInput={(e) => setInvite(e.currentTarget.value)}
-                  disabled={busy()}
-                />
-              </div>
-
               <Show when={err()}>
                 <div class="p-3 rounded-lg bg-error/10 border border-error/30 text-error text-[13px] font-mono">{err()}</div>
               </Show>
@@ -129,7 +132,7 @@ export default function Login() {
               </button>
             </form>
 
-            <Show when={passkeySupported()}>
+            <Show when={hasAlternatives()}>
               <div class="flex items-center gap-3 my-5">
                 <div class="h-px flex-1 bg-outline-variant" />
                 <span class="text-[11px] font-mono uppercase tracking-widest text-on-surface-variant/60">
@@ -137,15 +140,32 @@ export default function Login() {
                 </span>
                 <div class="h-px flex-1 bg-outline-variant" />
               </div>
-              <button
-                type="button"
-                onClick={passkey}
-                disabled={pkBusy() || busy()}
-                class="w-full py-2.5 rounded-lg border border-outline-variant text-on-background font-bold font-mono text-[14px] hover:bg-surface-container active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
-              >
-                <span class="text-[16px] leading-none">🔑</span>
-                {pkBusy() ? t('login.passkey_busy') : t('login.passkey')}
-              </button>
+
+              <div class="space-y-2.5">
+                <For each={providers() ?? []}>
+                  {(provider) => (
+                    <button
+                      type="button"
+                      onClick={() => startOAuth(provider)}
+                      class="w-full py-2.5 rounded-lg border border-outline-variant text-on-background font-bold font-mono text-[14px] hover:bg-surface-container active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                    >
+                      {(PROVIDER_LABELS[provider] ?? provider)} ile devam et
+                    </button>
+                  )}
+                </For>
+
+                <Show when={passkeySupported()}>
+                  <button
+                    type="button"
+                    onClick={passkey}
+                    disabled={pkBusy() || busy()}
+                    class="w-full py-2.5 rounded-lg border border-outline-variant text-on-background font-bold font-mono text-[14px] hover:bg-surface-container active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    <span class="text-[16px] leading-none">🔑</span>
+                    {pkBusy() ? t('login.passkey_busy') : t('login.passkey')}
+                  </button>
+                </Show>
+              </div>
             </Show>
           </Show>
         </div>

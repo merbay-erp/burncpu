@@ -379,12 +379,15 @@ pub async fn verify_handler(
 //  magic-link login — passkeys are a first factor, not a 2FA bypass.
 // ────────────────────────────────────────────────────────────────
 
-pub(crate) async fn issue_session(
+/// Core session creation: insert a session row and return the RAW session token
+/// (so the caller can deliver it as a cookie *or* a Bearer token) plus whether
+/// the session still needs a 2FA challenge.
+pub(crate) async fn issue_session_token(
     state: &AppState,
     user_id: uuid::Uuid,
     ip_str: &str,
     ua: &str,
-) -> Result<(HeaderValue, bool), AppError> {
+) -> Result<(String, bool), AppError> {
     let (session_raw, session_hash) = new_token().map_err(AppError::Internal)?;
 
     let has_totp: bool = sqlx::query_scalar(
@@ -410,16 +413,34 @@ pub(crate) async fn issue_session(
     .execute(&state.pg)
     .await?;
 
-    let secure = if state.config.site_origin.starts_with("https://") {
+    Ok((session_raw, has_totp))
+}
+
+/// Build the `Set-Cookie` header carrying a raw session token.
+pub(crate) fn session_cookie(
+    raw: &str,
+    config: &crate::config::Config,
+) -> Result<HeaderValue, AppError> {
+    let secure = if config.site_origin.starts_with("https://") {
         "; Secure"
     } else {
         ""
     };
     let cookie = format!(
-        "{SESSION_COOKIE}={session_raw}; HttpOnly{secure}; SameSite=Lax; Path=/; Max-Age={}",
+        "{SESSION_COOKIE}={raw}; HttpOnly{secure}; SameSite=Lax; Path=/; Max-Age={}",
         SESSION_TTL.as_secs()
     );
-    let hv = HeaderValue::from_str(&cookie).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    HeaderValue::from_str(&cookie).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))
+}
+
+pub(crate) async fn issue_session(
+    state: &AppState,
+    user_id: uuid::Uuid,
+    ip_str: &str,
+    ua: &str,
+) -> Result<(HeaderValue, bool), AppError> {
+    let (session_raw, has_totp) = issue_session_token(state, user_id, ip_str, ua).await?;
+    let hv = session_cookie(&session_raw, &state.config)?;
     Ok((hv, has_totp))
 }
 
@@ -524,7 +545,7 @@ fn read_session_cookie(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-async fn upsert_user(
+pub(crate) async fn upsert_user(
     state: &AppState,
     email: &str,
     invite_code: Option<&str>,

@@ -69,7 +69,8 @@
         {
           "color": "#ff8a3c"
         }
-      ]
+      ],
+      "./plugins/withSingleAbi.js"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -21,6 +21,27 @@ npx expo start         # then press i (iOS sim) / a (Android) / scan in Expo Go
 - **Android emulator:** `npx expo start --android` (needs Android Studio)
 - **Physical device:** install **Expo Go**, scan the QR from `npx expo start`
 
+### Native Android dev build
+
+The flame logo + brand gradient use native modules (`react-native-svg`,
+`@react-native-masked-view/masked-view`, `expo-linear-gradient`), so Android needs a
+native build (Expo Go on iOS bundles them already). Gotchas learned the hard way:
+
+```bash
+cd android
+# JBR lacks jmods → use a JDK that has them:
+export JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home"
+# build ONLY the emulator's ABI — a universal APK is ~240 MB and won't fit the
+# emulator's data partition; arm64-v8a alone is ~85 MB:
+./gradlew :app:assembleDebug -PreactNativeArchitectures=arm64-v8a
+adb install -r app/build/outputs/apk/debug/app-debug.apk   # -r keeps the session
+```
+
+If a freshly-added Expo module reports *"Cannot find native module …"* after an
+incremental build, the autolinking package list went stale — `rm -rf
+android/app/build/generated` (or `./gradlew :app:assembleDebug --rerun-tasks`) and
+rebuild, or avoid the module (see *Copy / share & files*).
+
 Typecheck / bundle:
 
 ```bash
@@ -44,8 +65,28 @@ npx expo export --platform ios   # validates the Metro bundle
   **profile edit** (name, bio, avatar), and a "…" menu (mute / block / report).
 - **DMs** — thread list + **conversation screen** (send, mark-read, bubbles).
 - **Search** — live text search + **trending hashtags**; **hashtag feed** with follow.
-- **Notifications**, **Bookmarks**, **Settings** (theme, language, 2FA/passkey/session
-  summary, logout), **post detail + replies**, **login** (magic link).
+- **Notifications** — All / Unread tabs + mark-all-read, tap-to-read.
+- **Compose** — content-warning field + live **@-mention typeahead** (`/users/lookup`).
+- **Search** — text search **+ a Trending hub** (24h/7d/30d windows, hashtag chips,
+  trending posts).
+- **Profile** — pinned-post slot + pin/unpin from a post's "…" menu.
+- **Settings** — full **Security** (2FA enroll → authenticator deep-link + recovery
+  codes + disable; session list with revoke + revoke-others + security-event log;
+  passkeys), **Developer** (invites create/share/revoke, API tokens create/revoke),
+  **Profile** (bookmarks, **Activity** analytics with SVG sparklines, **Trash** /
+  restore), **Account** (data export via the share sheet, delete account).
+- **Login**, **post detail + replies**, **Bookmarks**.
+
+> Posts from `/users/{u}/posts` (no author), `/bookmarks` + `/hashtags/{tag}` (flat
+> `author_*` fields) are normalized into the nested `author` shape `<Post>` needs —
+> see `normalizePost` in `src/api.ts` and the owner-enrich in `ProfileView`.
+
+## Copy / share & files
+
+No `expo-clipboard` / `expo-file-system` / `expo-sharing` — to stay native-module-light
+the app uses React Native core `Share` (`shareText` in `src/util.ts`) for invite links,
+API tokens, 2FA secret/recovery codes and the data export, plus `selectable` text for
+long-press copy. (Avoids autolinking churn on the existing dev build.)
 
 ## Auth on mobile
 

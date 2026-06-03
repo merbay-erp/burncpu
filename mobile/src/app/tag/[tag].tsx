@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import Post from '@/components/Post';
-import { api, type PostView, type Timeline } from '@/api';
+import { api, normalizePost, type PostView } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
@@ -25,8 +25,11 @@ export default function Hashtag() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api.get<Timeline | PostView[]>(`/hashtags/${tag}`);
-      setPosts(Array.isArray(data) ? data : data.posts);
+      // /hashtags/{tag} returns a Meilisearch response: { hits: [...] } with FLAT
+      // author fields. Read `.hits` and normalize each into a PostView.
+      const data = await api.get<{ hits?: Record<string, unknown>[]; posts?: Record<string, unknown>[] }>(`/hashtags/${tag}`);
+      const raw = Array.isArray(data) ? data : (data.hits ?? data.posts ?? []);
+      setPosts(raw.map(normalizePost));
       if (me) {
         try {
           const st = await api.get<{ following: boolean }>(`/hashtags/${tag}/follow`);

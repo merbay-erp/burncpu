@@ -1,20 +1,15 @@
 import { useEffect, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Alert } from 'react-native';
-import { api } from '@/api';
+import { api, API_ORIGIN, type SecurityInfo, type TwoFaStatus } from '@/api';
 import { useMe, logout } from '@/auth';
 import { registerPasskey, listPasskeys, deletePasskey, passkeySupported, type PasskeyInfo } from '@/passkey';
 import { fonts, radius, useTheme, type Palette, type Scheme } from '@/theme';
+import { shareText } from '@/util';
 import { t, useLocale, setLocale, type Locale } from '@/i18n';
-
-interface SecurityInfo {
-  sessions?: unknown[];
-  events?: unknown[];
-}
 
 export default function Settings() {
   const { colors, scheme, setScheme } = useTheme();
@@ -28,14 +23,27 @@ export default function Settings() {
   const [twofa, setTwofa] = useState<boolean | null>(null);
   const [passkeyList, setPasskeyList] = useState<PasskeyInfo[]>([]);
   const [pkBusy, setPkBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [delName, setDelName] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [delBusy, setDelBusy] = useState(false);
 
   const loadPasskeys = () => listPasskeys().then(setPasskeyList).catch(() => {});
 
   useEffect(() => {
     if (!me) return;
     api.get<SecurityInfo>('/users/me/security').then((r) => setSessions(r.sessions?.length ?? 0)).catch(() => {});
-    api.get<{ confirmed?: boolean }>('/auth/2fa/status').then((r) => setTwofa(!!r.confirmed)).catch(() => {});
+    api.get<TwoFaStatus>('/auth/2fa/status').then((r) => setTwofa(!!r.confirmed)).catch(() => {});
     loadPasskeys();
+  }, [me]);
+
+  // refresh status when returning to this screen
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!me) return;
+      api.get<TwoFaStatus>('/auth/2fa/status').then((r) => setTwofa(!!r.confirmed)).catch(() => {});
+    }, 4000);
+    return () => clearInterval(id);
   }, [me]);
 
   const addPasskey = async () => {
@@ -56,6 +64,41 @@ export default function Settings() {
     loadPasskeys();
   };
 
+  const exportData = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const r = await fetch(`${API_ORIGIN}/api/v1/users/me/export`, { credentials: 'include' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const text = await r.text();
+      // Share the JSON via the OS sheet (Save to Files / Copy / send anywhere).
+      await shareText(text, 'burncpu export');
+    } catch {
+      Alert.alert('burncpu', t('common.error'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (!me || delName.trim() !== me.username || delBusy) return;
+    setDelBusy(true);
+    try {
+      const r = await fetch(`${API_ORIGIN}/api/v1/users/me`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'X-Confirm-Username': me.username },
+      });
+      if (!r.ok && r.status !== 204) throw new Error(`HTTP ${r.status}`);
+      await logout();
+      Alert.alert('burncpu', t('account.deleted'));
+      router.replace('/');
+    } catch {
+      Alert.alert('burncpu', t('common.error'));
+      setDelBusy(false);
+    }
+  };
+
   const Segmented = <T extends string>({
     value,
     options,
@@ -74,6 +117,15 @@ export default function Settings() {
     </View>
   );
 
+  const NavRow = ({ icon, label, value, onPress, danger }: { icon: keyof typeof Ionicons.glyphMap; label: string; value?: string; onPress: () => void; danger?: boolean }) => (
+    <Pressable style={({ pressed }) => [s.navRow, pressed && { backgroundColor: colors.surfaceLow }]} onPress={onPress}>
+      <Ionicons name={icon} size={19} color={danger ? colors.error : colors.onSurfaceVariant} />
+      <Text style={[s.navLabel, danger && { color: colors.error }]}>{label}</Text>
+      {value ? <Text style={s.navValue}>{value}</Text> : null}
+      <Ionicons name="chevron-forward" size={18} color={colors.fg3} />
+    </Pressable>
+  );
+
   return (
     <View style={s.screen}>
       <View style={[s.header, { paddingTop: insets.top + 8 }]}>
@@ -84,7 +136,7 @@ export default function Settings() {
         <View style={{ width: 26 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 30 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 30 }} keyboardShouldPersistTaps="handled">
         <Text style={s.section}>{t('settings.appearance')}</Text>
         <View style={s.row}>
           <Text style={s.rowLabel}>{t('settings.theme')}</Text>
@@ -112,7 +164,12 @@ export default function Settings() {
         {me ? (
           <>
             <Text style={s.section}>{t('settings.security')}</Text>
-            <InfoRow label={t('settings.twofa')} value={twofa == null ? '…' : twofa ? t('settings.on') : t('settings.off')} c={colors} />
+            <NavRow
+              icon="lock-closed-outline"
+              label={t('settings.twofa')}
+              value={twofa == null ? '…' : twofa ? t('settings.on') : t('settings.off')}
+              onPress={() => router.push('/settings/twofa')}
+            />
             {passkeySupported() ? (
               <>
                 <View style={s.row}>
@@ -134,22 +191,62 @@ export default function Settings() {
             ) : (
               <InfoRow label={t('settings.passkeys')} value={String(passkeyList.length)} c={colors} />
             )}
-            <InfoRow label={t('settings.sessions')} value={sessions == null ? '…' : String(sessions)} c={colors} />
+            <NavRow
+              icon="phone-portrait-outline"
+              label={t('settings.sessions')}
+              value={sessions == null ? '…' : String(sessions)}
+              onPress={() => router.push('/settings/sessions')}
+            />
+
+            <Text style={s.section}>{t('nav.profile')}</Text>
+            <NavRow icon="bookmark-outline" label={t('nav.bookmarks')} onPress={() => router.push('/bookmarks')} />
+            <NavRow icon="stats-chart-outline" label={t('settings.activity')} onPress={() => router.push('/activity')} />
+            <NavRow icon="trash-outline" label={t('settings.trash')} onPress={() => router.push('/trash')} />
+
+            <Text style={s.section}>{t('settings.developer')}</Text>
+            <NavRow icon="ticket-outline" label={t('settings.invites')} onPress={() => router.push('/settings/invites')} />
+            <NavRow icon="key-outline" label={t('settings.tokens')} onPress={() => router.push('/settings/tokens')} />
 
             <Text style={s.section}>{t('settings.account')}</Text>
             <InfoRow label="@" value={me.username} c={colors} />
-            <Pressable style={[s.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]} onPress={() => router.push('/profile/edit')}>
-              <Text style={s.rowLabel}>{t('profile.edit')}</Text>
-              <Ionicons name="chevron-forward" size={18} color={colors.fg3} />
-            </Pressable>
-            <Pressable style={[s.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]} onPress={() => router.push('/bookmarks')}>
-              <Text style={s.rowLabel}>{t('nav.bookmarks')}</Text>
-              <Ionicons name="chevron-forward" size={18} color={colors.fg3} />
-            </Pressable>
+            <NavRow icon="create-outline" label={t('profile.edit')} onPress={() => router.push('/profile/edit')} />
+            <NavRow icon="download-outline" label={exporting ? t('common.loading') : t('settings.export')} onPress={exportData} />
             <Pressable style={s.logout} onPress={logout}>
               <Ionicons name="log-out-outline" size={18} color={colors.error} />
               <Text style={s.logoutText}>{t('nav.logout')}</Text>
             </Pressable>
+
+            {/* Danger zone */}
+            {deleting ? (
+              <View style={s.danger}>
+                <Text style={s.dangerNote}>{t('account.delete_confirm')}</Text>
+                <TextInput
+                  style={s.delInput}
+                  value={delName}
+                  onChangeText={setDelName}
+                  placeholder={me.username}
+                  placeholderTextColor={colors.fg3}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Pressable style={s.delCancel} onPress={() => { setDeleting(false); setDelName(''); }}>
+                    <Text style={s.delCancelText}>{t('common.cancel')}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[s.delConfirm, (delName.trim() !== me.username || delBusy) && { opacity: 0.4 }]}
+                    onPress={deleteAccount}
+                    disabled={delName.trim() !== me.username || delBusy}
+                  >
+                    <Text style={s.delConfirmText}>{t('account.delete_btn')}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <Pressable style={s.dangerLink} onPress={() => setDeleting(true)}>
+                <Text style={s.dangerLinkText}>{t('settings.delete_account')}</Text>
+              </Pressable>
+            )}
           </>
         ) : null}
       </ScrollView>
@@ -175,6 +272,9 @@ const styles = (c: Palette) =>
     row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 13 },
     rowLabel: { color: c.onBackground, fontSize: 15 },
     rowValue: { color: c.onSurfaceVariant, fontFamily: fonts.mono, fontSize: 14 },
+    navRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.outlineVariant },
+    navLabel: { flex: 1, color: c.onBackground, fontSize: 15 },
+    navValue: { color: c.onSurfaceVariant, fontFamily: fonts.mono, fontSize: 13 },
     segmented: { flexDirection: 'row', backgroundColor: c.surfaceLow, borderRadius: radius, padding: 3, gap: 3 },
     seg: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 6 },
     segActive: { backgroundColor: c.primary },
@@ -184,4 +284,13 @@ const styles = (c: Palette) =>
     addText: { color: c.onPrimary, fontFamily: fonts.bold, fontSize: 12 },
     logout: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 16, marginTop: 8 },
     logoutText: { color: c.error, fontFamily: fonts.semibold, fontSize: 15 },
+    dangerLink: { paddingHorizontal: 16, paddingVertical: 14, marginTop: 20 },
+    dangerLinkText: { color: c.fg3, fontFamily: fonts.mono, fontSize: 13 },
+    danger: { margin: 16, marginTop: 24, padding: 16, borderColor: `${c.error}59`, borderWidth: 1, borderRadius: 12, gap: 12, backgroundColor: `${c.error}10` },
+    dangerNote: { color: c.onSurfaceVariant, fontSize: 13, lineHeight: 19 },
+    delInput: { backgroundColor: c.background, borderColor: c.outlineVariant, borderWidth: 1, borderRadius: radius, paddingHorizontal: 14, paddingVertical: 11, color: c.onSurface, fontFamily: fonts.mono, fontSize: 15 },
+    delCancel: { flex: 1, borderColor: c.outlineVariant, borderWidth: 1, borderRadius: radius, paddingVertical: 12, alignItems: 'center' },
+    delCancelText: { color: c.onSurfaceVariant, fontFamily: fonts.semibold, fontSize: 14 },
+    delConfirm: { flex: 2, backgroundColor: c.error, borderRadius: radius, paddingVertical: 12, alignItems: 'center' },
+    delConfirmText: { color: '#fff', fontFamily: fonts.bold, fontSize: 14 },
   });

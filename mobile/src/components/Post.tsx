@@ -26,7 +26,7 @@ function splitMedia(body: string): { text: string; images: string[] } {
   return { text: text.trim(), images };
 }
 
-export default function Post({ post }: { post: PostView }) {
+export default function Post({ post, pinned, onPinChange }: { post: PostView; pinned?: boolean; onPinChange?: () => void }) {
   const { colors } = useTheme();
   const router = useRouter();
   const me = useMe();
@@ -88,6 +88,16 @@ export default function Post({ post }: { post: PostView }) {
     }
   };
 
+  const togglePin = async () => {
+    try {
+      if (pinned) await api.del(`/users/me/pin/${post.id}`);
+      else await api.post(`/users/me/pin/${post.id}`);
+      onPinChange?.();
+    } catch {
+      Alert.alert('burncpu', t('common.error'));
+    }
+  };
+
   if (deleted || !post?.author) return null;
 
   const react = async () => {
@@ -136,6 +146,12 @@ export default function Post({ post }: { post: PostView }) {
       <Pressable style={s.menuBtn} onPress={() => setMenuOpen(true)} hitSlop={8}>
         <Ionicons name="ellipsis-horizontal" size={16} color={colors.onSurfaceVariant} />
       </Pressable>
+      {pinned ? (
+        <View style={s.pinnedBadge}>
+          <Ionicons name="pin" size={12} color={colors.onSurfaceVariant} />
+          <Text style={s.pinnedText}>{t('profile.pinned')}</Text>
+        </View>
+      ) : null}
       <View style={s.row}>
         <Pressable onPress={() => router.push(`/u/${post.author.username}`)}>
           <Avatar uri={post.author.avatar_url} name={post.author.display_name} size={42} />
@@ -227,6 +243,7 @@ export default function Post({ post }: { post: PostView }) {
           mine
             ? [
                 { label: t('post.edit'), icon: 'create-outline', onPress: () => router.push(`/compose?editId=${post.id}`) },
+                { label: pinned ? t('profile.unpin') : t('profile.pin'), icon: pinned ? 'pin' : 'pin-outline', onPress: togglePin },
                 { label: t('post.delete'), icon: 'trash-outline', danger: true, onPress: confirmDelete },
               ]
             : [{ label: t('post.report'), icon: 'flag-outline', onPress: report }]
@@ -246,6 +263,8 @@ const styles = (c: Palette) =>
   StyleSheet.create({
     card: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.outlineVariant },
     menuBtn: { position: 'absolute', top: 10, right: 10, padding: 4, zIndex: 2 },
+    pinnedBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 52, marginBottom: 4 },
+    pinnedText: { color: c.onSurfaceVariant, fontFamily: fonts.mono, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8 },
     row: { flexDirection: 'row', gap: 10 },
     main: { flex: 1, minWidth: 0 },
     headerLine: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap' },

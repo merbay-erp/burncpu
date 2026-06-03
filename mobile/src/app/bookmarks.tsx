@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import Post from '@/components/Post';
-import { api, type PostView, type Timeline } from '@/api';
+import { api, normalizePost, type PostView, type Timeline } from '@/api';
 import { fonts, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
 
@@ -21,8 +21,11 @@ export default function Bookmarks() {
 
   useEffect(() => {
     api
-      .get<Timeline | PostView[]>('/bookmarks')
-      .then((d) => setPosts(Array.isArray(d) ? d : d.posts))
+      .get<Timeline | Record<string, unknown>[]>('/bookmarks')
+      .then((d) => {
+        const raw = Array.isArray(d) ? d : ((d.posts as unknown as Record<string, unknown>[]) ?? []);
+        setPosts(raw.map((p) => ({ ...normalizePost(p), viewer_bookmarked: true })));
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);

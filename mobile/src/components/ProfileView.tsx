@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Avatar from './Avatar';
 import Post from './Post';
 import Sheet from './Sheet';
-import { api, type Profile, type PostView, type Timeline } from '@/api';
+import { api, type Author, type Profile, type PostView, type PostBrief, type Timeline } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
@@ -22,6 +22,7 @@ export default function ProfileView({ username }: { username: string }) {
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<PostView[]>([]);
+  const [pinnedPost, setPinnedPost] = useState<PostView | null>(null);
   const [loading, setLoading] = useState(true);
   const [following, setFollowing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -34,13 +35,28 @@ export default function ProfileView({ username }: { username: string }) {
     try {
       const [p, t2] = await Promise.all([
         api.get<Profile>(`/users/${username}`),
-        api.get<Timeline | PostView[]>(`/users/${username}/posts`),
+        api.get<Timeline | PostBrief[]>(`/users/${username}/posts`),
       ]);
       setProfile(p);
       setFollowing(p.is_following);
       setBlocked(p.is_blocked_by_viewer);
       setMuted(p.is_muted_by_viewer);
-      setPosts(Array.isArray(t2) ? t2 : t2.posts);
+      // The profile-posts endpoint omits the author object — every post is by
+      // the profile owner, so attach it so <Post> (which needs post.author) renders.
+      const owner: Author = { id: p.id, username: p.username, display_name: p.display_name, avatar_url: p.avatar_url };
+      const raw: PostBrief[] = Array.isArray(t2) ? t2 : t2.posts;
+      const list: PostView[] = raw.map((b) =>
+        b.author ? (b as PostView) : ({ ...b, author: owner, visibility: 'public', reply_to_id: null } as PostView),
+      );
+      setPosts(p.pinned_post_id ? list.filter((x) => x.id !== p.pinned_post_id) : list);
+      if (p.pinned_post_id) {
+        api
+          .get<PostView>(`/posts/${p.pinned_post_id}`)
+          .then(setPinnedPost)
+          .catch(() => setPinnedPost(null));
+      } else {
+        setPinnedPost(null);
+      }
     } catch {
       /* ignore */
     } finally {
@@ -154,8 +170,13 @@ export default function ProfileView({ username }: { username: string }) {
         style={{ backgroundColor: colors.background }}
         data={posts}
         keyExtractor={(p) => p.id}
-        ListHeaderComponent={header}
-        renderItem={({ item }) => <Post post={item} />}
+        ListHeaderComponent={
+          <>
+            {header}
+            {pinnedPost ? <Post post={pinnedPost} pinned onPinChange={load} /> : null}
+          </>
+        }
+        renderItem={({ item }) => <Post post={item} onPinChange={load} />}
       />
       <Sheet
         visible={menuOpen}

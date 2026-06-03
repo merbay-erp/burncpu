@@ -80,6 +80,20 @@ export interface CreateResponse {
   quarantined: boolean;
 }
 
+// `/users/{username}/posts` returns these — note there is NO `author` object
+// (the profile owner is implied). We enrich them into PostView client-side.
+export interface PostBrief {
+  id: string;
+  body: string;
+  body_html: string;
+  reactions_count: number;
+  replies_count: number;
+  created_at: string;
+  content_warning?: string;
+  edited_at?: string;
+  author?: Author;
+}
+
 export interface Timeline {
   posts: PostView[];
   next_before: string | null;
@@ -141,4 +155,133 @@ export interface LinkPreview {
 // Open Graph unfurl (server-resolved + cached). `null` = nothing worth showing.
 export function fetchLinkPreview(url: string) {
   return api.get<{ preview: LinkPreview | null }>(`/link_preview?url=${encodeURIComponent(url)}`);
+}
+
+// ─── Sessions & security ───────────────────────────────────────
+export interface SessionView {
+  id: string;
+  created_at: string;
+  last_seen_at: string;
+  last_seen_ip: string | null;
+  last_seen_ua: string | null;
+  flagged: boolean;
+  current: boolean;
+}
+export interface SecurityEvent {
+  kind: string;
+  outcome: string;
+  ip: string | null;
+  user_agent: string | null;
+  ts: string;
+}
+export interface SecurityInfo {
+  sessions: SessionView[];
+  events: SecurityEvent[];
+}
+
+// ─── Two-factor (TOTP) ─────────────────────────────────────────
+export interface TwoFaStatus {
+  enrolled: boolean;
+  confirmed: boolean;
+  recovery_codes_remaining: number;
+}
+export interface TwoFaEnroll {
+  otpauth_uri: string;
+  secret_base32: string;
+  recovery_codes: string[];
+}
+
+// ─── Invites ───────────────────────────────────────────────────
+export interface Invite {
+  code: string;
+  expires_at: string;
+  created_at: string;
+  redeemed_at: string | null;
+  redeemed_by: string | null;
+}
+export interface InviteCreated {
+  code: string;
+  url: string;
+  expires_at: string;
+}
+
+// ─── Personal API tokens ───────────────────────────────────────
+export interface ApiToken {
+  id: string;
+  name: string;
+  scope: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+export interface ApiTokenCreated {
+  id: string;
+  name: string;
+  scope: string;
+  token: string; // plaintext — shown exactly once
+  expires_at: string | null;
+}
+
+// ─── Trash (soft-deleted posts, 30-day window) ─────────────────
+export interface TrashedPost {
+  id: string;
+  body: string;
+  deleted_at: string;
+  created_at: string;
+}
+
+// ─── Trending posts ────────────────────────────────────────────
+export interface TrendingPost {
+  id: string;
+  author_id: string;
+  author_username: string;
+  author_display_name: string;
+  author_avatar_url: string | null;
+  body: string;
+  body_html: string;
+  reactions_count: number;
+  replies_count: number;
+  created_at: string;
+}
+
+// ─── Personal activity / analytics ─────────────────────────────
+export interface ActivityTotals {
+  posts: number;
+  reactions_received: number;
+  replies_received: number;
+  followers_gained: number;
+}
+export interface ActivityDay extends ActivityTotals {
+  day: string;
+}
+export interface Activity {
+  window: string;
+  totals: ActivityTotals;
+  daily: ActivityDay[];
+}
+
+// `/users/lookup?prefix=` (mention typeahead) returns Author-shaped rows.
+export const lookupUsers = (prefix: string) =>
+  api.get<Author[]>(`/users/lookup?prefix=${encodeURIComponent(prefix)}`);
+
+// Some endpoints (bookmarks, hashtag/search hits) return posts with FLAT author
+// fields (author_username / author_display_name / author_avatar_url) instead of
+// the nested `author` object that <Post> needs. Normalize them into a PostView.
+// (Profile posts have no author at all — those are enriched separately.)
+export function normalizePost(raw: Record<string, unknown>): PostView {
+  if (raw.author) return raw as unknown as PostView;
+  const s = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+  const author: Author = {
+    id: s(raw.author_id) ?? '',
+    username: s(raw.author_username) ?? s(raw.username) ?? '',
+    display_name: s(raw.author_display_name) ?? s(raw.author_username) ?? s(raw.username) ?? '',
+    avatar_url: s(raw.author_avatar_url) ?? s(raw.avatar_url) ?? null,
+  };
+  return {
+    ...raw,
+    author,
+    visibility: s(raw.visibility) ?? 'public',
+    reply_to_id: (raw.reply_to_id as string | null) ?? null,
+  } as unknown as PostView;
 }

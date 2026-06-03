@@ -1,3 +1,16 @@
+import { Share } from 'react-native';
+
+// Share a string via the OS share sheet (which includes a Copy action). Uses
+// React Native core — no native module, so it works on any build. Displayed
+// secrets are also rendered `selectable` so a long-press copies them directly.
+export async function shareText(message: string, title?: string): Promise<void> {
+  try {
+    await Share.share(title ? { message, title } : { message });
+  } catch {
+    /* user dismissed */
+  }
+}
+
 // First http(s) URL in a string, or null.
 export function firstUrl(text: string): string | null {
   const m = text.match(/https?:\/\/[^\s)]+/);

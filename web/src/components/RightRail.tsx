@@ -39,7 +39,7 @@ export default function RightRail() {
 
   return (
     <aside class="sticky top-16 h-[calc(100vh-4rem)] flex flex-col py-8 px-6 gap-8 border-l border-outline-variant bg-background overflow-y-auto">
-      <Show when={profile()}>
+      <Show when={me() && profile()}>
         {(p) => (
           <section class="bg-surface-container-high border border-outline-variant rounded-xl p-5">
             <div class="flex items-center gap-4 mb-4">

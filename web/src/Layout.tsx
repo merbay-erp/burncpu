@@ -346,6 +346,9 @@ export default function Layout(props: { children?: JSX.Element }) {
             <span class="material-symbols-outlined">search</span>
           </button>
           <BottomLink href="/notifications" icon="notifications" active={is('/notifications')} />
+          <Show when={me()}>
+            <BottomLink href="/dm" icon="mail" active={is('/dm')} />
+          </Show>
           <Show when={me()} fallback={<BottomLink href="/login" icon="login" active={is('/login')} />}>
             {(u) => <BottomLink href={`/u/${u().username}`} icon="person" active={is(`/u/${u().username}`)} />}
           </Show>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
@@ -16,7 +16,7 @@ import { GeistMono_400Regular, GeistMono_500Medium } from '@expo-google-fonts/ge
 
 import { palettes, ThemeContext, type Scheme } from '@/theme';
 import { hydrate as hydrateAuth, probeSession } from '@/auth';
-import { registerPushToken } from '@/push';
+import { registerPushToken, onNotificationTap } from '@/push';
 import { hydrateLocale } from '@/i18n';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -34,6 +34,7 @@ export default function RootLayout() {
   });
   const [scheme, setSchemeState] = useState<Scheme>('dark');
   const [booted, setBooted] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     (async () => {
@@ -56,6 +57,14 @@ export default function RootLayout() {
         .catch(() => {});
     })();
   }, []);
+
+  // Tapping a push notification deep-links to its target (e.g. /dm/{sender}).
+  useEffect(() => {
+    return onNotificationTap((data) => {
+      const url = data?.url;
+      if (typeof url === 'string' && url.startsWith('/')) router.push(url as never);
+    });
+  }, [router]);
 
   const colors = palettes[scheme];
 

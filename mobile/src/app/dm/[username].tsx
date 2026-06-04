@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Modal,
   StyleSheet,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -68,6 +69,7 @@ export default function DmThread() {
   const [pendingMedia, setPendingMedia] = useState<{ url: string; kind: 'image' | 'video' } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [actionMsg, setActionMsg] = useState<DmMessage | null>(null);
+  const [viewer, setViewer] = useState<string | null>(null);
   const listRef = useRef<FlatList<DmMessage>>(null);
   const typingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSent = useRef(0);
@@ -209,7 +211,9 @@ export default function DmThread() {
         <View style={{ maxWidth: '82%', alignItems: mine ? 'flex-end' : 'flex-start' }}>
           <Pressable onLongPress={() => setActionMsg(item)} style={[s.bubble, mine ? s.bubbleMine : s.bubbleOther]}>
             {item.media_url && item.media_kind === 'image' ? (
-              <Image source={{ uri: mediaUrl(item.media_url) }} style={s.media} contentFit="cover" />
+              <Pressable onPress={() => setViewer(mediaUrl(item.media_url) ?? null)}>
+                <Image source={{ uri: mediaUrl(item.media_url) }} style={s.media} contentFit="cover" />
+              </Pressable>
             ) : null}
             {item.media_url && item.media_kind === 'video' ? (
               <Pressable onPress={() => Linking.openURL(mediaUrl(item.media_url) ?? '')} style={[s.media, s.videoPlaceholder]}>
@@ -222,8 +226,8 @@ export default function DmThread() {
               {mine ? (
                 <Ionicons
                   name={item.read_at ? 'checkmark-done' : 'checkmark'}
-                  size={14}
-                  color={colors.onPrimary}
+                  size={15}
+                  color={item.read_at ? '#38bdf8' : colors.onPrimary}
                   style={{ opacity: item.read_at ? 1 : 0.6 }}
                 />
               ) : null}
@@ -309,6 +313,15 @@ export default function DmThread() {
             : []),
         ]}
       />
+
+      <Modal visible={!!viewer} transparent animationType="fade" onRequestClose={() => setViewer(null)}>
+        <Pressable style={s.viewerBg} onPress={() => setViewer(null)}>
+          {viewer ? <Image source={{ uri: viewer }} style={s.viewerImg} contentFit="contain" /> : null}
+          <Pressable style={[s.viewerClose, { top: insets.top + 10 }]} onPress={() => setViewer(null)} hitSlop={12}>
+            <Ionicons name="close" size={28} color="#fff" />
+          </Pressable>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -340,4 +353,7 @@ const styles = (c: Palette) =>
     inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 8, borderTopWidth: 1, borderTopColor: c.outlineVariant },
     input: { flex: 1, maxHeight: 120, backgroundColor: c.surfaceLow, borderColor: c.outlineVariant, borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, color: c.onSurface, fontSize: 15 },
     sendBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' },
+    viewerBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', alignItems: 'center', justifyContent: 'center' },
+    viewerImg: { width: '100%', height: '100%' },
+    viewerClose: { position: 'absolute', right: 16 },
   });

@@ -1,7 +1,7 @@
 import type { JSX } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
 import { Show, createSignal, createEffect, onCleanup, onMount } from 'solid-js';
-import { me, unread, refetchUnread, probeSession, logout } from './auth';
+import { me, unread, refetchUnread, dmUnread, refetchDmUnread, probeSession, logout } from './auth';
 import type { PostView } from './api';
 import { t } from './i18n';
 import { theme, toggleTheme } from './theme';
@@ -124,7 +124,7 @@ export default function Layout(props: { children?: JSX.Element }) {
 
   onMount(async () => {
     const ok = await probeSession();
-    if (ok) refetchUnread();
+    if (ok) { refetchUnread(); refetchDmUnread(); }
   });
 
   const connect = () => {
@@ -149,6 +149,7 @@ export default function Layout(props: { children?: JSX.Element }) {
         }
         pushToast(eventText(ev));
         if (ev.kind !== 'dm') refetchUnread();
+        else refetchDmUnread();
         // 19 May 2026 — Sayfa-spesifik real-time refetch icin global event.
         // DMs.tsx ve DMThread.tsx listener ile aktif sayfasi otomatik refresh
         // edebilir. Onceden sadece toast gosteriliyor, liste/thread eski kaliyordu.
@@ -281,7 +282,7 @@ export default function Layout(props: { children?: JSX.Element }) {
                 {(u) => (
                   <>
                     <p class="px-3 pt-4 pb-1 text-[10px] font-mono uppercase tracking-[0.16em] text-on-surface-variant/45">{t('nav.group.account')}</p>
-                    <SideLink href="/dm"                       icon="mail"     label={t('nav.dm')}        active={is('/dm')} />
+                    <SideLink href="/dm"                       icon="mail"     label={t('nav.dm')}        active={is('/dm')} badge={dmUnread() ?? 0} />
                     <SideLink href={`/u/${u().username}`}      icon="person"   label={t('nav.profile')}   active={is(`/u/${u().username}`)} />
                     <SideLink href="/bookmarks"                icon="bookmark" label={t('nav.bookmarks')} active={is('/bookmarks')} />
                     <SideLink href="/trash"                    icon="delete"   label={t('nav.trash')}     active={is('/trash')} />

@@ -65,6 +65,20 @@ export const [unread, { refetch: refetchUnread }] = createResource(
   },
 );
 
+// Total unread DM count, summed from the thread list (the server has no
+// dedicated counter endpoint). Same `me` source so it clears on logout.
+export const [dmUnread, { refetch: refetchDmUnread }] = createResource(
+  me,
+  async () => {
+    try {
+      const threads = await api.get<{ unread_count: number }[]>('/dm/threads');
+      return threads.reduce((n, t) => n + (t.unread_count || 0), 0);
+    } catch {
+      return 0;
+    }
+  },
+);
+
 export async function logout() {
   try {
     await api.post('/auth/logout');

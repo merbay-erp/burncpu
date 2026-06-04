@@ -2,7 +2,7 @@ import { createResource, createSignal, createEffect, For, Show, onMount, onClean
 import { useParams, A } from '@solidjs/router';
 import AuthGate from '../components/AuthGate';
 import { api } from '../api';
-import { me } from '../auth';
+import { me, refetchDmUnread } from '../auth';
 import { relTime } from '../util';
 import { t } from '../i18n';
 import Avatar from '../components/Avatar';
@@ -61,7 +61,7 @@ export default function DMThread() {
   // params.username re-fires on every switch (an onMount one-shot wouldn't).
   createEffect(() => {
     const u = params.username;
-    if (me() && u) void api.patch(`/dm/threads/${u}/read`).catch(() => {});
+    if (me() && u) void api.patch(`/dm/threads/${u}/read`).then(() => refetchDmUnread()).catch(() => {});
   });
 
   // Scroll to the newest message once the thread (or a new message) loads.

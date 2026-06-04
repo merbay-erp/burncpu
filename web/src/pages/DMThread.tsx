@@ -60,6 +60,8 @@ export default function DMThread() {
   const [pendingMedia, setPendingMedia] = createSignal<{ url: string; kind: 'image' | 'video' } | null>(null);
   const [uploading, setUploading] = createSignal(false);
   const [reactFor, setReactFor] = createSignal<string | null>(null);
+  const [msgSelMode, setMsgSelMode] = createSignal(false);
+  const [msgSel, setMsgSel] = createSignal<Set<string>>(new Set());
   let fileInput: HTMLInputElement | undefined;
 
   const scrollToBottom = () => setTimeout(() => bottomRef?.scrollIntoView({ block: 'end' }), 40);
@@ -159,6 +161,26 @@ export default function DMThread() {
     try {
       await api.del(`/dm/messages/${id}`);
       void refetchDmUnread();
+    } catch {
+      void refetch();
+    }
+  };
+
+  const toggleMsgSel = (id: string) => {
+    const s = new Set(msgSel());
+    if (s.has(id)) s.delete(id);
+    else s.add(id);
+    setMsgSel(s);
+  };
+  const bulkDeleteMsgs = async () => {
+    const ids = [...msgSel()];
+    if (!ids.length) return;
+    const cur = data() as ThreadView | null | undefined;
+    if (cur) mutate({ ...cur, messages: cur.messages.filter((m) => !msgSel().has(m.id)) });
+    setMsgSel(new Set<string>());
+    setMsgSelMode(false);
+    try {
+      await api.post('/dm/messages/delete', { ids });
     } catch {
       void refetch();
     }
@@ -271,9 +293,28 @@ export default function DMThread() {
                     <div class="font-mono text-[12px] text-on-surface-variant truncate">@{th().other_username}</div>
                   </div>
                 </A>
-                <button onClick={refetch} title={t('dmthread.refresh')} class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors">
-                  <span class="material-symbols-outlined" style="font-size:20px;">refresh</span>
+                <Show when={msgSelMode()}>
+                  <button
+                    onClick={bulkDeleteMsgs}
+                    disabled={msgSel().size === 0}
+                    class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-error/15 text-error font-mono text-[12px] hover:bg-error/25 transition-colors disabled:opacity-40"
+                  >
+                    <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
+                    {t('dm.delete_selected')}{msgSel().size > 0 ? ` (${msgSel().size})` : ''}
+                  </button>
+                </Show>
+                <button
+                  onClick={() => { setMsgSelMode((v) => !v); setMsgSel(new Set<string>()); }}
+                  title={t('dm.select')}
+                  class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+                >
+                  <span class="material-symbols-outlined" style="font-size:20px;">{msgSelMode() ? 'close' : 'checklist'}</span>
                 </button>
+                <Show when={!msgSelMode()}>
+                  <button onClick={refetch} title={t('dmthread.refresh')} class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors">
+                    <span class="material-symbols-outlined" style="font-size:20px;">refresh</span>
+                  </button>
+                </Show>
               </header>
 
               {/* Messages */}
@@ -291,7 +332,14 @@ export default function DMThread() {
                     const mine = m.sender_id === me()?.user_id;
                     return (
                       <div class={`group flex items-end gap-1 ${mine ? 'justify-end' : 'justify-start'}`}>
-                        <Show when={mine}>
+                        <Show when={msgSelMode() && mine}>
+                          <button onClick={() => toggleMsgSel(m.id)} class="p-1 text-on-surface-variant hover:text-primary">
+                            <span class={`material-symbols-outlined ${msgSel().has(m.id) ? 'text-primary' : ''}`} style="font-size:20px;">
+                              {msgSel().has(m.id) ? 'check_box' : 'check_box_outline_blank'}
+                            </span>
+                          </button>
+                        </Show>
+                        <Show when={mine && !msgSelMode()}>
                           <button
                             onClick={() => deleteMsg(m.id)}
                             title={t('dmthread.delete')}
@@ -361,13 +409,15 @@ export default function DMThread() {
                             </div>
                           </Show>
                         </div>
-                        <button
-                          onClick={() => setReactFor(reactFor() === m.id ? null : m.id)}
-                          title={t('post.react')}
-                          class="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-on-surface-variant/60 hover:text-primary"
-                        >
-                          <span class="material-symbols-outlined" style="font-size:16px;">add_reaction</span>
-                        </button>
+                        <Show when={!msgSelMode()}>
+                          <button
+                            onClick={() => setReactFor(reactFor() === m.id ? null : m.id)}
+                            title={t('post.react')}
+                            class="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-on-surface-variant/60 hover:text-primary"
+                          >
+                            <span class="material-symbols-outlined" style="font-size:16px;">add_reaction</span>
+                          </button>
+                        </Show>
                       </div>
                     );
                   }}

@@ -43,6 +43,9 @@ interface DmMessage {
   body_html?: string;
   media_url?: string | null;
   media_kind?: string | null;
+  media_state?: string | null;
+  media_poster_url?: string | null;
+  media_duration_ms?: number | null;
   reactions?: DmReaction[];
   read_at?: string | null;
   created_at: string;
@@ -89,6 +92,19 @@ export default function DmThread() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // While any attached video is still transcoding, poll so the player swaps in
+  // automatically once it's ready — no manual refresh.
+  useEffect(() => {
+    const pending = messages.some(
+      (m) => m.media_kind === 'video' && (m.media_state === 'pending' || m.media_state === 'processing'),
+    );
+    if (!pending) return;
+    const t = setInterval(() => {
+      void load();
+    }, 5000);
+    return () => clearInterval(t);
+  }, [messages, load]);
 
   // Live updates via SSE: typing indicator + auto-refresh when a message lands.
   useEffect(() => {
@@ -216,9 +232,24 @@ export default function DmThread() {
               </Pressable>
             ) : null}
             {item.media_url && item.media_kind === 'video' ? (
-              <Pressable onPress={() => Linking.openURL(mediaUrl(item.media_url) ?? '')} style={[s.media, s.videoPlaceholder]}>
-                <Ionicons name="play-circle" size={42} color="#fff" />
-              </Pressable>
+              item.media_state === 'pending' || item.media_state === 'processing' ? (
+                <View style={[s.media, s.videoPlaceholder]}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={s.videoNote}>İşleniyor…</Text>
+                </View>
+              ) : item.media_state === 'failed' ? (
+                <View style={[s.media, s.videoPlaceholder]}>
+                  <Ionicons name="warning-outline" size={30} color="#fff" />
+                  <Text style={s.videoNote}>İşlenemedi</Text>
+                </View>
+              ) : (
+                <Pressable onPress={() => Linking.openURL(mediaUrl(item.media_url) ?? '')} style={[s.media, s.videoPlaceholder]}>
+                  {item.media_poster_url ? (
+                    <Image source={{ uri: mediaUrl(item.media_poster_url) }} style={s.mediaAbs} contentFit="cover" />
+                  ) : null}
+                  <Ionicons name="play-circle" size={42} color="#fff" />
+                </Pressable>
+              )
             ) : null}
             {item.body ? <Text style={mine ? s.textMine : s.textOther}>{item.body}</Text> : null}
             <View style={s.metaRow}>
@@ -342,6 +373,8 @@ const styles = (c: Palette) =>
     textOther: { color: c.onSurface, fontSize: 15, lineHeight: 20 },
     media: { width: 200, height: 200, borderRadius: 10, marginBottom: 4, backgroundColor: c.surfaceLow },
     videoPlaceholder: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' },
+    mediaAbs: { position: 'absolute', top: 0, left: 0, width: 200, height: 200, borderRadius: 10 },
+    videoNote: { color: '#fff', fontSize: 11, marginTop: 4 },
     metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 },
     metaTime: { fontFamily: fonts.mono, fontSize: 10, opacity: 0.7 },
     reactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3 },

@@ -23,6 +23,7 @@ mod net_safety;
 mod routes;
 mod search;
 mod state;
+mod transcode;
 
 use state::AppState;
 
@@ -82,13 +83,21 @@ async fn main() -> Result<()> {
     // them, which is fine.
     let (notif_tx, _) = tokio::sync::broadcast::channel(512);
 
-    // Background cleanup of expired rows (hourly).
-    cleanup::spawn(pg_pool.clone());
+    // Background cleanup of expired rows + orphan media files (hourly).
+    cleanup::spawn(pg_pool.clone(), cfg.media_dir.clone());
     tracing::info!("cleanup task scheduled");
 
     // Bounded webhook delivery worker — keeps event fan-out from spawning
     // unbounded outbound tasks.
     let webhook_tx = routes::webhooks::spawn_dispatcher(pg_pool.clone());
+
+    // Bounded video transcode worker — normalises uploaded clips to H.264/AAC
+    // MP4 off the request path (see `transcode`).
+    let transcode_tx = transcode::spawn_transcoder(
+        pg_pool.clone(),
+        cfg.media_dir.clone(),
+        cfg.transcode_max_duration_secs,
+    );
 
     let state = AppState {
         pg: pg_pool,
@@ -97,10 +106,16 @@ async fn main() -> Result<()> {
         search,
         notif_tx,
         webhook_tx,
+        transcode_tx,
     };
 
     // Make sure media dir exists on first boot (idempotent).
     let _ = tokio::fs::create_dir_all(&cfg.media_dir).await;
+
+    // Recover any video transcodes a previous run left pending/processing.
+    if cfg.video_transcode_enabled {
+        transcode::requeue_pending(&state.pg, &state.transcode_tx).await;
+    }
 
     let app = Router::new()
         .route("/", get(routes::index::handler))

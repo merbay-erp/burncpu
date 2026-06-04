@@ -29,4 +29,6 @@ pub struct AppState {
     pub notif_tx: broadcast::Sender<NotificationEvent>,
     /// Bounded queue into the webhook delivery worker (see `routes::webhooks`).
     pub webhook_tx: mpsc::Sender<crate::routes::webhooks::WebhookJob>,
+    /// Bounded queue into the video transcode worker (see `transcode`).
+    pub transcode_tx: mpsc::Sender<crate::transcode::TranscodeJob>,
 }

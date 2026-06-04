@@ -150,6 +150,19 @@ pub struct DmMessage {
     body_html: String,
     media_url: Option<String>,
     media_kind: Option<String>,
+    // Video transcode pipeline (NULL for images / legacy rows). `media_url`
+    // above is already resolved to the transcoded file once `media_state` is
+    // 'ready'; until then it points at the original upload and the client shows
+    // a pending placeholder.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    media_state: Option<String>,
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    media_poster_url: Option<String>,
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    media_duration_ms: Option<i32>,
     read_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     #[sqlx(skip)]
@@ -215,11 +228,24 @@ async fn thread(
     let mut rows: Vec<DmMessage> = if let Some(thread_id) = thread_id {
         sqlx::query_as(
             r#"
-            SELECT id, sender_id, body, body_html, media_url, media_kind, read_at, created_at
-            FROM dm_messages
-            WHERE thread_id = $1 AND deleted_at IS NULL AND created_at < $2
-              AND created_at > COALESCE($4, '-infinity'::timestamptz)
-            ORDER BY created_at DESC
+            SELECT m.id, m.sender_id, m.body, m.body_html,
+                   CASE WHEN md.processing_state = 'ready' AND md.transcoded_filename IS NOT NULL
+                        THEN '/media/' || md.transcoded_filename
+                        ELSE m.media_url END AS media_url,
+                   m.media_kind,
+                   md.processing_state AS media_state,
+                   CASE WHEN md.poster_filename IS NOT NULL THEN '/media/' || md.poster_filename END AS media_poster_url,
+                   md.duration_ms AS media_duration_ms,
+                   m.read_at, m.created_at
+            FROM dm_messages m
+            -- Resolve the sender's media row (unique per owner+file) for live
+            -- transcode state; LEFT so text-only messages still return.
+            LEFT JOIN media md
+                   ON md.owner_id = m.sender_id
+                  AND md.filename = split_part(m.media_url, '/', 3)
+            WHERE m.thread_id = $1 AND m.deleted_at IS NULL AND m.created_at < $2
+              AND m.created_at > COALESCE($4, '-infinity'::timestamptz)
+            ORDER BY m.created_at DESC
             LIMIT $3
             "#,
         )
@@ -303,27 +329,29 @@ async fn send(
     // Validate any attachment against the media table: it must be a /media/ file
     // the SENDER uploaded, and the *stored* kind (not the client's claim) is what
     // we record. Stops forging arbitrary URLs or mislabeling kinds.
-    let media_kind: Option<String> = if let Some(u) = media_url {
+    type MediaMeta = (String, String, Option<String>, Option<String>, Option<i32>);
+    let media_meta: Option<MediaMeta> = if let Some(u) = media_url {
         let fname = u
             .strip_prefix("/media/")
             .filter(|f| !f.is_empty() && !f.contains('/'));
         let Some(fname) = fname else {
             return Err(AppError::BadRequest("media_url must be a /media/ path".into()));
         };
-        match sqlx::query_scalar::<_, String>(
-            "SELECT kind FROM media WHERE owner_id = $1 AND filename = $2",
+        match sqlx::query_as::<_, MediaMeta>(
+            "SELECT kind, processing_state, transcoded_filename, poster_filename, duration_ms FROM media WHERE owner_id = $1 AND filename = $2",
         )
         .bind(user.user_id)
         .bind(fname)
         .fetch_optional(&state.pg)
         .await?
         {
-            Some(k) => Some(k),
+            Some(m) => Some(m),
             None => return Err(AppError::BadRequest("media not found or not yours".into())),
         }
     } else {
         None
     };
+    let media_kind: Option<String> = media_meta.as_ref().map(|m| m.0.clone());
     if body.is_empty() && media_url.is_none() {
         return Err(AppError::BadRequest("body or media required".into()));
     }
@@ -372,7 +400,7 @@ async fn send(
     .await?;
 
     let body_html = render_markdown(body);
-    let msg: DmMessage = sqlx::query_as(
+    let mut msg: DmMessage = sqlx::query_as(
         r#"
         INSERT INTO dm_messages (thread_id, sender_id, body, body_html, media_url, media_kind)
         VALUES ($1, $2, $3, $4, $5, $6)
@@ -387,6 +415,21 @@ async fn send(
     .bind(media_kind)
     .fetch_one(&state.pg)
     .await?;
+
+    // Surface the attachment's transcode state on the just-sent message (the
+    // RETURNING above can't see it): a fresh video reads 'pending', so the sender
+    // gets a placeholder until the worker finishes; a ready one resolves to the
+    // transcoded file + poster immediately.
+    if let Some((_, proc_state, transcoded, poster, duration)) = media_meta {
+        if proc_state == "ready"
+            && let Some(t) = transcoded
+        {
+            msg.media_url = Some(format!("/media/{t}"));
+        }
+        msg.media_poster_url = poster.map(|p| format!("/media/{p}"));
+        msg.media_duration_ms = duration;
+        msg.media_state = Some(proc_state);
+    }
 
     // Bump thread last_message_at (in case ON CONFLICT didn't fire)
     let _ = sqlx::query("UPDATE dm_threads SET last_message_at = NOW() WHERE id = $1")

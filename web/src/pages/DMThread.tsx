@@ -20,6 +20,9 @@ interface DmMessage {
   body_html: string;
   media_url: string | null;
   media_kind: string | null;
+  media_state?: string | null;
+  media_poster_url?: string | null;
+  media_duration_ms?: number | null;
   reactions?: DmReaction[];
   read_at: string | null;
   created_at: string;
@@ -208,6 +211,22 @@ export default function DMThread() {
     if ((data()?.messages?.length ?? 0) > 0) scrollToBottom();
   });
 
+  // While any attached video is still transcoding, poll the thread so the player
+  // swaps in automatically once it's ready — no manual refresh needed.
+  let xcodeTimer: ReturnType<typeof setInterval> | undefined;
+  createEffect(() => {
+    const pending = (data()?.messages ?? []).some(
+      (m) => m.media_kind === 'video' && (m.media_state === 'pending' || m.media_state === 'processing'),
+    );
+    if (pending && !xcodeTimer) {
+      xcodeTimer = setInterval(() => refetch(), 5000);
+    } else if (!pending && xcodeTimer) {
+      clearInterval(xcodeTimer);
+      xcodeTimer = undefined;
+    }
+  });
+  onCleanup(() => xcodeTimer && clearInterval(xcodeTimer));
+
   onMount(() => {
     // Real-time: when a DM arrives for the open thread, refetch + mark read.
     const onNotif = (ev: Event) => {
@@ -361,7 +380,21 @@ export default function DMThread() {
                                 when={m.media_kind === 'video'}
                                 fallback={<img src={m.media_url!} alt="" loading="lazy" class="rounded-lg max-h-72 w-auto mb-1" />}
                               >
-                                <video src={m.media_url!} controls preload="metadata" class="rounded-lg max-h-72 w-auto mb-1" />
+                                <Show
+                                  when={!m.media_state || m.media_state === 'ready'}
+                                  fallback={
+                                    <div class="rounded-lg mb-1 px-3 py-6 flex items-center justify-center gap-2 text-xs font-mono bg-surface-variant/40 text-on-surface-variant min-w-[10rem]">
+                                      <Show
+                                        when={m.media_state === 'failed'}
+                                        fallback={<><span class="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> Video işleniyor…</>}
+                                      >
+                                        <span>⚠ Video işlenemedi</span>
+                                      </Show>
+                                    </div>
+                                  }
+                                >
+                                  <video src={m.media_url!} poster={m.media_poster_url ?? undefined} controls preload="metadata" class="rounded-lg max-h-72 w-auto mb-1" />
+                                </Show>
                               </Show>
                             </Show>
                             <Show when={m.body}>

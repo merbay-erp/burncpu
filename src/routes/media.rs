@@ -67,6 +67,13 @@ pub struct MediaResponse {
     height: Option<i32>,
     mime_type: String,
     size_bytes: i64,
+    /// `ready` for images and already-stored videos; `pending`/`processing`/
+    /// `failed` while a freshly-uploaded video moves through the transcode worker.
+    processing_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    poster_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_ms: Option<i32>,
 }
 
 async fn upload(
@@ -218,6 +225,9 @@ pub(crate) async fn ingest_image_bytes(
         height: Some(height),
         mime_type: mime_str.to_string(),
         size_bytes,
+        processing_state: "ready".into(),
+        poster_url: None,
+        duration_ms: None,
     })
 }
 
@@ -257,12 +267,19 @@ async fn ingest_video_bytes(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("rename: {e}")))?;
 
-    let row: (Uuid,) = sqlx::query_as(
+    // New uploads enter the transcode pipeline as `pending`; when the worker is
+    // disabled the verbatim file is served as-is and marked `ready`.
+    let initial_state = if state.config.video_transcode_enabled {
+        "pending"
+    } else {
+        "ready"
+    };
+    let (id, proc_state): (Uuid, String) = sqlx::query_as(
         r#"
-        INSERT INTO media (owner_id, sha256, kind, mime_type, width, height, size_bytes, filename)
-        VALUES ($1, $2, 'video', $3, NULL, NULL, $4, $5)
+        INSERT INTO media (owner_id, sha256, kind, mime_type, width, height, size_bytes, filename, processing_state)
+        VALUES ($1, $2, 'video', $3, NULL, NULL, $4, $5, $6)
         ON CONFLICT (owner_id, sha256) DO UPDATE SET created_at = media.created_at
-        RETURNING id
+        RETURNING id, processing_state
         "#,
     )
     .bind(owner_id)
@@ -270,16 +287,34 @@ async fn ingest_video_bytes(
     .bind(mime)
     .bind(size_bytes)
     .bind(&filename)
+    .bind(initial_state)
     .fetch_one(&state.pg)
     .await?;
 
+    // Only enqueue a genuinely-new pending row. A re-upload (ON CONFLICT) returns
+    // the existing state — already ready/processing — so it must not double-queue.
+    if proc_state == "pending"
+        && state
+            .transcode_tx
+            .try_send(crate::transcode::TranscodeJob {
+                media_id: id,
+                src_filename: filename.clone(),
+            })
+            .is_err()
+    {
+        tracing::warn!(media_id = %id, "transcode queue full; left pending for boot requeue");
+    }
+
     Ok(MediaResponse {
-        id: row.0,
+        id,
         url: format!("/media/{filename}"),
         width: None,
         height: None,
         mime_type: mime.to_string(),
         size_bytes,
+        processing_state: proc_state,
+        poster_url: None,
+        duration_ms: None,
     })
 }
 
@@ -291,6 +326,9 @@ pub struct MediaRow {
     width: Option<i32>,
     height: Option<i32>,
     size_bytes: i64,
+    processing_state: String,
+    poster_url: Option<String>,
+    duration_ms: Option<i32>,
     created_at: DateTime<Utc>,
 }
 
@@ -300,7 +338,13 @@ async fn list_mine(
 ) -> Result<Json<Vec<MediaRow>>, AppError> {
     let rows: Vec<MediaRow> = sqlx::query_as(
         r#"
-        SELECT id, '/media/' || filename AS url, mime_type, width, height, size_bytes, created_at
+        SELECT id,
+               '/media/' || COALESCE(transcoded_filename, filename) AS url,
+               mime_type, width, height, size_bytes,
+               processing_state,
+               CASE WHEN poster_filename IS NOT NULL THEN '/media/' || poster_filename END AS poster_url,
+               duration_ms,
+               created_at
         FROM media
         WHERE owner_id = $1
         ORDER BY created_at DESC
@@ -318,30 +362,36 @@ async fn delete_mine(
     user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    // Look up filename + verify ownership
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT filename FROM media WHERE id = $1 AND owner_id = $2")
-            .bind(id)
-            .bind(user.user_id)
-            .fetch_optional(&state.pg)
-            .await?;
-    let (filename,) = row.ok_or(AppError::NotFound)?;
+    // Look up the backing files + verify ownership.
+    let row: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT filename, transcoded_filename, poster_filename FROM media WHERE id = $1 AND owner_id = $2",
+    )
+    .bind(id)
+    .bind(user.user_id)
+    .fetch_optional(&state.pg)
+    .await?;
+    let (filename, transcoded, poster) = row.ok_or(AppError::NotFound)?;
 
     sqlx::query("DELETE FROM media WHERE id = $1")
         .bind(id)
         .execute(&state.pg)
         .await?;
 
-    // Only unlink the file if no other media row still references it.
-    let still_referenced: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media WHERE filename = $1)")
-            .bind(&filename)
-            .fetch_one(&state.pg)
-            .await
-            .unwrap_or(false);
-    if !still_referenced {
-        let path = std::path::PathBuf::from(&state.config.media_dir).join(&filename);
-        let _ = tokio::fs::remove_file(path).await;
+    // Unlink each backing file (original, transcode, poster) only if no surviving
+    // row still references it — files are content-addressed, so two owners who
+    // uploaded the same clip share one set of files.
+    let dir = std::path::PathBuf::from(&state.config.media_dir);
+    for name in [Some(filename), transcoded, poster].into_iter().flatten() {
+        let still_referenced: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM media WHERE filename = $1 OR transcoded_filename = $1 OR poster_filename = $1)",
+        )
+        .bind(&name)
+        .fetch_one(&state.pg)
+        .await
+        .unwrap_or(true); // on error keep the file — safer than orphaning a referenced one
+        if !still_referenced {
+            let _ = tokio::fs::remove_file(dir.join(&name)).await;
+        }
     }
     Ok(StatusCode::NO_CONTENT)
 }

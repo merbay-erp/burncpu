@@ -7,7 +7,7 @@
 
 // Bump this on any sw.js change so `activate` drops the previous cache and
 // clients pick up the fresh shell instead of an old precache.
-const CACHE = 'burncpu-shell-v2';
+const CACHE = 'burncpu-shell-v3';
 const SHELL = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {

@@ -287,8 +287,9 @@ async fn thread(
 pub struct SendBody {
     #[serde(default)]
     body: String,
+    // The attachment is referenced by URL; its kind is taken from the media
+    // table at send time (a client-sent kind is ignored, hence not a field).
     media_url: Option<String>,
-    media_kind: Option<String>,
 }
 
 async fn send(

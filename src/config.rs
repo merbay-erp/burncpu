@@ -29,6 +29,10 @@ pub struct Config {
     /// A provider is "enabled" iff its entry is present here — i.e. both its
     /// {PROVIDER}_CLIENT_ID and {PROVIDER}_CLIENT_SECRET env vars are set.
     pub oauth: std::collections::HashMap<String, OAuthProviderCreds>,
+    /// Spam engine: a top-level public post is quarantined when its score ≥ this.
+    pub spam_threshold: i32,
+    /// Lowercased phrases that strongly mark a post as spam (`SPAM_DENYLIST`, csv).
+    pub spam_denylist: Vec<String>,
 }
 
 /// Static OAuth2 client credentials for one provider.
@@ -61,6 +65,16 @@ impl Config {
                 .unwrap_or_default()
                 .split(',')
                 .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            spam_threshold: env::var("SPAM_THRESHOLD")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(4),
+            spam_denylist: env::var("SPAM_DENYLIST")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_lowercase())
                 .filter(|s| !s.is_empty())
                 .collect(),
             media_dir: env::var("MEDIA_DIR").unwrap_or_else(|_| "/data/media".into()),

@@ -177,17 +177,27 @@ const CONTENT_DEDUP_WINDOW_SECS: u64 = 86_400;
 const QUARANTINE_MIN_AGE_HOURS: i64 = 24;
 const QUARANTINE_MIN_LIVE_POSTS: i64 = 2;
 
-async fn should_quarantine(state: &AppState, user: &CurrentUser) -> bool {
+// Multi-layered, model-agnostic spam score for a top-level post. Each signal is
+// an independent layer that adds points; a future ML/heuristic layer slots in the
+// same way. The post is quarantined when the total reaches `config.spam_threshold`
+// — landing in the existing admin review queue rather than the public timeline.
+// Returns (points, reasons); reasons are logged on quarantine for tuning.
+async fn spam_score(state: &AppState, user: &CurrentUser, body: &str) -> (i32, Vec<String>) {
     if matches!(user.role.as_str(), "admin" | "mod") {
-        return false;
+        return (0, Vec::new());
     }
-    let row: Option<(bool, i64)> = sqlx::query_as(
+    let mut pts = 0i32;
+    let mut why: Vec<String> = Vec::new();
+
+    // Layer 1 — account trust (age / approved posts / followers). Establishing
+    // any of these earns trust and silences the new-account signal.
+    let row: Option<(bool, i64, i64)> = sqlx::query_as(
         r#"
         SELECT
             (u.created_at < NOW() - ($2 || ' hours')::interval) AS aged,
             (SELECT COUNT(*) FROM posts p
-                WHERE p.author_id = u.id AND p.moderation_state = 'live' AND p.deleted_at IS NULL
-            ) AS live_posts
+                WHERE p.author_id = u.id AND p.moderation_state = 'live' AND p.deleted_at IS NULL) AS live_posts,
+            (SELECT COUNT(*) FROM follows f WHERE f.followee_id = u.id) AS followers
         FROM users u WHERE u.id = $1
         "#,
     )
@@ -197,12 +207,50 @@ async fn should_quarantine(state: &AppState, user: &CurrentUser) -> bool {
     .await
     .ok()
     .flatten();
-    // Fail OPEN on any error — better to let a rare post through than to hide a
-    // legitimate user's content on a transient glitch.
-    match row {
-        Some((aged, live_posts)) => !(aged || live_posts >= QUARANTINE_MIN_LIVE_POSTS),
-        None => false,
+    // Fail OPEN on a glitch — treat as trusted rather than hide a legit post.
+    let (aged, live_posts, followers) = row.unwrap_or((true, 99, 99));
+    let trusted = aged || live_posts >= QUARANTINE_MIN_LIVE_POSTS || followers >= 5;
+    if !trusted {
+        pts += 3;
+        why.push("new/untrusted account".into());
     }
+
+    // Layer 2 — link density (the classic spam tell, weighted up for new accounts).
+    let links = body.matches("http://").count() + body.matches("https://").count();
+    if links >= 4 {
+        pts += 3;
+        why.push(format!("{links} links"));
+    } else if links >= 2 {
+        pts += 2;
+        why.push(format!("{links} links"));
+    } else if links == 1 && !trusted {
+        pts += 1;
+        why.push("link from new account".into());
+    }
+
+    // Layer 3 — mention flooding.
+    let mentions = body.matches('@').count();
+    if mentions >= 6 {
+        pts += 2;
+        why.push(format!("{mentions} mentions"));
+    }
+
+    // Layer 4 — shouting (mostly upper-case over a non-trivial length).
+    let letters = body.chars().filter(|c| c.is_alphabetic()).count();
+    let uppers = body.chars().filter(|c| c.is_uppercase()).count();
+    if letters >= 24 && uppers * 100 / letters.max(1) >= 70 {
+        pts += 1;
+        why.push("shouting".into());
+    }
+
+    // Layer 5 — configurable denylist (SPAM_DENYLIST). Strong signal.
+    let lower = body.to_lowercase();
+    if let Some(term) = state.config.spam_denylist.iter().find(|t| lower.contains(t.as_str())) {
+        pts += 4;
+        why.push(format!("denylist: {term}"));
+    }
+
+    (pts, why)
 }
 
 #[derive(Serialize)]
@@ -327,10 +375,11 @@ async fn create_post(
         .filter(|s| !s.is_empty())
         .map(|s| s.chars().take(140).collect::<String>());
 
-    // New-account top-level public posts go to the moderation queue.
+    // Score the post; quarantine top-level public posts that cross the threshold.
+    let (spam_pts, spam_reasons) = spam_score(&state, &user, body).await;
     let quarantine = input.reply_to_id.is_none()
         && input.visibility == "public"
-        && should_quarantine(&state, &user).await;
+        && spam_pts >= state.config.spam_threshold;
     let moderation_state = if quarantine { "quarantine" } else { "live" };
 
     let id: Uuid = sqlx::query_scalar(
@@ -374,7 +423,7 @@ async fn create_post(
     // or timeline pill) until an admin approves them — the author just learns
     // it's pending review.
     if quarantine {
-        tracing::info!(user_id = %user.user_id, post_id = %id, "post quarantined (new account)");
+        tracing::info!(user_id = %user.user_id, post_id = %id, score = spam_pts, reasons = ?spam_reasons, "post quarantined (spam score)");
         return Ok((
             StatusCode::ACCEPTED,
             Json(CreateResponse { post: None, quarantined: true }),

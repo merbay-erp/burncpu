@@ -37,7 +37,9 @@ pub fn router() -> Router<AppState> {
         .route("/threads/{username}", get(thread).post(send))
         .route("/threads/{username}/read", patch(mark_read))
         .route("/threads/{username}/typing", post(typing))
+        .route("/messages/delete", post(bulk_delete))
         .route("/messages/{id}", delete(delete_message))
+        .route("/messages/{id}/react", post(react_message).delete(unreact_message))
 }
 
 const MAX_DM_LEN: usize = 5000;
@@ -144,9 +146,25 @@ pub struct DmMessage {
     sender_id: Uuid,
     body: String,
     body_html: String,
+    media_url: Option<String>,
+    media_kind: Option<String>,
     read_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    reactions: Vec<DmReactionView>,
 }
+
+#[derive(Serialize, Clone)]
+pub struct DmReactionView {
+    emoji: String,
+    count: i64,
+    mine: bool,
+}
+
+// Same small reaction allowlist as posts: fire / turtle / handshake / pray / joy.
+const VALID_DM_EMOJI: &[&str] =
+    &["\u{1F525}", "\u{1F422}", "\u{1F91D}", "\u{1F64F}", "\u{1F602}"];
 
 async fn thread(
     State(state): State<AppState>,
@@ -188,10 +206,10 @@ async fn thread(
 
     let limit = q.limit.clamp(1, 200);
     let before = q.before.unwrap_or_else(Utc::now);
-    let rows: Vec<DmMessage> = if let Some(thread_id) = thread_id {
+    let mut rows: Vec<DmMessage> = if let Some(thread_id) = thread_id {
         sqlx::query_as(
             r#"
-            SELECT id, sender_id, body, body_html, read_at, created_at
+            SELECT id, sender_id, body, body_html, media_url, media_kind, read_at, created_at
             FROM dm_messages
             WHERE thread_id = $1 AND deleted_at IS NULL AND created_at < $2
             ORDER BY created_at DESC
@@ -206,6 +224,37 @@ async fn thread(
     } else {
         Vec::new()
     };
+
+    // Attach reactions for the page of messages in a single round-trip.
+    if !rows.is_empty() {
+        let ids: Vec<Uuid> = rows.iter().map(|m| m.id).collect();
+        let rx: Vec<(Uuid, String, i64, bool)> = sqlx::query_as(
+            r#"
+            SELECT message_id, emoji, COUNT(*)::bigint AS count,
+                   bool_or(user_id = $2) AS mine
+            FROM dm_reactions
+            WHERE message_id = ANY($1)
+            GROUP BY message_id, emoji
+            ORDER BY count DESC
+            "#,
+        )
+        .bind(&ids)
+        .bind(user.user_id)
+        .fetch_all(&state.pg)
+        .await
+        .unwrap_or_default();
+        for m in rows.iter_mut() {
+            m.reactions = rx
+                .iter()
+                .filter(|(mid, ..)| *mid == m.id)
+                .map(|(_, emoji, count, mine)| DmReactionView {
+                    emoji: emoji.clone(),
+                    count: *count,
+                    mine: *mine,
+                })
+                .collect();
+        }
+    }
 
     let next_before = rows.last().map(|r| r.created_at);
     let mut messages = rows;
@@ -228,7 +277,10 @@ async fn thread(
 
 #[derive(Deserialize)]
 pub struct SendBody {
+    #[serde(default)]
     body: String,
+    media_url: Option<String>,
+    media_kind: Option<String>,
 }
 
 async fn send(
@@ -238,8 +290,20 @@ async fn send(
     Json(input): Json<SendBody>,
 ) -> Result<(StatusCode, Json<DmMessage>), AppError> {
     let body = input.body.trim();
-    if body.is_empty() {
-        return Err(AppError::BadRequest("body required".into()));
+    // An attachment, if present, must be one we hosted (/media/...) and a known
+    // kind; a message may be media-only (empty body) once it carries media.
+    let media_url = input.media_url.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let media_kind = input.media_kind.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    if let Some(u) = media_url {
+        if !u.starts_with("/media/") {
+            return Err(AppError::BadRequest("media_url must be a /media/ path".into()));
+        }
+        if !matches!(media_kind, Some("image") | Some("video")) {
+            return Err(AppError::BadRequest("media_kind must be image or video".into()));
+        }
+    }
+    if body.is_empty() && media_url.is_none() {
+        return Err(AppError::BadRequest("body or media required".into()));
     }
     if body.chars().count() > MAX_DM_LEN {
         return Err(AppError::BadRequest(format!(
@@ -288,15 +352,17 @@ async fn send(
     let body_html = render_markdown(body);
     let msg: DmMessage = sqlx::query_as(
         r#"
-        INSERT INTO dm_messages (thread_id, sender_id, body, body_html)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, sender_id, body, body_html, read_at, created_at
+        INSERT INTO dm_messages (thread_id, sender_id, body, body_html, media_url, media_kind)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, sender_id, body, body_html, media_url, media_kind, read_at, created_at
         "#,
     )
     .bind(thread_id)
     .bind(user.user_id)
     .bind(body)
     .bind(&body_html)
+    .bind(media_url)
+    .bind(media_kind)
     .fetch_one(&state.pg)
     .await?;
 
@@ -317,11 +383,22 @@ async fn send(
             user_id: other.0,
             kind: "dm".into(),
             actor_id: Some(user.user_id),
-            actor_username: Some(sender_username),
+            actor_username: Some(sender_username.clone()),
             target_kind: "thread".into(),
             target_id: thread_id,
             created_at: Utc::now().to_rfc3339(),
         });
+        // Native push (Expo → FCM/APNs) so the recipient is alerted — with sound —
+        // even with the app closed. No-op until they've registered a device token.
+        crate::routes::push::send_to_device_tokens(
+            &state,
+            other.0,
+            "dm",
+            Some(sender_username.as_str()),
+            "thread",
+            thread_id,
+        )
+        .await;
     }
 
     Ok((StatusCode::CREATED, Json(msg)))
@@ -433,6 +510,112 @@ async fn delete_message(
     .bind(thread_id)
     .execute(&state.pg)
     .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ─── POST /dm/messages/delete — bulk soft-delete own messages ──────
+
+#[derive(Deserialize)]
+pub struct BulkDeleteBody {
+    ids: Vec<Uuid>,
+}
+
+async fn bulk_delete(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Json(input): Json<BulkDeleteBody>,
+) -> Result<StatusCode, AppError> {
+    if input.ids.is_empty() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let mut threads: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        UPDATE dm_messages SET deleted_at = NOW()
+        WHERE id = ANY($1) AND sender_id = $2 AND deleted_at IS NULL
+        RETURNING thread_id
+        "#,
+    )
+    .bind(&input.ids)
+    .bind(user.user_id)
+    .fetch_all(&state.pg)
+    .await?;
+    threads.sort();
+    threads.dedup();
+    for tid in threads {
+        let _ = sqlx::query(
+            r#"
+            UPDATE dm_threads
+            SET last_message_at = COALESCE(
+                (SELECT MAX(created_at) FROM dm_messages WHERE thread_id = $1 AND deleted_at IS NULL),
+                created_at
+            )
+            WHERE id = $1
+            "#,
+        )
+        .bind(tid)
+        .execute(&state.pg)
+        .await;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ─── POST / DELETE /dm/messages/{id}/react ─────────────────────────
+
+#[derive(Deserialize)]
+pub struct DmReactBody {
+    emoji: String,
+}
+
+async fn react_message(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(input): Json<DmReactBody>,
+) -> Result<StatusCode, AppError> {
+    let emoji = input.emoji.trim();
+    if !VALID_DM_EMOJI.contains(&emoji) {
+        return Err(AppError::BadRequest("invalid emoji".into()));
+    }
+    // Must be a live message in a thread the viewer belongs to.
+    let member: Option<bool> = sqlx::query_scalar(
+        r#"
+        SELECT TRUE FROM dm_messages m
+        JOIN dm_threads t ON t.id = m.thread_id
+        WHERE m.id = $1 AND m.deleted_at IS NULL AND ($2 = t.a_id OR $2 = t.b_id)
+        "#,
+    )
+    .bind(id)
+    .bind(user.user_id)
+    .fetch_optional(&state.pg)
+    .await?;
+    if member.is_none() {
+        return Err(AppError::NotFound);
+    }
+    sqlx::query(
+        r#"
+        INSERT INTO dm_reactions (message_id, user_id, emoji)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (message_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji
+        "#,
+    )
+    .bind(id)
+    .bind(user.user_id)
+    .bind(emoji)
+    .execute(&state.pg)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn unreact_message(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    sqlx::query("DELETE FROM dm_reactions WHERE message_id = $1 AND user_id = $2")
+        .bind(id)
+        .bind(user.user_id)
+        .execute(&state.pg)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

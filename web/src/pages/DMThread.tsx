@@ -215,7 +215,7 @@ export default function DMThread() {
       if (d?.kind === 'dm' && d.actor_username === params.username) {
         playPing();
         refetch();
-        void api.patch(`/dm/threads/${params.username}/read`).catch(() => {});
+        void api.patch(`/dm/threads/${params.username}/read`).then(() => refetchDmUnread()).catch(() => {});
       }
     };
     window.addEventListener('burncpu:notification', onNotif);
@@ -372,7 +372,7 @@ export default function DMThread() {
                               <Show when={mine}>
                                 <span
                                   class="material-symbols-outlined"
-                                  style="font-size:13px;"
+                                  style={`font-size:15px; ${m.read_at ? 'color:#38bdf8;' : 'opacity:0.65;'}`}
                                   title={m.read_at ? t('dmthread.read') : t('dmthread.sent')}
                                 >
                                   {m.read_at ? 'done_all' : 'done'}

@@ -82,7 +82,7 @@ export default function DMs() {
     if (!ids.length) return;
     try {
       await api.post('/dm/threads/clear', { ids });
-      setSelected(new Set());
+      setSelected(new Set<string>());
       setSelectMode(false);
       await refetch();
       refetchDmUnread();
@@ -151,7 +151,7 @@ export default function DMs() {
             </Show>
             <Show when={(list()?.length ?? 0) > 0}>
               <button
-                onClick={() => { setSelectMode((v) => !v); setSelected(new Set()); }}
+                onClick={() => { setSelectMode((v) => !v); setSelected(new Set<string>()); }}
                 class="flex items-center gap-1 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-mono text-[13px] hover:text-primary hover:border-primary/50 transition-colors"
               >
                 <span class="material-symbols-outlined" style="font-size:18px;">{selectMode() ? 'close' : 'checklist'}</span>

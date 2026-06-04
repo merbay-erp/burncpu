@@ -20,7 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
 import Sheet from '@/components/Sheet';
-import { api, API_ORIGIN, mediaUrl } from '@/api';
+import { api, mediaUrl, uploadMedia } from '@/api';
 import { openEventStream } from '@/sse';
 import { useMe } from '@/auth';
 import { fonts, useTheme, type Palette } from '@/theme';
@@ -141,18 +141,14 @@ export default function DmThread() {
     const isVideo = asset.type === 'video';
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('file', {
-        uri: asset.uri,
-        name: asset.fileName ?? (isVideo ? 'video.mp4' : 'image.jpg'),
-        type: asset.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg'),
-      } as unknown as Blob);
-      const r = await fetch(`${API_ORIGIN}/api/v1/media`, { method: 'POST', body: fd, credentials: 'include', headers: { Origin: API_ORIGIN } });
-      if (!r.ok) throw new Error();
-      const m = (await r.json()) as { url: string };
+      const m = await uploadMedia(
+        asset.uri,
+        asset.fileName ?? (isVideo ? 'video.mp4' : 'image.jpg'),
+        asset.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg'),
+      );
       setPendingMedia({ url: m.url, kind: isVideo ? 'video' : 'image' });
-    } catch {
-      Alert.alert('burncpu', t('common.error'));
+    } catch (e) {
+      Alert.alert('burncpu', `${t('common.error')}\n${(e as Error)?.message ?? ''}`.trim());
     } finally {
       setUploading(false);
     }

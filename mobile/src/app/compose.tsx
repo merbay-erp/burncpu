@@ -17,15 +17,11 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
 import Avatar from '@/components/Avatar';
-import { api, API_ORIGIN, mediaUrl, lookupUsers, type Author, type CreateResponse, type PostView } from '@/api';
+import { api, mediaUrl, uploadMedia, lookupUsers, type Author, type CreateResponse, type PostView } from '@/api';
 import { fonts, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
 
 const MAX = 5000;
-
-interface MediaResp {
-  url: string;
-}
 
 export default function Compose() {
   const { colors } = useTheme();
@@ -89,19 +85,11 @@ export default function Compose() {
     setUploading(true);
     try {
       for (const asset of res.assets) {
-        const fd = new FormData();
-        fd.append('file', {
-          uri: asset.uri,
-          name: asset.fileName ?? 'image.jpg',
-          type: asset.mimeType ?? 'image/jpeg',
-        } as unknown as Blob);
-        const r = await fetch(`${API_ORIGIN}/api/v1/media`, { method: 'POST', body: fd, credentials: 'include', headers: { Origin: API_ORIGIN } });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const m = (await r.json()) as MediaResp;
+        const m = await uploadMedia(asset.uri, asset.fileName ?? 'image.jpg', asset.mimeType ?? 'image/jpeg');
         setAttachments((a) => [...a, m.url]);
       }
-    } catch {
-      Alert.alert('burncpu', t('common.error'));
+    } catch (e) {
+      Alert.alert('burncpu', `${t('common.error')}\n${(e as Error)?.message ?? ''}`.trim());
     } finally {
       setUploading(false);
     }

@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
 import Avatar from '@/components/Avatar';
-import { api, API_ORIGIN, mediaUrl, type Profile } from '@/api';
+import { api, mediaUrl, uploadMedia, type Profile } from '@/api';
 import { getMe, setMe, useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
@@ -39,14 +39,10 @@ export default function ProfileEdit() {
     if (res.canceled || !res.assets?.length) return;
     const asset = res.assets[0];
     try {
-      const fd = new FormData();
-      fd.append('file', { uri: asset.uri, name: asset.fileName ?? 'avatar.jpg', type: asset.mimeType ?? 'image/jpeg' } as unknown as Blob);
-      const r = await fetch(`${API_ORIGIN}/api/v1/media`, { method: 'POST', body: fd, credentials: 'include', headers: { Origin: API_ORIGIN } });
-      if (!r.ok) throw new Error();
-      const m = (await r.json()) as { url: string };
+      const m = await uploadMedia(asset.uri, asset.fileName ?? 'avatar.jpg', asset.mimeType ?? 'image/jpeg');
       setAvatarUrl(m.url);
-    } catch {
-      Alert.alert('burncpu', t('common.error'));
+    } catch (e) {
+      Alert.alert('burncpu', `${t('common.error')}\n${(e as Error)?.message ?? ''}`.trim());
     }
   };
 

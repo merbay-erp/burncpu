@@ -47,6 +47,37 @@ export const api = {
 export const mediaUrl = (u?: string | null): string | undefined =>
   !u ? undefined : u.startsWith('http') ? u : `${API_ORIGIN}${u}`;
 
+// Multipart file upload to /media. RN's `fetch` + `FormData(file)` can fail to
+// even leave the device on some builds — the request never reaches the server.
+// XHR is the reliable path: it streams the file, sets the multipart Content-Type
+// (+boundary) itself, and carries the session cookie via `withCredentials`. The
+// Origin header satisfies the backend CSRF guard, exactly like the JSON calls.
+export function uploadMedia(uri: string, name: string, type: string): Promise<{ url: string; id: string }> {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append('file', { uri, name, type } as unknown as Blob);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE}/media`);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Origin', API_ORIGIN);
+    xhr.timeout = 120000;
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new ApiError(xhr.status, 'bad_response', 'invalid upload response'));
+        }
+      } else {
+        reject(new ApiError(xhr.status, 'upload_failed', `HTTP ${xhr.status} ${String(xhr.responseText).slice(0, 140)}`));
+      }
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'network', 'network error'));
+    xhr.ontimeout = () => reject(new ApiError(0, 'timeout', 'timeout'));
+    xhr.send(fd);
+  });
+}
+
 // ─── Types (same contracts as the web client) ──────────────────
 
 export interface Author {

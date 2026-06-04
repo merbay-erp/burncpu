@@ -41,7 +41,14 @@ is false.
 
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
-| `MEDIA_DIR` | | `/data/media` | Writable directory for uploaded images. |
+| `MEDIA_DIR` | | `/data/media` | Writable directory for uploaded images and videos. |
+
+## Spam & moderation
+
+| Variable | Required | Default | Description |
+|----------|:--------:|---------|-------------|
+| `SPAM_THRESHOLD` | | `4` | Spam score at/above which a top-level public post is quarantined (lands in the admin review queue). Lower = stricter. |
+| `SPAM_DENYLIST` | | — | Comma-separated phrases that strongly flag a post as spam (case-insensitive substring match). |
 
 ## Email
 

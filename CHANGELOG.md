@@ -7,6 +7,11 @@ ships continuously to [burncpu.com](https://burncpu.com) from `main`.
 ## [Unreleased]
 
 ### Added
+- **Multi-layered spam scoring** — top-level public posts are scored across
+  independent layers (account trust, link density, mention flooding, shouting,
+  a configurable `SPAM_DENYLIST`) and quarantined at/above `SPAM_THRESHOLD`,
+  replacing the blunt new-account gate. Clean first posts from new users now go
+  live; signal-laden ones land in the existing admin review queue.
 - **Social login + open signup** — sign in with Google, GitHub, or Microsoft
   (OAuth2 authorization-code + PKCE + state; matched/created by verified email).
   Invite-only registration removed — signup is open on web and mobile.

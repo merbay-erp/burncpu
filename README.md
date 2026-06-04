@@ -233,6 +233,7 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - Bildirimler + **SSE canlı akış** + "yeni sinyal" balonu
 - **Tam DM sistemi** — karşılıklı-takip · resim+video ekleri · reaksiyon · gönderildi/okundu · mesaj-sil/toplu-sil/sohbet-sil · yeni-mesaj · yazıyor · ses
 - **Mobil uygulama** (React Native/Expo, Android) — native push (FCM/APNs), web ile parite
+- **Çok-katmanlı spam skoru** (hesap-güveni · link/mention/bağırma · denylist) → karantina + admin kuyruğu
 - Link önizlemeleri (SSRF-korumalı), görsel yükleme (EXIF strip)
 - Komut paleti (⌘K), avatar cropper, taslak kaydetme
 - RSS/Atom, **ActivityPub** federasyon (signatures/webfinger/nodeinfo)
@@ -240,7 +241,7 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - SMTP gerçek gönderim, gece yedekleri (7 gün rotasyon)
 
 🔜 **Sırada**
-- Spam-resistant filtering engine (model-agnostik, çok katmanlı)
+- Spam motoru — ek katmanlar (davranışsal sinyaller, görsel/ML skoru); **v1 çok-katmanlı skor canlı**
 - Federation kültürü: relay/keşif politikaları
 - Mobil: in-app video oynatıcı + foreground mesaj sesi
 - Apple ile giriş + iOS dağıtımı

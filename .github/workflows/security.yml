@@ -50,3 +50,22 @@ jobs:
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  web-mobile:
+    name: web + mobile typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: web — tsc -b
+        working-directory: web
+        run: |
+          npm install --no-fund --no-audit
+          npx tsc -b
+      - name: mobile — tsc --noEmit
+        working-directory: mobile
+        run: |
+          npm install --no-fund --no-audit
+          npx tsc --noEmit

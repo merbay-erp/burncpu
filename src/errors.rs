@@ -49,6 +49,14 @@ impl IntoResponse for AppError {
             }
         };
         let body = Json(json!({ "error": code, "message": self.to_string() }));
-        (status, body).into_response()
+        let mut resp = (status, body).into_response();
+        // Give API / mobile clients a concrete backoff hint on 429s.
+        if matches!(self, AppError::RateLimited) {
+            resp.headers_mut().insert(
+                axum::http::header::RETRY_AFTER,
+                axum::http::HeaderValue::from_static("60"),
+            );
+        }
+        resp
     }
 }

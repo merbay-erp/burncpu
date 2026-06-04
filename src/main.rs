@@ -42,14 +42,15 @@ async fn main() -> Result<()> {
     let cfg = config::Config::from_env()?;
     tracing::info!(?cfg.bind_addr, "burncpu starting");
 
-    // Loud guardrails for risky production postures. Open signup on a public
-    // (https) origin is almost always a misconfiguration; federation widens the
-    // abuse surface. Warn so it never goes unnoticed in the boot log.
+    // Record the registration posture at boot. Open signup on a public origin is
+    // a deliberate choice for burncpu (invite gating was removed), so this is an
+    // INFO statement of fact — not a warning that cries misconfiguration on every
+    // boot and drowns out the real ones. Set INVITES_REQUIRED=true to go
+    // invite-only and this line stops firing.
     let is_prod = cfg.site_origin.starts_with("https://");
     if is_prod && !cfg.invites_required {
-        tracing::warn!(
-            "⚠️  open signup: INVITES_REQUIRED=false on a production origin ({}). \
-             Set INVITES_REQUIRED=true unless open registration is intended.",
+        tracing::info!(
+            "open registration enabled (INVITES_REQUIRED=false) on {}",
             cfg.site_origin
         );
     }

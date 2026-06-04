@@ -35,12 +35,16 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use url::Url;
 
-const UA: &str = "burncpubot/1.0 (+https://burncpu.com; link preview)";
+// Classic "Mozilla/5.0 (compatible; …)" crawler shape — still honestly identifies
+// burncpu, but WAFs / bot-managers (e.g. Cloudflare) wave it through far more
+// reliably than a bare `burncpubot/1.0`, which some challenge as an unknown bot.
+const UA: &str = "Mozilla/5.0 (compatible; burncpubot/1.0; +https://burncpu.com)";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(6);
 const MAX_BYTES: usize = 768 * 1024; // plenty for any <head>
 const MAX_REDIRECTS: usize = 4;
-const CACHE_TTL_OK: u64 = 7 * 24 * 3600; // 7 days
-const CACHE_TTL_NULL: u64 = 6 * 3600; // 6 hours — re-try dead/blocked links sooner
+const CACHE_TTL_OK: u64 = 7 * 24 * 3600; // 7 days — a real preview
+const CACHE_TTL_NULL: u64 = 6 * 3600; // 6 hours — fetched cleanly, page simply has no preview
+const CACHE_TTL_FAIL: u64 = 5 * 60; // 5 min — a *fetch failure* (timeout/blocked/5xx); retry soon
 const RL_WINDOW_SECS: i64 = 60;
 const RL_MAX_USER: i64 = 40; // real fetches per logged-in user per minute (cache hits are free)
 const RL_MAX_ANON: i64 = 15; // stricter per-IP cap for anonymous timeline viewers
@@ -128,25 +132,21 @@ pub async fn get_preview(
         return Err(AppError::RateLimited);
     }
 
-    let preview = resolve(&normalized).await;
-
-    let ttl = if preview.is_some() { CACHE_TTL_OK } else { CACHE_TTL_NULL };
+    // Distinguish a clean "no preview here" (cache a while) from a *fetch failure*
+    // — timeout, momentary bot challenge, 5xx — which is usually transient and must
+    // NOT hide the preview for hours: cache it only briefly so the next view retries.
+    let (preview, ttl) = match resolve_inner(&normalized).await {
+        Ok(Some(p)) => (Some(p), CACHE_TTL_OK),
+        Ok(None) => (None, CACHE_TTL_NULL),
+        Err(e) => {
+            tracing::debug!(error = %e, url = %normalized, "link preview fetch failed");
+            (None, CACHE_TTL_FAIL)
+        }
+    };
     let serialized = serde_json::to_string(&preview).unwrap_or_else(|_| "null".to_string());
     let _: () = redis.set_ex(&key, serialized, ttl).await?;
 
     Ok(Json(PreviewResponse { preview }))
-}
-
-/// Never errors — any failure (network, SSRF block, non-HTML, parse) becomes
-/// `None` so the caller can cache + return "no preview".
-async fn resolve(raw: &str) -> Option<LinkPreview> {
-    match resolve_inner(raw).await {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::debug!(error = %e, url = %raw, "link preview resolution failed");
-            None
-        }
-    }
 }
 
 async fn resolve_inner(raw: &str) -> anyhow::Result<Option<LinkPreview>> {
@@ -500,10 +500,11 @@ mod tests {
     #[tokio::test]
     #[ignore = "hits the network"]
     async fn live_blog_unfurl() {
-        let p = resolve(
+        let p = resolve_inner(
             "https://mustafaerbay.com.tr/blog/career/ai-agent-tool-use-siniri-mimari-secimlerin-maliyeti/",
         )
         .await
+        .expect("fetch should succeed")
         .expect("expected a preview");
         eprintln!("{p:#?}");
         assert!(p.title.as_deref().unwrap_or("").contains("Tool-Use"));

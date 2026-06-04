@@ -239,6 +239,13 @@ const dict: Record<Locale, Record<string, string>> = {
     'docs.note': 'burncpu REST API uç noktaları. Tam OpenAPI:',
     'docs.open_web': 'Web’de aç',
     'dm.typing': 'yazıyor…',
+    'dm.new': 'Yeni mesaj',
+    'dm.search_user': 'Kullanıcı ara…',
+    'dm.empty': 'Henüz mesaj yok.',
+    'dm.delete_conv': 'Sohbeti sil',
+    'dm.delete_confirm': 'Bu sohbeti silmek istediğine emin misin? (Karşı taraf etkilenmez.)',
+    'dm.delete_selected': 'Sil',
+    'dm.select': 'Seç',
   },
   en: {
     'common.loading': 'Loading…',
@@ -472,6 +479,13 @@ const dict: Record<Locale, Record<string, string>> = {
     'docs.note': 'burncpu REST API endpoints. Full OpenAPI:',
     'docs.open_web': 'Open on web',
     'dm.typing': 'typing…',
+    'dm.new': 'New message',
+    'dm.search_user': 'Search a user…',
+    'dm.empty': 'No messages yet.',
+    'dm.delete_conv': 'Delete conversation',
+    'dm.delete_confirm': 'Delete this conversation? (The other person is unaffected.)',
+    'dm.delete_selected': 'Delete',
+    'dm.select': 'Select',
   },
 };
 

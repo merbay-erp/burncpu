@@ -9,6 +9,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Linking,
   StyleSheet,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -115,18 +116,23 @@ export default function DmThread() {
     }
   };
 
-  const pickImage = async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.9 });
+  const pickMedia = async () => {
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.9 });
     if (res.canceled || !res.assets?.length) return;
     const asset = res.assets[0];
+    const isVideo = asset.type === 'video';
     setUploading(true);
     try {
       const fd = new FormData();
-      fd.append('file', { uri: asset.uri, name: asset.fileName ?? 'image.jpg', type: asset.mimeType ?? 'image/jpeg' } as unknown as Blob);
+      fd.append('file', {
+        uri: asset.uri,
+        name: asset.fileName ?? (isVideo ? 'video.mp4' : 'image.jpg'),
+        type: asset.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg'),
+      } as unknown as Blob);
       const r = await fetch(`${API_ORIGIN}/api/v1/media`, { method: 'POST', body: fd, credentials: 'include', headers: { Origin: API_ORIGIN } });
       if (!r.ok) throw new Error();
       const m = (await r.json()) as { url: string };
-      setPendingMedia({ url: m.url, kind: 'image' });
+      setPendingMedia({ url: m.url, kind: isVideo ? 'video' : 'image' });
     } catch {
       Alert.alert('burncpu', t('common.error'));
     } finally {
@@ -206,9 +212,9 @@ export default function DmThread() {
               <Image source={{ uri: mediaUrl(item.media_url) }} style={s.media} contentFit="cover" />
             ) : null}
             {item.media_url && item.media_kind === 'video' ? (
-              <View style={[s.media, s.videoPlaceholder]}>
+              <Pressable onPress={() => Linking.openURL(mediaUrl(item.media_url) ?? '')} style={[s.media, s.videoPlaceholder]}>
                 <Ionicons name="play-circle" size={42} color="#fff" />
-              </View>
+              </Pressable>
             ) : null}
             {item.body ? <Text style={mine ? s.textMine : s.textOther}>{item.body}</Text> : null}
             <View style={s.metaRow}>
@@ -266,7 +272,13 @@ export default function DmThread() {
 
       {pendingMedia ? (
         <View style={s.pendingRow}>
-          <Image source={{ uri: mediaUrl(pendingMedia.url) }} style={s.pendingThumb} contentFit="cover" />
+          {pendingMedia.kind === 'video' ? (
+            <View style={[s.pendingThumb, s.videoPlaceholder]}>
+              <Ionicons name="videocam" size={22} color="#fff" />
+            </View>
+          ) : (
+            <Image source={{ uri: mediaUrl(pendingMedia.url) }} style={s.pendingThumb} contentFit="cover" />
+          )}
           <Pressable onPress={() => setPendingMedia(null)} hitSlop={8}>
             <Ionicons name="close-circle" size={24} color={colors.onSurfaceVariant} />
           </Pressable>
@@ -274,7 +286,7 @@ export default function DmThread() {
       ) : null}
 
       <View style={[s.inputRow, { paddingBottom: insets.bottom + 8 }]}>
-        <Pressable onPress={pickImage} disabled={uploading} hitSlop={8} style={{ paddingBottom: 6 }}>
+        <Pressable onPress={pickMedia} disabled={uploading} hitSlop={8} style={{ paddingBottom: 6 }}>
           <Ionicons name={uploading ? 'hourglass-outline' : 'image-outline'} size={24} color={uploading ? colors.fg3 : colors.primary} />
         </Pressable>
         <TextInput style={s.input} placeholder="…" placeholderTextColor={colors.fg3} value={text} onChangeText={onType} multiline />

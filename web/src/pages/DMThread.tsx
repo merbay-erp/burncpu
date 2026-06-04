@@ -61,6 +61,7 @@ export default function DMThread() {
   let typingClearTimer: ReturnType<typeof setTimeout> | undefined;
   let lastTypingSent = 0;
   const [pendingMedia, setPendingMedia] = createSignal<{ url: string; kind: 'image' | 'video' } | null>(null);
+  const [playingVideo, setPlayingVideo] = createSignal<string | null>(null);
   const [uploading, setUploading] = createSignal(false);
   const [reactFor, setReactFor] = createSignal<string | null>(null);
   const [msgSelMode, setMsgSelMode] = createSignal(false);
@@ -393,14 +394,32 @@ export default function DMThread() {
                                     </div>
                                   }
                                 >
-                                  <video
-                                    src={m.media_url!}
-                                    poster={m.media_poster_url ?? undefined}
-                                    controls
-                                    playsinline
-                                    preload="metadata"
-                                    class="rounded-lg mb-1 bg-black w-[240px] max-w-full max-h-72 object-contain"
-                                  />
+                                  <Show
+                                    when={playingVideo() === m.id}
+                                    fallback={
+                                      <button
+                                        type="button"
+                                        onClick={() => setPlayingVideo(m.id)}
+                                        class="relative block rounded-lg overflow-hidden mb-1 bg-black w-[240px] max-w-full"
+                                        aria-label="Videoyu oynat"
+                                      >
+                                        <Show when={m.media_poster_url} fallback={<div class="w-full h-40" />}>
+                                          <img src={m.media_poster_url!} alt="" class="block w-full max-h-72 object-contain" />
+                                        </Show>
+                                        <span class="absolute inset-0 flex items-center justify-center bg-black/15">
+                                          <span class="material-symbols-outlined text-white drop-shadow-lg" style="font-size:56px;">play_circle</span>
+                                        </span>
+                                      </button>
+                                    }
+                                  >
+                                    <video
+                                      src={m.media_url!}
+                                      autoplay
+                                      controls
+                                      playsinline
+                                      class="rounded-lg mb-1 bg-black w-[240px] max-w-full max-h-72 object-contain"
+                                    />
+                                  </Show>
                                 </Show>
                               </Show>
                             </Show>

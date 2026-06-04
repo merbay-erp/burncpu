@@ -263,8 +263,11 @@ pub async fn send_to_user(
     })
     .unwrap_or_default();
 
+    // Bound the per-user fan-out: each subscription below spawns a send task, so
+    // an account with a pathological number of subscriptions must not turn one
+    // notification into an unbounded burst of concurrent sends.
     let subs: Vec<(Uuid, String, String, String)> = sqlx::query_as(
-        "SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1 AND failures < 10",
+        "SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1 AND failures < 10 ORDER BY id DESC LIMIT 20",
     )
     .bind(user_id)
     .fetch_all(&state.pg)

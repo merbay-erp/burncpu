@@ -103,4 +103,95 @@ mod tests {
             _ => {}
         }
     }
+
+    // ── Drift guard: every route advertised in the human-readable API index
+    // (the `endpoints` catalog in api.rs, served at GET /api/v1/) must also be
+    // described in this machine spec. The catalog is the place a developer
+    // naturally lists a new endpoint, so this fails CI when they add one there
+    // but forget the spec — the most common way the two docs drift apart.
+    //
+    // One-directional (catalog ⊆ spec): the spec may legitimately document more
+    // than the curated index (e.g. niche admin/federation routes), so we don't
+    // require the reverse. Path params are normalised ({u} vs {username}) away.
+
+    /// Collapse every `{param}` to a bare `{}` so `/dm/threads/{u}` and
+    /// `/dm/threads/{username}` compare equal.
+    fn norm_path(p: &str) -> String {
+        let mut s = String::new();
+        let mut depth = 0u32;
+        for c in p.chars() {
+            match c {
+                '{' => {
+                    if depth == 0 {
+                        s.push('{');
+                    }
+                    depth += 1;
+                }
+                '}' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        s.push('}');
+                    }
+                }
+                _ if depth == 0 => s.push(c),
+                _ => {}
+            }
+        }
+        s
+    }
+
+    /// (METHOD, normalised full path) for every `"GET   /api/v1/…": "desc"`
+    /// key in the api.rs catalog. Hand-parsed so we don't pull in a regex dep.
+    fn catalog_routes() -> Vec<(String, String)> {
+        const METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+        let mut out = Vec::new();
+        for line in include_str!("api.rs").lines() {
+            let line = line.trim_start();
+            let Some(rest) = line.strip_prefix('"') else {
+                continue;
+            };
+            let Some(end) = rest.find('"') else { continue };
+            let mut parts = rest[..end].split_whitespace();
+            let (Some(method), Some(path)) = (parts.next(), parts.next()) else {
+                continue;
+            };
+            if METHODS.contains(&method) && path.starts_with("/api/v1") {
+                out.push((method.to_string(), norm_path(path)));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_catalog_route_is_documented() {
+        let doc = spec();
+        let mut documented = std::collections::HashSet::new();
+        let http = ["get", "post", "put", "patch", "delete"];
+        for (path, item) in doc["paths"].as_object().unwrap() {
+            for method in item.as_object().unwrap().keys() {
+                if http.contains(&method.as_str()) {
+                    documented.insert((
+                        method.to_uppercase(),
+                        norm_path(&format!("/api/v1{path}")),
+                    ));
+                }
+            }
+        }
+
+        let routes = catalog_routes();
+        assert!(routes.len() > 50, "catalog parse looks broken: {routes:?}");
+
+        let undocumented: Vec<_> = routes
+            .into_iter()
+            // The spec does not describe itself.
+            .filter(|r| r.1 != "/api/v1/openapi.json")
+            .filter(|r| !documented.contains(r))
+            .map(|(m, p)| format!("{m} {p}"))
+            .collect();
+
+        assert!(
+            undocumented.is_empty(),
+            "api.rs advertises routes missing from openapi.json: {undocumented:?}"
+        );
+    }
 }

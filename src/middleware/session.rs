@@ -165,7 +165,15 @@ pub async fn layer(State(state): State<AppState>, mut req: Request<Body>, next: 
             let ip_drift = last_ip.as_deref().unwrap_or("") != ip;
             let ua_drift = last_ua.as_deref().unwrap_or("") != ua.as_str();
             let was_flagged = flagged.is_some();
-            let should_flag = (ip_drift || ua_drift) && !was_flagged;
+            // IP drift alone is mostly noise: mobile networks, CGNAT, and
+            // wifi↔cellular handoffs rotate the client IP constantly, so
+            // flagging on it turns `flagged_at` into "this user is on a phone"
+            // rather than a real signal — and a noisy flag is an ignored flag.
+            // We flag on UA drift instead: a session's User-Agent should be
+            // stable for its lifetime, so a change is a genuine "cookie replayed
+            // from a different client" indicator. The new IP is still recorded
+            // below for the admin "moved from X to Y" view.
+            let should_flag = ua_drift && !was_flagged;
 
             if should_flag {
                 tracing::warn!(

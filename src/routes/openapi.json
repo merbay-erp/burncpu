@@ -27,7 +27,9 @@
     { "name": "Tokens", "description": "API bearer tokens" },
     { "name": "Webhooks", "description": "Outgoing event webhooks" },
     { "name": "Reports", "description": "User reports" },
-    { "name": "Admin", "description": "Moderation + operations (admin session)" }
+    { "name": "Admin", "description": "Moderation + operations (admin session)" },
+    { "name": "OAuth", "description": "Social login (Google, GitHub, Microsoft)" },
+    { "name": "Push", "description": "Web Push + native device tokens" }
   ],
   "paths": {
     "/auth/request": {
@@ -233,7 +235,8 @@
     "/dm/threads/{username}": {
       "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
       "get": { "tags": ["Direct Messages"], "summary": "Open / fetch a thread", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Messages", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/DmMessage" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
-      "post": { "tags": ["Direct Messages"], "summary": "Send a DM (requires mutual follow)", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["body"], "properties": { "body": { "type": "string" } } } } } }, "responses": { "201": { "description": "Sent", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DmMessage" } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+      "post": { "tags": ["Direct Messages"], "summary": "Send a DM (requires mutual follow)", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["body"], "properties": { "body": { "type": "string" } } } } } }, "responses": { "201": { "description": "Sent", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DmMessage" } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } },
+      "delete": { "tags": ["Direct Messages"], "summary": "Clear (hide) this thread", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Cleared." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
     },
     "/dm/threads/{username}/read": {
       "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
@@ -242,6 +245,52 @@
     "/dm/messages/{id}": {
       "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
       "delete": { "tags": ["Direct Messages"], "summary": "Soft-delete your message", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Deleted." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+
+    "/oauth/providers": {
+      "get": { "tags": ["OAuth"], "summary": "List enabled social-login providers", "security": [], "responses": { "200": { "description": "Provider names", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "string" } } } } } } }
+    },
+    "/oauth/{provider}/start": {
+      "parameters": [ { "name": "provider", "in": "path", "required": true, "schema": { "type": "string" } } ],
+      "get": { "tags": ["OAuth"], "summary": "Begin OAuth login (302 to the provider)", "security": [], "responses": { "302": { "description": "Redirect to the provider consent page" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/oauth/{provider}/callback": {
+      "parameters": [ { "name": "provider", "in": "path", "required": true, "schema": { "type": "string" } } ],
+      "get": { "tags": ["OAuth"], "summary": "OAuth callback \u2014 exchange code, find/create user, start session", "security": [], "responses": { "302": { "description": "Redirect back into the app" }, "400": { "$ref": "#/components/responses/BadRequest" } } }
+    },
+    "/oauth/exchange": {
+      "post": { "tags": ["OAuth"], "summary": "Mobile: swap a one-time code for a session token", "security": [], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["code"], "properties": { "code": { "type": "string" } } } } } }, "responses": { "200": { "description": "Session token", "content": { "application/json": { "schema": { "type": "object", "properties": { "token": { "type": "string" } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" } } }
+    },
+    "/push/vapid-public-key": {
+      "get": { "tags": ["Push"], "summary": "VAPID public key for Web Push", "security": [], "responses": { "200": { "description": "Base64url VAPID public key", "content": { "text/plain": { "schema": { "type": "string" } } } } } }
+    },
+    "/push/subscribe": {
+      "post": { "tags": ["Push"], "summary": "Register a Web Push subscription", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["endpoint", "keys"], "properties": { "endpoint": { "type": "string" }, "keys": { "type": "object", "properties": { "p256dh": { "type": "string" }, "auth": { "type": "string" } } } } } } } }, "responses": { "204": { "description": "Subscribed." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/push/unsubscribe": {
+      "delete": { "tags": ["Push"], "summary": "Remove a Web Push subscription", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["endpoint"], "properties": { "endpoint": { "type": "string" } } } } } }, "responses": { "204": { "description": "Unsubscribed." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/push/device": {
+      "post": { "tags": ["Push"], "summary": "Register a native APNs/FCM device token", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["token"], "properties": { "token": { "type": "string" }, "platform": { "type": "string", "enum": ["ios", "android"] } } } } } }, "responses": { "204": { "description": "Registered." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/push/device/{token}": {
+      "parameters": [ { "name": "token", "in": "path", "required": true, "schema": { "type": "string" } } ],
+      "delete": { "tags": ["Push"], "summary": "Remove a device token", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Removed." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/dm/threads/clear": {
+      "post": { "tags": ["Direct Messages"], "summary": "Clear (hide) all your threads", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Cleared." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/dm/threads/{username}/typing": {
+      "parameters": [ { "$ref": "#/components/parameters/UsernamePath" } ],
+      "post": { "tags": ["Direct Messages"], "summary": "Send a typing indicator", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Noted." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/dm/messages/delete": {
+      "post": { "tags": ["Direct Messages"], "summary": "Bulk soft-delete your messages", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["ids"], "properties": { "ids": { "type": "array", "items": { "type": "string", "format": "uuid" } } } } } } }, "responses": { "204": { "description": "Deleted." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/dm/messages/{id}/react": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "post": { "tags": ["Direct Messages"], "summary": "React to a message", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["emoji"], "properties": { "emoji": { "type": "string" } } } } } }, "responses": { "200": { "description": "Reacted." }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Forbidden" } } },
+      "delete": { "tags": ["Direct Messages"], "summary": "Remove your reaction", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Removed." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
     },
 
     "/search": {

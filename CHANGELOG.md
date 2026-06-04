@@ -51,6 +51,16 @@ ships continuously to [burncpu.com](https://burncpu.com) from `main`.
 - Timeline tabs (Bana Özel / Global) replace the duplicate sidebar entries.
 - Trending, Hashtag, Bookmarks, Trash, and Login pages rebuilt on the shared
   `<Post>` / Tailwind design system.
+- Followed-topic home feed now resolves hashtags through a materialized
+  `post_hashtags` index (migration 0024) instead of a per-row body regex
+  re-run for every followed tag on every page — same matches, indexed lookup.
+- Session **anomaly flag** now triggers on a User-Agent change only; IP drift
+  alone (mobile networks, CGNAT, wifi↔cellular) was almost all noise and made
+  the flag meaningless. The new IP is still recorded for the admin view.
+- Web Push fan-out is bounded per user, so one notification can't spawn an
+  unbounded burst of concurrent sends.
+- `openapi.json` now documents the OAuth, Web Push, and newer DM operations; a
+  test keeps the in-app API index (`GET /api/v1/`) and the spec from drifting.
 
 ### Fixed
 - Avatar cropper showed an empty circle — the CSP blocked the `blob:` preview

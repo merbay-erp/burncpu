@@ -260,6 +260,41 @@ struct CreateResponse {
     quarantined: bool,
 }
 
+/// Replace this post's rows in `post_hashtags` from `body`.
+///
+/// Single source of truth for hashtag extraction: the SAME regex backs the
+/// migration backfill, so the indexed table and the feed's old inline
+/// `(?<![[:alnum:]_])#…` lookbehind agree exactly. Tags are lowercased; the
+/// leading-boundary group makes `#a#b` yield only `a`. Best-effort — a failure
+/// here only costs this post a spot in followers' topic feeds, never the post
+/// itself — so callers don't propagate the error.
+async fn sync_hashtags(pg: &sqlx::PgPool, post_id: Uuid, body: &str) {
+    // Replace semantics so an edit that drops a tag also drops its index row.
+    if let Err(e) = sqlx::query("DELETE FROM post_hashtags WHERE post_id = $1")
+        .bind(post_id)
+        .execute(pg)
+        .await
+    {
+        tracing::warn!(?e, %post_id, "post_hashtags clear failed");
+        return;
+    }
+    if let Err(e) = sqlx::query(
+        r#"
+        INSERT INTO post_hashtags (post_id, tag)
+        SELECT $1, m[2]
+        FROM regexp_matches(lower($2), '(^|[^a-z0-9_])#([a-z0-9_]+)', 'g') AS m
+        ON CONFLICT (post_id, tag) DO NOTHING
+        "#,
+    )
+    .bind(post_id)
+    .bind(body)
+    .execute(pg)
+    .await
+    {
+        tracing::warn!(?e, %post_id, "post_hashtags index failed");
+    }
+}
+
 async fn create_post(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -398,6 +433,11 @@ async fn create_post(
     .bind(moderation_state)
     .fetch_one(&state.pg)
     .await?;
+
+    // Index #hashtags for the followed-topics feed branch. Done for quarantined
+    // posts too (harmless — the feed still filters moderation_state='live', so
+    // they stay hidden until approved, at which point the index is already there).
+    sync_hashtags(&state.pg, id, body).await;
 
     // Bump parent reply count + notify parent author
     if let Some(reply_id) = input.reply_to_id {
@@ -717,6 +757,9 @@ async fn edit_post(
     .execute(&state.pg)
     .await?;
 
+    // Re-index #hashtags: an edit can add or remove tags, so replace the rows.
+    sync_hashtags(&state.pg, id, body).await;
+
     // Refresh search index
     let post = fetch_post(&state, id, Some(user.user_id)).await?;
 
@@ -846,6 +889,11 @@ async fn repost(
     .bind(target_id)
     .fetch_one(&state.pg)
     .await?;
+
+    // A quote-repost's body can carry #hashtags too, so index it like any post —
+    // otherwise switching the feed to the table would drop quote-reposts from
+    // topic feeds that the old body-regex used to match.
+    sync_hashtags(&state.pg, new_id, &body).await;
 
     // Notify original author
     let orig_author: Option<Uuid> = sqlx::query_scalar("SELECT author_id FROM posts WHERE id = $1")

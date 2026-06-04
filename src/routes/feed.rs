@@ -81,14 +81,16 @@ async fn home(
                   SELECT followee_id FROM follows WHERE follower_id = $1
               )
               -- Followed topics: public posts carrying a hashtag the viewer
-              -- follows. Same boundary regex as trending; tags are validated to
-              -- [a-z0-9_] on follow, so interpolation here is injection-safe.
+              -- follows. Resolved through the materialized post_hashtags index
+              -- (migration 0024) — an indexed join instead of a per-row body
+              -- regex rescanned for every followed tag on every feed page.
               OR (
                   p.visibility = 'public'
                   AND EXISTS (
-                      SELECT 1 FROM hashtag_follows hf
+                      SELECT 1
+                      FROM hashtag_follows hf
+                      JOIN post_hashtags ph ON ph.tag = hf.tag AND ph.post_id = p.id
                       WHERE hf.user_id = $1
-                        AND lower(p.body) ~ ('(?<![[:alnum:]_])#' || hf.tag || '(?![[:alnum:]_])')
                   )
               )
           )

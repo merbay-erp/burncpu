@@ -2,7 +2,7 @@ import { createMemo, createResource, createSignal, For, Show, onMount, onCleanup
 import { A, useNavigate } from '@solidjs/router';
 import AuthGate from '../components/AuthGate';
 import { api } from '../api';
-import { me } from '../auth';
+import { me, refetchDmUnread } from '../auth';
 import { relTime } from '../util';
 import { RowSkeletonList } from '../components/Skeleton';
 import { t } from '../i18n';
@@ -55,6 +55,41 @@ export default function DMs() {
   // Conversation filter
   const [filter, setFilter] = createSignal('');
   let lookupTimer: ReturnType<typeof setTimeout> | undefined;
+  // Delete-conversation (select / bulk)
+  const [selectMode, setSelectMode] = createSignal(false);
+  const [selected, setSelected] = createSignal<Set<string>>(new Set());
+
+  const toggleSel = (id: string) => {
+    const s = new Set(selected());
+    if (s.has(id)) s.delete(id);
+    else s.add(id);
+    setSelected(s);
+  };
+  const deleteThread = async (username: string, e?: Event) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    if (!confirm(t('dm.delete_confirm'))) return;
+    try {
+      await api.del(`/dm/threads/${username}`);
+      await refetch();
+      refetchDmUnread();
+    } catch {
+      /* ignore */
+    }
+  };
+  const bulkClear = async () => {
+    const ids = [...selected()];
+    if (!ids.length) return;
+    try {
+      await api.post('/dm/threads/clear', { ids });
+      setSelected(new Set());
+      setSelectMode(false);
+      await refetch();
+      refetchDmUnread();
+    } catch {
+      /* ignore */
+    }
+  };
 
   const onQuery = (v: string) => {
     setQuery(v);
@@ -103,12 +138,35 @@ export default function DMs() {
           </Show>
         </h1>
         <Show when={me()}>
-          <button onClick={openCompose} class={NEW_BTN}>
-            <span class="material-symbols-outlined" style="font-size:18px;">
-              {composing() ? 'close' : 'edit_square'}
-            </span>
-            {composing() ? t('common.cancel') : t('dm.new')}
-          </button>
+          <div class="flex items-center gap-2">
+            <Show when={selectMode()}>
+              <button
+                onClick={bulkClear}
+                disabled={selected().size === 0}
+                class="flex items-center gap-1 px-3 py-2 rounded-lg bg-error/15 text-error font-bold font-mono text-[13px] hover:bg-error/25 transition-colors disabled:opacity-40"
+              >
+                <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
+                {t('dm.delete_selected')}{selected().size > 0 ? ` (${selected().size})` : ''}
+              </button>
+            </Show>
+            <Show when={(list()?.length ?? 0) > 0}>
+              <button
+                onClick={() => { setSelectMode((v) => !v); setSelected(new Set()); }}
+                class="flex items-center gap-1 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-mono text-[13px] hover:text-primary hover:border-primary/50 transition-colors"
+              >
+                <span class="material-symbols-outlined" style="font-size:18px;">{selectMode() ? 'close' : 'checklist'}</span>
+                {selectMode() ? t('common.cancel') : t('dm.select')}
+              </button>
+            </Show>
+            <Show when={!selectMode()}>
+              <button onClick={openCompose} class={NEW_BTN}>
+                <span class="material-symbols-outlined" style="font-size:18px;">
+                  {composing() ? 'close' : 'edit_square'}
+                </span>
+                {composing() ? t('common.cancel') : t('dm.new')}
+              </button>
+            </Show>
+          </div>
         </Show>
       </div>
       <p class="text-on-surface-variant font-mono text-[12px] mb-5">{t('dm.mutual_required')}</p>
@@ -201,11 +259,14 @@ export default function DMs() {
                 {(th) => {
                   const mine = () => th.last_sender_id === me()?.user_id;
                   const unread = () => th.unread_count > 0;
-                  return (
-                    <A
-                      href={`/dm/${th.other_username}`}
-                      class="flex items-center gap-3 p-3 rounded-xl border border-transparent hover:bg-surface-container-low hover:border-outline-variant transition-colors"
-                    >
+                  const sel = () => selected().has(th.id);
+                  const Inner = () => (
+                    <>
+                      <Show when={selectMode()}>
+                        <span class={`material-symbols-outlined shrink-0 ${sel() ? 'text-primary' : 'text-on-surface-variant/50'}`} style="font-size:22px;">
+                          {sel() ? 'check_box' : 'check_box_outline_blank'}
+                        </span>
+                      </Show>
                       <Avatar url={th.other_avatar_url} />
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2">
@@ -233,7 +294,32 @@ export default function DMs() {
                           </Show>
                         </div>
                       </div>
-                    </A>
+                    </>
+                  );
+                  return (
+                    <div class="relative group">
+                      <Show
+                        when={selectMode()}
+                        fallback={
+                          <A href={`/dm/${th.other_username}`} class="flex items-center gap-3 p-3 pr-12 rounded-xl border border-transparent hover:bg-surface-container-low hover:border-outline-variant transition-colors">
+                            <Inner />
+                          </A>
+                        }
+                      >
+                        <button onClick={() => toggleSel(th.id)} class="w-full flex items-center gap-3 p-3 rounded-xl border border-transparent hover:bg-surface-container-low text-left transition-colors">
+                          <Inner />
+                        </button>
+                      </Show>
+                      <Show when={!selectMode()}>
+                        <button
+                          onClick={(e) => deleteThread(th.other_username, e)}
+                          title={t('dm.delete_conv')}
+                          class="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-surface-container text-on-surface-variant hover:text-error transition-all"
+                        >
+                          <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
+                        </button>
+                      </Show>
+                    </div>
                   );
                 }}
               </For>

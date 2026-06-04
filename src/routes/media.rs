@@ -48,6 +48,12 @@ const ALLOWED: &[(&str, ImageFormat, &str)] = &[
     ("image/webp", ImageFormat::WebP, "webp"),
     ("image/gif", ImageFormat::Gif, "gif"),
 ];
+const MAX_VIDEO_BYTES: usize = 64 * 1024 * 1024; // 64 MiB — short clips
+const ALLOWED_VIDEO: &[(&str, &str)] = &[
+    ("video/mp4", "mp4"),
+    ("video/webm", "webm"),
+    ("video/quicktime", "mov"),
+];
 
 #[derive(Serialize)]
 pub struct MediaResponse {
@@ -76,10 +82,10 @@ async fn upload(
                 .bytes()
                 .await
                 .map_err(|e| AppError::BadRequest(format!("read field: {e}")))?;
-            if data.len() > MAX_BYTES {
+            if data.len() > MAX_VIDEO_BYTES {
                 return Err(AppError::BadRequest(format!(
                     "file too large (max {} bytes)",
-                    MAX_BYTES
+                    MAX_VIDEO_BYTES
                 )));
             }
             bytes = Some(data.to_vec());
@@ -87,7 +93,19 @@ async fn upload(
         }
     }
     let raw = bytes.ok_or_else(|| AppError::BadRequest("missing 'file' field".into()))?;
-    let resp = ingest_image_bytes(&state, user.user_id, &raw).await?;
+    // Videos are stored verbatim; images go through the decode/downscale pipeline.
+    let sniffed = infer::get(&raw).map(|k| k.mime_type());
+    let resp = if let Some(mime) = sniffed.filter(|m| ALLOWED_VIDEO.iter().any(|(vm, _)| vm == m)) {
+        ingest_video_bytes(&state, user.user_id, &raw, mime).await?
+    } else {
+        if raw.len() > MAX_BYTES {
+            return Err(AppError::BadRequest(format!(
+                "image too large (max {} bytes)",
+                MAX_BYTES
+            )));
+        }
+        ingest_image_bytes(&state, user.user_id, &raw).await?
+    };
     tracing::info!(user_id = %user.user_id, url = %resp.url, "media uploaded");
     Ok((StatusCode::CREATED, Json(resp)))
 }
@@ -195,6 +213,68 @@ pub(crate) async fn ingest_image_bytes(
         width: Some(width),
         height: Some(height),
         mime_type: mime_str.to_string(),
+        size_bytes,
+    })
+}
+
+/// Store a video attachment verbatim (content-addressed). No decode/transcode —
+/// the type is sniffed from the bytes, written to the media dir, and recorded.
+/// Served as a static file (range-enabled) so the players can seek.
+async fn ingest_video_bytes(
+    state: &AppState,
+    owner_id: Uuid,
+    raw: &[u8],
+    mime: &str,
+) -> Result<MediaResponse, AppError> {
+    let ext = ALLOWED_VIDEO
+        .iter()
+        .find(|(m, _)| *m == mime)
+        .map(|(_, e)| *e)
+        .unwrap_or("mp4");
+    let size_bytes = raw.len() as i64;
+
+    let mut h = Sha256::new();
+    h.update(raw);
+    let digest = h.finalize();
+    let digest_vec = digest.to_vec();
+    let hex_short: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    let filename = format!("{hex_short}.{ext}");
+
+    let dir = std::path::PathBuf::from(&state.config.media_dir);
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("media dir: {e}")))?;
+    let final_path = dir.join(&filename);
+    let tmp_path = dir.join(format!("{filename}.tmp"));
+    tokio::fs::write(&tmp_path, raw)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("write: {e}")))?;
+    tokio::fs::rename(&tmp_path, &final_path)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("rename: {e}")))?;
+
+    let row: (Uuid,) = sqlx::query_as(
+        r#"
+        INSERT INTO media (owner_id, sha256, kind, mime_type, width, height, size_bytes, filename)
+        VALUES ($1, $2, 'video', $3, NULL, NULL, $4, $5)
+        ON CONFLICT (owner_id, sha256) DO UPDATE SET created_at = media.created_at
+        RETURNING id
+        "#,
+    )
+    .bind(owner_id)
+    .bind(&digest_vec)
+    .bind(mime)
+    .bind(size_bytes)
+    .bind(&filename)
+    .fetch_one(&state.pg)
+    .await?;
+
+    Ok(MediaResponse {
+        id: row.0,
+        url: format!("/media/{filename}"),
+        width: None,
+        height: None,
+        mime_type: mime.to_string(),
         size_bytes,
     })
 }

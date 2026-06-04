@@ -139,7 +139,7 @@ pub async fn get_preview(
         Ok(Some(p)) => (Some(p), CACHE_TTL_OK),
         Ok(None) => (None, CACHE_TTL_NULL),
         Err(e) => {
-            tracing::warn!(error = ?e, url = %normalized, "link preview fetch failed");
+            tracing::debug!(error = %e, url = %normalized, "link preview fetch failed");
             (None, CACHE_TTL_FAIL)
         }
     };

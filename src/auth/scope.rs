@@ -11,7 +11,17 @@
 
 use axum::http::Method;
 
-const SESSION_ONLY_PREFIXES: &[&str] = &["/api/v1/admin", "/api/v1/auth", "/api/v1/tokens"];
+const SESSION_ONLY_PREFIXES: &[&str] = &[
+    "/api/v1/admin",
+    "/api/v1/auth",
+    "/api/v1/tokens",
+    // Account-control surfaces: a leaked / over-scoped API token must not read
+    // the security log, revoke sessions, or exfiltrate the data export.
+    // (Destructive DELETE /users/me is additionally session-gated in its handler.)
+    "/api/v1/users/me/security",
+    "/api/v1/users/me/sessions",
+    "/api/v1/users/me/export",
+];
 
 const RESOURCE_PREFIXES: &[(&str, &str)] = &[
     ("profile", "/api/v1/users"),

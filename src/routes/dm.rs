@@ -298,18 +298,31 @@ async fn send(
     Json(input): Json<SendBody>,
 ) -> Result<(StatusCode, Json<DmMessage>), AppError> {
     let body = input.body.trim();
-    // An attachment, if present, must be one we hosted (/media/...) and a known
-    // kind; a message may be media-only (empty body) once it carries media.
     let media_url = input.media_url.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let media_kind = input.media_kind.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    if let Some(u) = media_url {
-        if !u.starts_with("/media/") {
+    // Validate any attachment against the media table: it must be a /media/ file
+    // the SENDER uploaded, and the *stored* kind (not the client's claim) is what
+    // we record. Stops forging arbitrary URLs or mislabeling kinds.
+    let media_kind: Option<String> = if let Some(u) = media_url {
+        let fname = u
+            .strip_prefix("/media/")
+            .filter(|f| !f.is_empty() && !f.contains('/'));
+        let Some(fname) = fname else {
             return Err(AppError::BadRequest("media_url must be a /media/ path".into()));
+        };
+        match sqlx::query_scalar::<_, String>(
+            "SELECT kind FROM media WHERE owner_id = $1 AND filename = $2",
+        )
+        .bind(user.user_id)
+        .bind(fname)
+        .fetch_optional(&state.pg)
+        .await?
+        {
+            Some(k) => Some(k),
+            None => return Err(AppError::BadRequest("media not found or not yours".into())),
         }
-        if !matches!(media_kind, Some("image") | Some("video")) {
-            return Err(AppError::BadRequest("media_kind must be image or video".into()));
-        }
-    }
+    } else {
+        None
+    };
     if body.is_empty() && media_url.is_none() {
         return Err(AppError::BadRequest("body or media required".into()));
     }
@@ -584,10 +597,12 @@ async fn react_message(
     if !VALID_DM_EMOJI.contains(&emoji) {
         return Err(AppError::BadRequest("invalid emoji".into()));
     }
-    // Must be a live message in a thread the viewer belongs to.
-    let member: Option<bool> = sqlx::query_scalar(
+    // Must be a live message in a thread the viewer belongs to; resolve the other
+    // party so a blocked relationship can't keep reacting across the boundary.
+    let other: Option<Uuid> = sqlx::query_scalar(
         r#"
-        SELECT TRUE FROM dm_messages m
+        SELECT CASE WHEN t.a_id = $2 THEN t.b_id ELSE t.a_id END
+        FROM dm_messages m
         JOIN dm_threads t ON t.id = m.thread_id
         WHERE m.id = $1 AND m.deleted_at IS NULL AND ($2 = t.a_id OR $2 = t.b_id)
         "#,
@@ -596,8 +611,11 @@ async fn react_message(
     .bind(user.user_id)
     .fetch_optional(&state.pg)
     .await?;
-    if member.is_none() {
+    let Some(other) = other else {
         return Err(AppError::NotFound);
+    };
+    if is_blocked(&state, user.user_id, other).await {
+        return Err(AppError::Forbidden);
     }
     sqlx::query(
         r#"

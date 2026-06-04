@@ -387,6 +387,11 @@ async fn delete_me(
     user: CurrentUser,
     headers: axum::http::HeaderMap,
 ) -> Result<axum::http::StatusCode, AppError> {
+    // Account deletion is a browser-session action — never reachable with an API
+    // token (it shares the /users/me path with token-allowed GET/PATCH).
+    if user.is_api_token() {
+        return Err(AppError::Forbidden);
+    }
     let username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
         .bind(user.user_id)
         .fetch_one(&state.pg)

@@ -145,7 +145,7 @@ export default function DMThread() {
         throw new Error(j.message ?? `HTTP ${r.status}`);
       }
       const m = (await r.json()) as { url: string };
-      setPendingMedia({ url: m.url, kind: 'image' });
+      setPendingMedia({ url: m.url, kind: f.type.startsWith('video/') ? 'video' : 'image' });
     } catch (e2) {
       setErr((e2 as Error).message);
     } finally {
@@ -415,7 +415,12 @@ export default function DMThread() {
                   <Show when={pendingMedia()}>
                     {(pm) => (
                       <div class="mb-2 relative inline-block">
-                        <img src={pm().url} alt="" class="rounded-lg max-h-32 w-auto border border-outline-variant" />
+                        <Show
+                          when={pm().kind === 'video'}
+                          fallback={<img src={pm().url} alt="" class="rounded-lg max-h-32 w-auto border border-outline-variant" />}
+                        >
+                          <video src={pm().url} class="rounded-lg max-h-32 w-auto border border-outline-variant" muted />
+                        </Show>
                         <button
                           onClick={() => setPendingMedia(null)}
                           title={t('common.remove')}
@@ -429,7 +434,7 @@ export default function DMThread() {
                   <input
                     ref={fileInput}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
                     class="hidden"
                     onChange={onPickFile}
                   />

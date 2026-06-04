@@ -35,6 +35,19 @@ Legend: 🔓 anon-ok · 🔒 auth required · 🛡️ admin (role + 2FA).
 | `POST` | `/auth/2fa/challenge` | 🔒 | Satisfy 2FA for a pending session. |
 | `POST` | `/auth/2fa/disable` | 🔒 | Disable TOTP (requires a valid code). |
 
+## Social login — `/oauth`
+
+OAuth2 authorization-code flow (state + PKCE). A provider is enabled when its
+`{GOOGLE,GITHUB,MICROSOFT}_CLIENT_ID` / `_SECRET` env vars are set; accounts are
+matched or created by **verified email** (`oauth_identities`).
+
+| Method | Path | | Description |
+|--------|------|--|-------------|
+| `GET` | `/oauth/providers` | 🔓 | Enabled providers, for rendering the buttons. |
+| `GET` | `/oauth/{provider}/start` | 🔓 | Begin the flow → redirect to the provider (sets state + PKCE). |
+| `GET` | `/oauth/{provider}/callback` | 🔓 | Provider redirect target → exchange code, start a session. |
+| `POST` | `/oauth/exchange` | 🔓 | Native (mobile) code exchange → returns a `Set-Cookie` session. |
+
 ## Posts — `/posts`
 
 | Method | Path | | Description |
@@ -99,12 +112,16 @@ Legend: 🔓 anon-ok · 🔒 auth required · 🛡️ admin (role + 2FA).
 |--------|------|--|-------------|
 | `GET` | `/bookmarks` | 🔒 | Your bookmarks. |
 | `POST` / `DELETE` | `/bookmarks/{post_id}` | 🔒 | Add / remove a bookmark. |
-| `GET` | `/dm/threads` | 🔒 | DM thread list. |
-| `GET` | `/dm/threads/{username}` | 🔒 | A conversation (mutual-follow required). |
-| `POST` | `/dm/threads/{username}` | 🔒 | Send a message. |
+| `GET` | `/dm/threads` | 🔒 | DM thread list (+ last message, unread). |
+| `GET` | `/dm/threads/{username}` | 🔒 | A conversation — messages carry media + aggregated reactions (mutual-follow required). |
+| `POST` | `/dm/threads/{username}` | 🔒 | Send a message (`body` and/or `media_url` + `media_kind` `image`\|`video`). |
+| `DELETE` | `/dm/threads/{username}` | 🔒 | Delete the conversation (per-user clear; other side unaffected). |
+| `POST` | `/dm/threads/clear` | 🔒 | Bulk-delete conversations — `{ ids: [thread_id] }`. |
 | `PATCH` | `/dm/threads/{username}/read` | 🔒 | Mark read. |
 | `POST` | `/dm/threads/{username}/typing` | 🔒 | Ephemeral typing ping (SSE to recipient). |
-| `DELETE` | `/dm/messages/{id}` | 🔒 | Delete a message. |
+| `POST` / `DELETE` | `/dm/messages/{id}/react` | 🔒 | Add / remove a message reaction — `{ emoji }`. |
+| `DELETE` | `/dm/messages/{id}` | 🔒 | Delete one of your messages. |
+| `POST` | `/dm/messages/delete` | 🔒 | Bulk-delete your messages — `{ ids: [message_id] }`. |
 | `POST` | `/reports` | 🔒 | Report content (deduped). |
 
 ## Notifications & real-time
@@ -121,7 +138,7 @@ Legend: 🔓 anon-ok · 🔒 auth required · 🛡️ admin (role + 2FA).
 
 | Method | Path | | Description |
 |--------|------|--|-------------|
-| `POST` | `/media` | 🔒 | Upload an image (sniffed, EXIF-stripped, re-encoded; ≤6 MiB). |
+| `POST` | `/media` | 🔒 | Upload an **image** (sniffed, EXIF-stripped, re-encoded, downscaled ≤2048 px, ≤12 MiB) or a **video** (mp4/webm/mov, stored verbatim, range-served, ≤64 MiB). |
 | `DELETE` | `/media/{id}` | 🔒 | Delete an upload. |
 
 ## Invites — `/invites`

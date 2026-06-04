@@ -49,8 +49,9 @@ paylaşılan, küçük ama yüksek-sinyalli bir alan.** Az kişi, çok değer.
 
 **Hesap & kimlik**
 - 🔑 Şifresiz **magic-link** auth (15 dk TTL, tek kullanımlık, IP+email rate-limit)
+- 🌐 **Sosyal login** — Google · GitHub · Microsoft (OAuth2 authorization-code + PKCE + state; doğrulanmış e-postayla hesap eşleme/oluşturma, `oauth_identities`)
+- 🚪 **Açık kayıt** (davet gerekmez) — web + mobil
 - 🛡️ Admin için **TOTP 2FA** (RFC 6238, recovery kodları, XChaCha20-Poly1305 ile şifreli saklanan secret)
-- ✉️ Davet kodu ile kayıt (5/gün, 14 gün TTL)
 - 📤 Hesap verisi dışa aktarma (`/users/me/export`)
 
 **İçerik & sosyal**
@@ -66,8 +67,22 @@ paylaşılan, küçük ama yüksek-sinyalli bir alan.** Az kişi, çok değer.
 - 🔎 **Meilisearch** ile typo-toleranslı arama + hashtag sayfaları
 - 📈 Trending (hashtag + post, 1s/24s/7g pencereleri)
 - 🔔 SSE ile canlı bildirimler + akışta "yeni sinyal" balonu
-- 💬 Karşılıklı-takip DM'leri (yazıyor göstergesi)
+- 💬 Gerçek-zamanlı **direkt mesajlaşma** → aşağıda
 - ⌘ **Komut paleti** (⌘K): anında gezinme + kişi/post araması
+
+**Mesajlaşma (DM)**
+- 🔒 Yalnızca **karşılıklı takip** edenler arasında (anti-spam + gönderen başına rate-limit)
+- 🖼️ **Resim & video** ekleri (resim ≤12 MB decode+downscale, video ≤64 MB verbatim + range-serve; içerik-adresli, EXIF-temiz) — tam-ekran görüntüleyici / oynatıcı
+- 🐢 Mesaj **reaksiyonları** (emoji, kişi başı tek)
+- ✓✓ **Gönderildi / okundu** durumu (tek-tik / mavi çift-tik) + zaman
+- 🗑️ Mesaj sil · **toplu seç-sil** · **sohbet sil** (kişiye özel temizleme — karşı taraf etkilenmez, yeni mesajda geri gelir)
+- 🆕 **Yeni mesaj** (kullanıcı arama) · ✍️ "yazıyor" göstergesi (SSE) · 🔔 yeni-mesaj sesi
+
+**Mobil uygulama**
+- 📱 **React Native / Expo** (SDK 56, expo-router) — Android APK sideload (Play Store/ücret gerekmez)
+- 🔔 **Native push** (Expo → FCM/APNs, sesli) — bildirime basınca ilgili sohbete derin link
+- 🧵 Web ile parite: akış · profil · DM (medya/reaksiyon/durum/sil) · bildirimler — sekme **okunmamış rozetleri**
+- 🔗 Universal-link / assetlinks ile derin bağlantı
 
 **Federasyon & dağıtım**
 - 🌐 **ActivityPub** (RSA-SHA256 HTTP Signatures, WebFinger, NodeInfo)
@@ -90,7 +105,8 @@ paylaşılan, küçük ama yüksek-sinyalli bir alan.** Az kişi, çok değer.
 | **Cache / rate-limit** | Redis 7 |
 | **Arama** | Meilisearch v1.10 |
 | **Frontend** | [SolidJS](https://www.solidjs.com/) 1.9 · TypeScript 5.7 · Vite 6 · Tailwind 3.4 |
-| **Auth / kripto** | magic-link · TOTP (totp-rs) · XChaCha20-Poly1305 · Argon2 · RSA (HTTP Signatures) |
+| **Mobil** | React Native · [Expo](https://expo.dev/) SDK 56 · expo-router · TypeScript (Android APK / EAS Build) |
+| **Auth / kripto** | magic-link · **OAuth2** (Google/GitHub/Microsoft, PKCE) · TOTP (totp-rs) · XChaCha20-Poly1305 · Argon2 · RSA (HTTP Signatures) |
 | **İçerik** | pulldown-cmark (markdown) · ammonia (sanitize) · image (medya) |
 | **E-posta** | lettre (async SMTP) |
 | **Edge** | Cloudflare (WAF/DDoS) → nginx (TLS) → Axum (127.0.0.1) |
@@ -162,9 +178,11 @@ burncpu/
 │   ├── search/             # Meilisearch indeksleme + sorgu
 │   ├── net_safety.rs       # SSRF-güvenli HTTP client
 │   └── state.rs            # paylaşılan AppState + SSE broadcast
-├── migrations/             # sqlx SQL migration'ları (0001 → 0012)
+├── migrations/             # sqlx SQL migration'ları (0001 → 0023)
 ├── web/                    # SolidJS frontend
 │   └── src/{pages,components,...}
+├── mobile/                 # React Native / Expo (Android) — expo-router
+│   └── src/{app,components,...}
 ├── static/                 # PWA manifest, ikonlar, robots
 ├── .github/workflows/      # deploy.yml + security.yml
 ├── ARCHITECTURE.md · CONTRIBUTING.md · THREAT_MODEL.md · SECURITY.md
@@ -177,11 +195,13 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 
 | Alan | Örnek uçlar |
 |------|-------------|
-| **Auth** | `POST /auth/request` · `POST /auth/logout` · `POST /auth/2fa/*` |
+| **Auth** | `POST /auth/request` · `POST /auth/logout` · `POST /auth/2fa/*` · `GET /oauth/providers` · `GET /oauth/{p}/start` · `/oauth/{p}/callback` · `POST /oauth/exchange` |
 | **Posts** | `GET\|POST /posts` · `GET\|DELETE /posts/{id}` · `POST\|DELETE /posts/{id}/react` · `GET /posts/{id}/thread` · `POST /posts/{id}/repost` |
 | **Users** | `GET /users/{u}` · `PATCH /users/me` · `POST\|DELETE /users/{u}/follow` · `GET /users/lookup` · `GET /users/me/export` |
 | **Feed / keşif** | `GET /feed` · `GET /search?q=` · `GET /hashtags/{tag}` · `GET /trending/{posts,hashtags}` |
-| **Sosyal** | `GET\|POST /bookmarks` · `POST /dm/threads/{u}` · `POST /users/{u}/{block,mute}` · `POST /reports` |
+| **Sosyal** | `GET\|POST /bookmarks` · `POST /users/{u}/{block,mute}` · `POST /reports` |
+| **DM** | `GET /dm/threads` · `GET\|POST\|DELETE /dm/threads/{u}` · `POST /dm/threads/clear` · `POST\|DELETE /dm/messages/{id}/react` · `POST /dm/messages/delete` |
+| **Medya** | `POST /media` (resim+video) · `GET /media` · `DELETE /media/{id}` |
 | **Gerçek-zamanlı** | `GET /notifications/stream` (SSE) · `GET /notifications` |
 | **Geliştirici** | `GET\|POST /tokens` · `GET\|POST /webhooks` · `POST /push/subscribe` |
 | **Federasyon** | `/.well-known/webfinger` · `/nodeinfo/2.1` · `/ap/*` · `/rss/*` |
@@ -207,11 +227,12 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - Magic-link auth + audit + session hijack flag + **TOTP 2FA**
 - Post CRUD (markdown + XSS sanitize), repost, threadli yanıtlar, çöp kutusu
 - Tepkiler, profiller, follow grafiği, kişiye özel + global akış
-- Davet-only kayıt, admin moderasyon paneli (post/user/audit/session/mod_log)
+- **Açık kayıt + sosyal login** (Google/GitHub/Microsoft, OAuth2+PKCE), admin moderasyon paneli (post/user/audit/session/mod_log)
 - Meilisearch arama + hashtag sayfaları + trending
 - **SolidJS frontend** (PWA kabuğu, açık/koyu Ember teması, i18n TR/EN)
 - Bildirimler + **SSE canlı akış** + "yeni sinyal" balonu
-- **DM'ler** (karşılıklı-takip, yazıyor göstergesi)
+- **Tam DM sistemi** — karşılıklı-takip · resim+video ekleri · reaksiyon · gönderildi/okundu · mesaj-sil/toplu-sil/sohbet-sil · yeni-mesaj · yazıyor · ses
+- **Mobil uygulama** (React Native/Expo, Android) — native push (FCM/APNs), web ile parite
 - Link önizlemeleri (SSRF-korumalı), görsel yükleme (EXIF strip)
 - Komut paleti (⌘K), avatar cropper, taslak kaydetme
 - RSS/Atom, **ActivityPub** federasyon (signatures/webfinger/nodeinfo)
@@ -221,7 +242,8 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 🔜 **Sırada**
 - Spam-resistant filtering engine (model-agnostik, çok katmanlı)
 - Federation kültürü: relay/keşif politikaları
-- Mobil uygulama kabuğu derinleştirme
+- Mobil: in-app video oynatıcı + foreground mesaj sesi
+- Apple ile giriş + iOS dağıtımı
 
 ## Katkı
 

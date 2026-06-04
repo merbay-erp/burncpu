@@ -7,6 +7,20 @@ ships continuously to [burncpu.com](https://burncpu.com) from `main`.
 ## [Unreleased]
 
 ### Added
+- **Social login + open signup** — sign in with Google, GitHub, or Microsoft
+  (OAuth2 authorization-code + PKCE + state; matched/created by verified email).
+  Invite-only registration removed — signup is open on web and mobile.
+- **Direct messaging** — a full DM system over the mutual-follow gate: image &
+  video attachments (fullscreen viewer / player), per-message emoji reactions,
+  sent/read status ticks + timestamps, delete message, bulk-select delete,
+  per-user delete-conversation, new-message compose (user search), typing
+  indicator, and a new-message sound.
+- **Mobile app** — React Native / Expo (Android, sideloaded APK): native push
+  (Expo → FCM/APNs, with sound) that deep-links to the target screen, web-parity
+  timeline / profile / DM, and unread badges on the Notifications & Messages tabs.
+- **Video uploads** — `/media` accepts mp4/webm/mov up to 64 MiB (stored
+  verbatim, range-served); the request-body limit is lifted per route while the
+  global cap stays small.
 - **⌘K command palette** — instant navigation, quick actions (new signal,
   toggle theme), and live people/post search; reachable via `⌘K`, the search
   bar, and the mobile search tab.
@@ -22,6 +36,11 @@ ships continuously to [burncpu.com](https://burncpu.com) from `main`.
   toolbar + draft autosave.
 
 ### Changed
+- "post" → **"sinyal"** wording across the UI (web + mobile).
+- Read receipts shown as single / double ticks — read = sky-blue double check
+  (WhatsApp-style) — instead of flat status text.
+- `/media` now **downscales** oversized images (≤2048 px) and raises limits to
+  12 MiB images / 64 MiB video.
 - New **Ember** palette (warm charcoal / cream) + Geist Mono across the app.
 - Single brand mark with animated "burn" wordmark; redesigned logo (flame).
 - Timeline tabs (Bana Özel / Global) replace the duplicate sidebar entries.
@@ -29,6 +48,13 @@ ships continuously to [burncpu.com](https://burncpu.com) from `main`.
   `<Post>` / Tailwind design system.
 
 ### Fixed
+- Avatar cropper showed an empty circle — the CSP blocked the `blob:` preview
+  image; switched to a `data:` URL (already allowed by the policy).
+- Mobile writes (post / react / follow / avatar) failed the CSRF guard — native
+  fetch now sends an `Origin` header.
+- Replies appeared as standalone signals in the home & global feeds.
+- DM: thread back button was hidden on desktop; the unread badge stayed stale
+  while a thread was open; the reaction picker offered emoji the server rejected.
 - Emoji picker: panel was clipped by the toolbar's `overflow-x-auto` and the
   search autofocus scrolled the page. Now renders in a Portal with fixed
   positioning + `preventScroll`.

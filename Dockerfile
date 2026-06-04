@@ -33,8 +33,10 @@ RUN cargo build --release && \
 # ── Stage 2: Runtime ────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
+# ffmpeg (+ffprobe) powers the background video transcode worker (`transcode`),
+# normalising uploaded clips to H.264/AAC MP4 and extracting poster frames.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 curl \
+    ca-certificates libssl3 curl ffmpeg \
     && rm -rf /var/lib/apt/lists/* && \
     useradd -m -u 1001 -s /bin/false burncpu
 

@@ -33,6 +33,12 @@ pub struct Config {
     pub spam_threshold: i32,
     /// Lowercased phrases that strongly mark a post as spam (`SPAM_DENYLIST`, csv).
     pub spam_denylist: Vec<String>,
+    /// Video transcode worker on/off (`VIDEO_TRANSCODE_ENABLED`, default true).
+    /// When false, uploaded videos are kept verbatim and marked `ready` (the
+    /// pre-pipeline behaviour) — a safety valve for hosts without ffmpeg.
+    pub video_transcode_enabled: bool,
+    /// Fail source videos longer than this (`TRANSCODE_MAX_DURATION_SECS`, default 300).
+    pub transcode_max_duration_secs: i64,
 }
 
 /// Static OAuth2 client credentials for one provider.
@@ -77,6 +83,13 @@ impl Config {
                 .map(|s| s.trim().to_lowercase())
                 .filter(|s| !s.is_empty())
                 .collect(),
+            video_transcode_enabled: env::var("VIDEO_TRANSCODE_ENABLED")
+                .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+                .unwrap_or(true),
+            transcode_max_duration_secs: env::var("TRANSCODE_MAX_DURATION_SECS")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(300),
             media_dir: env::var("MEDIA_DIR").unwrap_or_else(|_| "/data/media".into()),
             federation_enabled: env::var("FEDERATION_ENABLED")
                 .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))

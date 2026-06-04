@@ -22,7 +22,7 @@
 use crate::{errors::AppError, middleware::session::CurrentUser, state::AppState};
 use axum::{
     Json, Router,
-    extract::{Multipart, Path, State},
+    extract::{DefaultBodyLimit, Multipart, Path, State},
     http::StatusCode,
     routing::{delete, post},
 };
@@ -37,6 +37,10 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", post(upload).get(list_mine))
         .route("/{id}", delete(delete_mine))
+        // /media carries file uploads — override the app's small global body
+        // limit so videos (and large images) aren't rejected at the multipart
+        // layer before our own size checks run.
+        .layer(DefaultBodyLimit::max(MAX_VIDEO_BYTES + 1024 * 1024))
 }
 
 const MAX_BYTES: usize = 12 * 1024 * 1024; // 12 MiB — modern phone photos are often 5–10 MB

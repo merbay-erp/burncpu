@@ -352,6 +352,9 @@ export default function Layout(props: { children?: JSX.Element }) {
           <Show when={me()} fallback={<BottomLink href="/login" icon="login" active={is('/login')} />}>
             {(u) => <BottomLink href={`/u/${u().username}`} icon="person" active={is(`/u/${u().username}`)} />}
           </Show>
+          <Show when={me()}>
+            <BottomLink href="/settings" icon="settings" active={is('/settings')} />
+          </Show>
         </div>
       </footer>
 

@@ -393,7 +393,14 @@ export default function DMThread() {
                                     </div>
                                   }
                                 >
-                                  <video src={m.media_url!} poster={m.media_poster_url ?? undefined} controls preload="metadata" class="rounded-lg max-h-72 w-auto mb-1" />
+                                  <video
+                                    src={m.media_url!}
+                                    poster={m.media_poster_url ?? undefined}
+                                    controls
+                                    playsinline
+                                    preload="metadata"
+                                    class="rounded-lg mb-1 bg-black w-[240px] max-w-full max-h-72 object-contain"
+                                  />
                                 </Show>
                               </Show>
                             </Show>

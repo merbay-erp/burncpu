@@ -251,7 +251,7 @@ pub async fn send_to_user(
     let url = if target_kind == "post" {
         format!("/posts/{target_id}")
     } else if target_kind == "thread" {
-        "/dm".to_string()
+        format!("/dm/{who}")
     } else {
         "/notifications".to_string()
     };
@@ -407,7 +407,7 @@ pub async fn send_to_device_tokens(
     let url = if target_kind == "post" {
         format!("/posts/{target_id}")
     } else if target_kind == "thread" {
-        "/dm".to_string()
+        format!("/dm/{who}")
     } else {
         "/notifications".to_string()
     };

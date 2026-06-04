@@ -34,7 +34,8 @@ use uuid::Uuid;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/threads", get(list_threads))
-        .route("/threads/{username}", get(thread).post(send))
+        .route("/threads/clear", post(bulk_clear))
+        .route("/threads/{username}", get(thread).post(send).delete(clear_thread))
         .route("/threads/{username}/read", patch(mark_read))
         .route("/threads/{username}/typing", post(typing))
         .route("/messages/delete", post(bulk_delete))
@@ -75,13 +76,10 @@ async fn list_threads(
     let rows: Vec<ThreadSummary> = sqlx::query_as(
         r#"
         WITH my AS (
-            SELECT id, a_id, b_id, last_message_at
+            SELECT id, a_id, b_id, last_message_at,
+                   COALESCE(CASE WHEN a_id = $1 THEN a_cleared_at ELSE b_cleared_at END, '-infinity'::timestamptz) AS cleared
             FROM dm_threads
             WHERE (a_id = $1 OR b_id = $1)
-              AND EXISTS (
-                  SELECT 1 FROM dm_messages m
-                  WHERE m.thread_id = dm_threads.id AND m.deleted_at IS NULL
-              )
         )
         SELECT
             my.id,
@@ -89,13 +87,17 @@ async fn list_threads(
             u.username AS other_username,
             u.display_name AS other_display_name,
             u.avatar_url AS other_avatar_url,
-            (SELECT body FROM dm_messages m WHERE m.thread_id = my.id AND m.deleted_at IS NULL ORDER BY m.created_at DESC LIMIT 1) AS last_body,
-            (SELECT sender_id FROM dm_messages m WHERE m.thread_id = my.id AND m.deleted_at IS NULL ORDER BY m.created_at DESC LIMIT 1) AS last_sender_id,
+            (SELECT body FROM dm_messages m WHERE m.thread_id = my.id AND m.deleted_at IS NULL AND m.created_at > my.cleared ORDER BY m.created_at DESC LIMIT 1) AS last_body,
+            (SELECT sender_id FROM dm_messages m WHERE m.thread_id = my.id AND m.deleted_at IS NULL AND m.created_at > my.cleared ORDER BY m.created_at DESC LIMIT 1) AS last_sender_id,
             my.last_message_at,
-            (SELECT COUNT(*)::bigint FROM dm_messages m WHERE m.thread_id = my.id AND m.sender_id <> $1 AND m.read_at IS NULL AND m.deleted_at IS NULL) AS unread_count
+            (SELECT COUNT(*)::bigint FROM dm_messages m WHERE m.thread_id = my.id AND m.sender_id <> $1 AND m.read_at IS NULL AND m.deleted_at IS NULL AND m.created_at > my.cleared) AS unread_count
         FROM my
         JOIN users u ON u.id = (CASE WHEN my.a_id = $1 THEN my.b_id ELSE my.a_id END)
         WHERE u.role <> 'suspended'
+          AND EXISTS (
+              SELECT 1 FROM dm_messages m
+              WHERE m.thread_id = my.id AND m.deleted_at IS NULL AND m.created_at > my.cleared
+          )
           AND NOT EXISTS (
               SELECT 1 FROM user_blocks b
               WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
@@ -197,12 +199,16 @@ async fn thread(
     let (is_following, is_followed_by) = follow_state.unwrap_or((false, false));
     let mutual = is_following && is_followed_by;
 
-    let thread_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM dm_threads WHERE a_id = $1 AND b_id = $2")
-            .bind(a)
-            .bind(b)
-            .fetch_optional(&state.pg)
-            .await?;
+    let thread_row: Option<(Uuid, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT id, CASE WHEN a_id = $3 THEN a_cleared_at ELSE b_cleared_at END FROM dm_threads WHERE a_id = $1 AND b_id = $2",
+    )
+    .bind(a)
+    .bind(b)
+    .bind(user.user_id)
+    .fetch_optional(&state.pg)
+    .await?;
+    let thread_id = thread_row.as_ref().map(|r| r.0);
+    let cleared: Option<DateTime<Utc>> = thread_row.and_then(|r| r.1);
 
     let limit = q.limit.clamp(1, 200);
     let before = q.before.unwrap_or_else(Utc::now);
@@ -212,6 +218,7 @@ async fn thread(
             SELECT id, sender_id, body, body_html, media_url, media_kind, read_at, created_at
             FROM dm_messages
             WHERE thread_id = $1 AND deleted_at IS NULL AND created_at < $2
+              AND created_at > COALESCE($4, '-infinity'::timestamptz)
             ORDER BY created_at DESC
             LIMIT $3
             "#,
@@ -219,6 +226,7 @@ async fn thread(
         .bind(thread_id)
         .bind(before)
         .bind(limit)
+        .bind(cleared)
         .fetch_all(&state.pg)
         .await?
     } else {
@@ -613,6 +621,53 @@ async fn unreact_message(
 ) -> Result<StatusCode, AppError> {
     sqlx::query("DELETE FROM dm_reactions WHERE message_id = $1 AND user_id = $2")
         .bind(id)
+        .bind(user.user_id)
+        .execute(&state.pg)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ─── DELETE /dm/threads/{username} — "delete conversation" (per-user) ──
+
+async fn clear_thread(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(username): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let other = lookup_user(&state, &username).await?;
+    if other.0 == user.user_id {
+        return Err(AppError::BadRequest("cannot clear self".into()));
+    }
+    let (a, b) = canonical_pair(user.user_id, other.0);
+    // `col` is one of two fixed identifiers, never user input — safe to format in.
+    let col = if user.user_id == a { "a_cleared_at" } else { "b_cleared_at" };
+    let sql = format!("UPDATE dm_threads SET {col} = NOW() WHERE a_id = $1 AND b_id = $2");
+    sqlx::query(&sql).bind(a).bind(b).execute(&state.pg).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ─── POST /dm/threads/clear — bulk "delete conversation" by thread id ──
+
+#[derive(Deserialize)]
+pub struct BulkClearBody {
+    ids: Vec<Uuid>,
+}
+
+async fn bulk_clear(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Json(input): Json<BulkClearBody>,
+) -> Result<StatusCode, AppError> {
+    if input.ids.is_empty() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    sqlx::query("UPDATE dm_threads SET a_cleared_at = NOW() WHERE id = ANY($1) AND a_id = $2")
+        .bind(&input.ids)
+        .bind(user.user_id)
+        .execute(&state.pg)
+        .await?;
+    sqlx::query("UPDATE dm_threads SET b_cleared_at = NOW() WHERE id = ANY($1) AND b_id = $2")
+        .bind(&input.ids)
         .bind(user.user_id)
         .execute(&state.pg)
         .await?;

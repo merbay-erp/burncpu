@@ -1,8 +1,10 @@
+import { useEffect } from 'react';
 import type { ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, useTheme } from '@/theme';
 import { t, useLocale } from '@/i18n';
+import { useUnread, startUnreadPolling } from '@/unread';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -15,6 +17,8 @@ function tabIcon(active: IoniconName, inactive: IoniconName) {
 export default function TabsLayout() {
   const { colors } = useTheme();
   useLocale(); // re-render labels on locale change
+  const { notif, dm } = useUnread();
+  useEffect(() => startUnreadPolling(), []);
 
   return (
     <Tabs
@@ -44,11 +48,12 @@ export default function TabsLayout() {
         options={{
           title: t('nav.notifications'),
           tabBarIcon: tabIcon('notifications', 'notifications-outline'),
+          tabBarBadge: notif > 0 ? notif : undefined,
         }}
       />
       <Tabs.Screen
         name="dms"
-        options={{ title: t('nav.dms'), tabBarIcon: tabIcon('chatbubble', 'chatbubble-outline') }}
+        options={{ title: t('nav.dms'), tabBarIcon: tabIcon('chatbubble', 'chatbubble-outline'), tabBarBadge: dm > 0 ? dm : undefined }}
       />
       <Tabs.Screen
         name="profile"

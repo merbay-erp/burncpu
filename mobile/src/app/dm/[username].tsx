@@ -19,6 +19,7 @@ import { openEventStream } from '@/sse';
 import { useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
+import { refreshUnread } from '@/unread';
 
 interface DmMessage {
   id: string;
@@ -56,7 +57,7 @@ export default function DmThread() {
     try {
       const data = await api.get<ThreadView>(`/dm/threads/${username}`);
       setMessages(data.messages ?? []);
-      api.patch(`/dm/threads/${username}/read`).catch(() => {});
+      api.patch(`/dm/threads/${username}/read`).then(() => refreshUnread()).catch(() => {});
     } catch {
       /* ignore */
     } finally {
@@ -115,8 +116,8 @@ export default function DmThread() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}
       style={s.screen}
     >
       <View style={[s.header, { paddingTop: insets.top + 8 }]}>

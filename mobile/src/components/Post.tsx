@@ -253,7 +253,7 @@ export default function Post({ post, pinned, onPinChange, detail }: { post: Post
         visible={reactOpen}
         onClose={() => setReactOpen(false)}
         title={t('post.react')}
-        options={['🐢', '❤️', '😂', '🔥', '👀', '🎉'].map((e) => ({ label: e, onPress: () => reactWith(e) }))}
+        options={['🐢', '🔥', '🤝', '🙏', '😂'].map((e) => ({ label: e, onPress: () => reactWith(e) }))}
       />
     </Pressable>
   );

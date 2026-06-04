@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { View, Text, Pressable, FlatList, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import ScreenHeader from '@/components/ScreenHeader';
@@ -11,6 +11,7 @@ import { useMe } from '@/auth';
 import { fonts, useTheme, type Palette } from '@/theme';
 import { relTime } from '@/util';
 import { t, useLocale } from '@/i18n';
+import { refreshUnread } from '@/unread';
 
 type Tab = 'all' | 'unread';
 
@@ -39,10 +40,18 @@ export default function Notifications() {
     }
   }, []);
 
-  useEffect(() => {
-    if (me) load();
-    else setLoading(false);
-  }, [me, load]);
+  // Re-fetch whenever the tab regains focus (not only on first mount), so new
+  // notifications show up without a manual pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      if (me) {
+        load();
+        refreshUnread();
+      } else {
+        setLoading(false);
+      }
+    }, [me, load]),
+  );
 
   const unreadCount = useMemo(() => items.filter((n) => !n.read_at).length, [items]);
   const shown = useMemo(() => (tab === 'unread' ? items.filter((n) => !n.read_at) : items), [items, tab]);
@@ -55,6 +64,7 @@ export default function Notifications() {
     setItems((prev) => prev.map((n) => (n.read_at ? n : { ...n, read_at: now })));
     try {
       await api.patch('/notifications/read');
+      refreshUnread();
     } catch {
       load(); // resync on failure
     }

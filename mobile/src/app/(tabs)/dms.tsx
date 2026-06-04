@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { View, Text, Pressable, FlatList, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import ScreenHeader from '@/components/ScreenHeader';
 import LoginGate from '@/components/LoginGate';
@@ -10,6 +10,7 @@ import { useMe } from '@/auth';
 import { fonts, useTheme, type Palette } from '@/theme';
 import { relTime } from '@/util';
 import { t, useLocale } from '@/i18n';
+import { refreshUnread } from '@/unread';
 
 // Matches the server's ThreadSummary (flat fields, not a nested `other`).
 interface DmThread {
@@ -46,10 +47,16 @@ export default function DMs() {
     }
   }, []);
 
-  useEffect(() => {
-    if (me) load();
-    else setLoading(false);
-  }, [me, load]);
+  useFocusEffect(
+    useCallback(() => {
+      if (me) {
+        load();
+        refreshUnread();
+      } else {
+        setLoading(false);
+      }
+    }, [me, load]),
+  );
 
   if (!me) return <LoginGate />;
 

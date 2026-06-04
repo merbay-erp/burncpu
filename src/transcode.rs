@@ -173,6 +173,9 @@ async fn process(
             "-c:a", "aac", "-b:a", "128k",
             "-movflags", "+faststart",
             "-max_muxing_queue_size", "1024",
+            // We write to a `.tmp` then rename; ffmpeg can't infer the container
+            // from the `.tmp` extension, so name the muxer explicitly.
+            "-f", "mp4",
             path_str(&tmp_out)?,
         ],
         timeout,
@@ -198,6 +201,8 @@ async fn process(
             "-i", path_str(&out_path)?,
             "-frames:v", "1", "-an",
             "-q:v", "3",
+            // Same reason as the transcode: force the JPEG muxer for the `.tmp`.
+            "-f", "mjpeg",
             path_str(&tmp_poster)?,
         ],
         Duration::from_secs(60),

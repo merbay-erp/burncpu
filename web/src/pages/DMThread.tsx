@@ -261,7 +261,7 @@ export default function DMThread() {
             <div class="flex flex-col min-h-[calc(100vh-8rem)]">
               {/* Header */}
               <header class="sticky top-16 z-10 py-3 mb-2 flex items-center gap-3 bg-background/95 backdrop-blur-md border-b border-outline-variant">
-                <A href="/dm" class="lg:hidden p-1.5 -ml-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors">
+                <A href="/dm" class="p-1.5 -ml-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors" title={t('postdetail.back')}>
                   <span class="material-symbols-outlined">arrow_back</span>
                 </A>
                 <A href={`/u/${th().other_username}`} class="group flex items-center gap-3 min-w-0 flex-1">

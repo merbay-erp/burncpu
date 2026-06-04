@@ -45,6 +45,7 @@ const MAX_REDIRECTS: usize = 4;
 const CACHE_TTL_OK: u64 = 7 * 24 * 3600; // 7 days — a real preview
 const CACHE_TTL_NULL: u64 = 6 * 3600; // 6 hours — fetched cleanly, page simply has no preview
 const CACHE_TTL_FAIL: u64 = 5 * 60; // 5 min — a *fetch failure* (timeout/blocked/5xx); retry soon
+const MAX_FETCH_RETRIES: usize = 2; // a flapping CDN/origin (5xx/timeout) often answers on retry
 const RL_WINDOW_SECS: i64 = 60;
 const RL_MAX_USER: i64 = 40; // real fetches per logged-in user per minute (cache hits are free)
 const RL_MAX_ANON: i64 = 15; // stricter per-IP cap for anonymous timeline viewers
@@ -156,11 +157,30 @@ async fn resolve_inner(raw: &str) -> anyhow::Result<Option<LinkPreview>> {
     loop {
         // Re-validate + IP-pin on every hop: a 30x can point anywhere.
         let (client, url) = net_safety::safe_client_for(&current, UA, FETCH_TIMEOUT).await?;
-        let resp = client
-            .get(url.clone())
-            .header(ACCEPT, "text/html,application/xhtml+xml,*/*;q=0.8")
-            .send()
-            .await?;
+        // A CDN-fronted origin can flap 5xx/timeout on a single request (seen with
+        // sites that 504 one hit and 200 the next), which would blank the preview.
+        // Retry the send on a server error or transport failure before giving up;
+        // redirects + 4xx are handled below and never retried (they aren't transient).
+        let mut tries = 0usize;
+        let resp = loop {
+            match client
+                .get(url.clone())
+                .header(ACCEPT, "text/html,application/xhtml+xml,*/*;q=0.8")
+                .send()
+                .await
+            {
+                Ok(r) if r.status().is_server_error() && tries < MAX_FETCH_RETRIES => {
+                    tries += 1;
+                    tokio::time::sleep(Duration::from_millis(350)).await;
+                }
+                Err(_) if tries < MAX_FETCH_RETRIES => {
+                    tries += 1;
+                    tokio::time::sleep(Duration::from_millis(350)).await;
+                }
+                Ok(r) => break r,
+                Err(e) => return Err(e.into()),
+            }
+        };
 
         let status = resp.status();
         if status.is_redirection() {

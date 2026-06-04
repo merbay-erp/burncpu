@@ -60,11 +60,11 @@ export default function RightRail() {
               </A>
               <A href={`/u/${p().username}/followers`} class="text-center group">
                 <div class="font-bold text-on-background group-hover:text-primary transition-colors">{p().counts.followers}</div>
-                <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">{t('rail.nodes')}</div>
+                <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">{t('rail.followers')}</div>
               </A>
               <A href={`/u/${p().username}/following`} class="text-center group">
                 <div class="font-bold text-on-background group-hover:text-primary transition-colors">{p().counts.following}</div>
-                <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">{t('rail.tracks')}</div>
+                <div class="text-[10px] text-on-surface-variant uppercase tracking-widest font-mono">{t('rail.following')}</div>
               </A>
             </div>
             <A

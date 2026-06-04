@@ -135,8 +135,8 @@ const dict: Record<Locale, Record<string, string>> = {
     'admin.col.last_seen': 'Son görülme',
     // ── right rail ──
     'rail.signals': 'Sinyaller',
-    'rail.nodes': 'Düğümler',
-    'rail.tracks': 'İzler',
+    'rail.followers': 'Takipçiler',
+    'rail.following': 'Takip Edilenler',
     'rail.edit_profile': 'Profili Düzenle',
     'rail.trending': 'Yükselen Sinyaller',
     'rail.scanning': 'taranıyor…',
@@ -591,8 +591,8 @@ const dict: Record<Locale, Record<string, string>> = {
     'admin.col.last_seen': 'Last seen',
     // ── right rail ──
     'rail.signals': 'Signals',
-    'rail.nodes': 'Nodes',
-    'rail.tracks': 'Tracks',
+    'rail.followers': 'Followers',
+    'rail.following': 'Following',
     'rail.edit_profile': 'Edit Profile',
     'rail.trending': 'Trending Signals',
     'rail.scanning': 'scanning…',

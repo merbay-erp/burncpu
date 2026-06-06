@@ -106,3 +106,7 @@ render(
   ),
   root,
 );
+
+// Drop the static app-shell splash (index.html) now that the app has mounted.
+// Next frame, so the app's first paint lands before the overlay is pulled.
+requestAnimationFrame(() => document.getElementById('boot-splash')?.remove());

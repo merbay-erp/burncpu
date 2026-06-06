@@ -57,9 +57,30 @@
     <meta name="twitter:title" content="burncpu — 1 VPS yeter" />
     <meta name="twitter:description" content="Built for humans who still think before posting." />
     <meta name="twitter:image" content="https://burncpu.com/og-card.svg" />
+
+    <!-- App-shell splash. burncpu is a client-rendered SPA, so #root is empty
+         until the JS bundle boots, fetches, and renders — on a slow/distant
+         connection that's several seconds of blank screen (it tanks FCP/Speed
+         Index). This static markup is styled by an inline <style> (no external
+         CSS, no JS), so it paints at ~TTFB and gives an immediate, on-brand first
+         paint. It's position:fixed, so it adds zero layout shift; main.tsx removes
+         it the moment the app mounts, and the 12s auto-hide is a failsafe in case
+         the bundle never boots. Inline styles are CSP-allowed (style-src
+         'unsafe-inline'). -->
+    <style>
+      #boot-splash{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;
+        align-items:center;justify-content:center;gap:16px;background:#171311;color:#f0e9e3;
+        font:700 22px/1 system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:-.02em;
+        animation:bs-hide 0s linear 12s forwards}
+      html.light #boot-splash{background:#faf8f6;color:#241d18}
+      #boot-splash i{width:22px;height:22px;border-radius:50%;border:2.5px solid currentColor;
+        border-top-color:transparent;opacity:.4;animation:bs-rot .8s linear infinite}
+      @keyframes bs-rot{to{transform:rotate(360deg)}}
+      @keyframes bs-hide{to{opacity:0;visibility:hidden;pointer-events:none}}
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="boot-splash">🔥&nbsp;burncpu<i></i></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

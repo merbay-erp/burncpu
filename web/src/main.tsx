@@ -13,6 +13,20 @@ for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="preload
   link.rel = 'stylesheet';
 }
 
+// Warm the public timeline fetch the instant this entry module runs — *before*
+// the route chunk loads and the app mounts — so the data is already in flight
+// (and usually back) by the time Home asks for it. That takes the /posts round
+// trip off the sequential path to the first content paint (the LCP). Only on the
+// home route; Home consumes it once and falls back to a normal fetch on any miss.
+if (location.pathname === '/') {
+  (window as unknown as { __homePosts__?: Promise<unknown> }).__homePosts__ = fetch(
+    '/api/v1/posts?limit=12',
+    { credentials: 'include', headers: { Accept: 'application/json' } },
+  )
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+}
+
 const Home = lazy(() => import('./pages/Home'));
 const Feed = lazy(() => import('./pages/Feed'));
 const Login = lazy(() => import('./pages/Login'));

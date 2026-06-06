@@ -21,10 +21,17 @@ export default function Home() {
     if (loading() || done()) return;
     setLoading(true);
     try {
-      const qs = cursor()
-        ? `?limit=30&before=${encodeURIComponent(cursor()!)}${cursorId() ? `&before_id=${encodeURIComponent(cursorId()!)}` : ''}`
-        : '?limit=12';
-      const page = await api.get<Timeline>(`/posts${qs}`);
+      // The entry module (main.tsx) may have pre-fetched the first page before
+      // this route chunk even loaded — use it once if so, else fetch normally.
+      const w = window as unknown as { __homePosts__?: Promise<Timeline | null> };
+      let page = !cursor() && w.__homePosts__ ? await w.__homePosts__.catch(() => null) : null;
+      if (!cursor()) w.__homePosts__ = undefined;
+      if (!page) {
+        const qs = cursor()
+          ? `?limit=30&before=${encodeURIComponent(cursor()!)}${cursorId() ? `&before_id=${encodeURIComponent(cursorId()!)}` : ''}`
+          : '?limit=12';
+        page = await api.get<Timeline>(`/posts${qs}`);
+      }
       setPosts((cur) => [...cur, ...page.posts]);
       if (page.next_before && page.posts.length > 0) {
         setCursor(page.next_before);

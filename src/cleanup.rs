@@ -15,6 +15,10 @@
 //   - invites (unredeemed) : 30 days after expiry
 //
 // All bounds documented as COMMENT ON TABLE in the schema.
+//
+// Filesystem (best-effort, after the DB pass):
+//   - media_dir/*   : files no `media` row references, 24h age floor (sweep_orphan_media)
+//   - media_dir/c/* : optimized link-preview covers unreferenced >10d (sweep_cover_cache)
 
 use sqlx::PgPool;
 use std::time::Duration;
@@ -124,6 +128,7 @@ async fn run_once(pg: &PgPool, media_dir: &str) {
     }
 
     sweep_orphan_media(pg, media_dir).await;
+    sweep_cover_cache(media_dir).await;
 
     tracing::debug!(
         total = total_removed,
@@ -172,5 +177,89 @@ async fn sweep_orphan_media(pg: &PgPool, media_dir: &str) {
     }
     if removed > 0 {
         tracing::info!(removed, "cleanup swept orphan media files");
+    }
+}
+
+/// Evict optimized link-preview covers under `media_dir/c/` once they fall out of
+/// use. `cover_cache::optimize` bumps a cover's mtime every time its preview
+/// re-resolves, and a preview's redis entry lives at most `CACHE_TTL_OK` (7 days,
+/// in `routes::link_preview`). So a cover whose mtime is older than 10 days has had
+/// no live preview pointing at it for days — its redis entry already expired — and
+/// deleting it cannot break a still-cached card. (In the rare race where a
+/// just-evicted cover is viewed again, it simply regenerates on the next resolve.)
+/// The `c/` subdir is handled here because `sweep_orphan_media` deliberately skips
+/// subdirectories. Best-effort: errors are logged or ignored and the pass continues.
+async fn sweep_cover_cache(media_dir: &str) {
+    // > CACHE_TTL_OK (7d) plus margin for the hourly sweep cadence, clock skew, and
+    // the gap between the mtime touch and the redis re-set.
+    const MAX_AGE: Duration = Duration::from_secs(10 * 24 * 3600);
+
+    let dir = std::path::Path::new(media_dir).join("c");
+    let mut entries = match tokio::fs::read_dir(&dir).await {
+        Ok(e) => e,
+        Err(_) => return, // c/ may not exist yet — nothing to sweep
+    };
+    let mut removed = 0u64;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let Ok(meta) = entry.metadata().await else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let stale = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .map(|age| age > MAX_AGE)
+            .unwrap_or(false); // unknown/future mtime → keep (never evict on uncertainty)
+        if stale && tokio::fs::remove_file(entry.path()).await.is_ok() {
+            removed += 1;
+        }
+    }
+    if removed > 0 {
+        tracing::info!(removed, "cleanup evicted stale cover-cache files");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn sweep_cover_cache_evicts_only_stale() {
+        let base = std::env::temp_dir().join(format!("burncpu_covsweep_{}", std::process::id()));
+        let c = base.join("c");
+        std::fs::create_dir_all(&c).unwrap();
+
+        let stale = c.join("old.jpg");
+        let fresh = c.join("new.jpg");
+        std::fs::write(&stale, b"x").unwrap();
+        std::fs::write(&fresh, b"y").unwrap();
+        // Age the stale cover past the 10-day window; leave the fresh one at ~now.
+        let old = std::time::SystemTime::now() - Duration::from_secs(11 * 24 * 3600);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+
+        sweep_cover_cache(base.to_str().unwrap()).await;
+
+        assert!(!stale.exists(), "a cover older than the window must be evicted");
+        assert!(fresh.exists(), "a fresh cover must be kept");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[tokio::test]
+    async fn sweep_cover_cache_missing_dir_is_noop() {
+        // No c/ subdir present → must not panic, just return.
+        let base =
+            std::env::temp_dir().join(format!("burncpu_covsweep_missing_{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        sweep_cover_cache(base.to_str().unwrap()).await;
+        std::fs::remove_dir_all(&base).ok();
     }
 }

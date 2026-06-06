@@ -44,6 +44,11 @@ pub async fn optimize(state: &AppState, image_url: &str) -> Option<String> {
     let url_path = format!("/media/c/{filename}");
 
     if tokio::fs::try_exists(&final_path).await.unwrap_or(false) {
+        // Still referenced: a preview just re-resolved to this cover, so bump its
+        // mtime. The age-based sweep (`cleanup::sweep_cover_cache`) keeps anything
+        // touched inside the preview-TTL window and only evicts covers no live
+        // preview points at anymore — see that sweep for the safety invariant.
+        touch_mtime(final_path).await;
         return Some(url_path);
     }
 
@@ -56,10 +61,10 @@ pub async fn optimize(state: &AppState, image_url: &str) -> Option<String> {
         return None;
     }
     // Only bother with things that claim to be images (cheap early filter).
-    if let Some(ct) = resp.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok()) {
-        if !ct.to_ascii_lowercase().starts_with("image/") {
-            return None;
-        }
+    if let Some(ct) = resp.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok())
+        && !ct.to_ascii_lowercase().starts_with("image/")
+    {
+        return None;
     }
     let raw = read_capped(resp, MAX_BYTES).await?;
 
@@ -77,6 +82,23 @@ pub async fn optimize(state: &AppState, image_url: &str) -> Option<String> {
     }
     tracing::debug!(src = %image_url, bytes = jpeg.len(), "cached optimized cover");
     Some(url_path)
+}
+
+/// Best-effort bump of a cached cover's mtime to "now" so the age-based sweep in
+/// `cleanup::sweep_cover_cache` treats it as recently used. Called on the cache-hit
+/// path (the preview re-resolved, so the cover is still referenced). Any failure is
+/// harmless — at worst the cover is evicted a little early and regenerates on the
+/// next view — so every error is swallowed. The blocking metadata write is moved
+/// off the async workers. Opened write-only (no truncation) to guarantee the
+/// `futimens`/`set_modified` permission for the file's owner.
+async fn touch_mtime(path: std::path::PathBuf) {
+    let _ = tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)?
+            .set_modified(std::time::SystemTime::now())
+    })
+    .await;
 }
 
 /// Decode (bounded), downscale to `CARD_WIDTH`, and re-encode as baseline JPEG.
@@ -151,5 +173,28 @@ mod tests {
     #[test]
     fn transcode_rejects_garbage() {
         assert!(transcode_to_jpeg(b"not an image at all").is_none());
+    }
+
+    #[tokio::test]
+    async fn touch_mtime_refreshes_to_now() {
+        // Age a file's mtime well past the sweep threshold, then touch it and
+        // confirm the mtime jumps back to ~now (so the sweep keeps it).
+        let dir = std::env::temp_dir().join(format!("burncpu_touch_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cover.jpg");
+        std::fs::write(&path, b"jpeg").unwrap();
+        let old = std::time::SystemTime::now() - Duration::from_secs(20 * 24 * 3600);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+
+        touch_mtime(path.clone()).await;
+
+        let age = std::fs::metadata(&path).unwrap().modified().unwrap().elapsed().unwrap();
+        assert!(age < Duration::from_secs(60), "mtime should be ~now, got age {age:?}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -5,6 +5,14 @@ import { lazy } from 'solid-js';
 import Layout from './Layout';
 import './styles.css';
 
+// Promote the preloaded font stylesheets (index.html) to applied stylesheets.
+// They're preloaded so the download starts early without blocking the first
+// paint; we flip rel here — from our own 'self' bundle — because the CSP forbids
+// the inline `onload` handler the usual deferred-CSS trick relies on.
+for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="preload"][as="style"]')) {
+  link.rel = 'stylesheet';
+}
+
 const Home = lazy(() => import('./pages/Home'));
 const Feed = lazy(() => import('./pages/Feed'));
 const Login = lazy(() => import('./pages/Login'));

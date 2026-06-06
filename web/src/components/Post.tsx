@@ -26,6 +26,8 @@ const REACT_SPARKS = Array.from({ length: 6 }, (_, i) => {
 export default function Post(props: {
   post: PostView;
   onChange?: () => void;
+  /** First card above the fold: load its link-preview cover eagerly (it's the LCP image). */
+  eager?: boolean;
   // Thread view: when set, the reply action triggers an inline reply box for
   // THIS post instead of navigating to its conversation page.
   onReply?: () => void;
@@ -311,7 +313,7 @@ export default function Post(props: {
                   <>
                     <div class="post-body mt-2 text-on-surface text-body-md" innerHTML={displayHtml()} />
                     <Show when={previewUrl()}>
-                      {(u) => <LinkCard url={u()} onResolved={(has) => setNoPreview(!has)} />}
+                      {(u) => <LinkCard url={u()} eager={props.eager} onResolved={(has) => setNoPreview(!has)} />}
                     </Show>
                   </>
                 }

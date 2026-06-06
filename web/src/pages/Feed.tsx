@@ -83,7 +83,7 @@ export default function Feed() {
               )
             }
           >
-            {(p) => <Post post={p} onChange={reload} />}
+            {(p, i) => <Post post={p} eager={i() === 0} onChange={reload} />}
           </For>
         </InfiniteList>
       </Show>

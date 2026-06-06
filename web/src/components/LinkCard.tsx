@@ -38,6 +38,8 @@ export default function LinkCard(props: {
   onRemove?: () => void;
   // Fired once the fetch settles: true if a card rendered, false if no preview.
   onResolved?: (hasPreview: boolean) => void;
+  /** Above-the-fold first card: load the cover eagerly + high priority (it's the LCP image). */
+  eager?: boolean;
 }) {
   const [data] = createResource(() => props.url, load);
   const preview = createMemo(() => data() ?? null);
@@ -55,7 +57,8 @@ export default function LinkCard(props: {
           <img
             src={p.image}
             alt=""
-            loading="lazy"
+            loading={props.eager ? 'eager' : 'lazy'}
+            fetchpriority={props.eager ? 'high' : undefined}
             referrerpolicy="no-referrer"
             class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             onError={(e) => e.currentTarget.parentElement?.remove()}

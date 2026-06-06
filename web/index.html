@@ -25,11 +25,19 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="alternate" type="application/atom+xml" title="burncpu — public timeline" href="/rss/all" />
 
-    <!-- Fonts: Geist (UI/body) + Geist Mono (metadata) + Material Symbols -->
+    <!-- Fonts: Geist (UI/body) + Geist Mono (metadata) + Material Symbols.
+         Loaded non-render-blocking: preload the CSS (so the download starts early)
+         and let main.tsx flip rel→stylesheet once the app boots. We can't use the
+         usual inline `onload` swap because our CSP forbids inline event handlers.
+         <noscript> keeps the blocking version as a no-JS fallback. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" />
+    <noscript>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" />
+    </noscript>
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />

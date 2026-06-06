@@ -15,7 +15,7 @@
 use crate::{
     errors::AppError,
     middleware::session::CurrentUser,
-    routes::posts::{PostRow, PostView},
+    routes::posts::{PostRow, PostView, enrich_cached_previews},
     state::AppState,
 };
 use axum::{
@@ -113,7 +113,8 @@ async fn home(
     .await?;
 
     let next = rows.last().map(|r| r.cursor());
-    let posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
+    let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
+    enrich_cached_previews(&state, &mut posts).await;
 
     Ok(Json(FeedResponse {
         posts,

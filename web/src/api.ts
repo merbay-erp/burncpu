@@ -86,6 +86,10 @@ export interface PostView {
   // Post.tsx createEffect ile setReacted/setBookmarked initial state sync.
   viewer_reacted?: boolean;
   viewer_bookmarked?: boolean;
+  // Server-embedded unfurl for the post's first URL when it's already cached —
+  // lets the card render without the extra /link-preview round-trip. Absent on a
+  // cache miss, in which case LinkCard fetches it lazily as before.
+  link_preview?: LinkPreview;
 }
 
 // POST /posts result. `quarantined` (a new-account post sent to the moderation

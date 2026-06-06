@@ -40,13 +40,18 @@ export default function LinkCard(props: {
   onResolved?: (hasPreview: boolean) => void;
   /** Above-the-fold first card: load the cover eagerly + high priority (it's the LCP image). */
   eager?: boolean;
+  /** Server-embedded preview (already cached). When set, render it directly and
+   *  skip the client fetch — that's what removes the round-trip from the LCP path. */
+  preview?: LinkPreview;
 }) {
-  const [data] = createResource(() => props.url, load);
-  const preview = createMemo(() => data() ?? null);
+  // Only fetch when the server didn't already hand us a cached preview. A falsy
+  // resource source tells Solid to skip the fetcher entirely.
+  const [data] = createResource(() => (props.preview ? null : props.url), load);
+  const preview = createMemo<LinkPreview | null>(() => props.preview ?? data() ?? null);
   const interactive = () => props.interactive !== false;
 
   createEffect(() => {
-    if (data.loading) return;
+    if (!props.preview && data.loading) return;
     props.onResolved?.(preview() != null);
   });
 

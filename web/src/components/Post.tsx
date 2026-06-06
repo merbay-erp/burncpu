@@ -313,7 +313,7 @@ export default function Post(props: {
                   <>
                     <div class="post-body mt-2 text-on-surface text-body-md" innerHTML={displayHtml()} />
                     <Show when={previewUrl()}>
-                      {(u) => <LinkCard url={u()} eager={props.eager} onResolved={(has) => setNoPreview(!has)} />}
+                      {(u) => <LinkCard url={u()} eager={props.eager} preview={body() === props.post.body ? props.post.link_preview : undefined} onResolved={(has) => setNoPreview(!has)} />}
                     </Show>
                   </>
                 }

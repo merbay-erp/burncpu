@@ -26,7 +26,7 @@ use axum::{
     routing::get,
 };
 use futures_util::StreamExt;
-use redis::AsyncCommands;
+use redis::{AsyncCommands, aio::ConnectionManager};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, LOCATION};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -105,7 +105,7 @@ pub async fn get_preview(
     };
 
     let mut redis = state.redis.clone();
-    let key = format!("lp:{}", hex_sha256(&normalized));
+    let key = cache_key_for(&normalized);
 
     // Cache hit (a cached `null` is a valid, meaningful answer).
     if let Ok(Some(cached)) = redis.get::<_, Option<String>>(&key).await
@@ -148,6 +148,104 @@ pub async fn get_preview(
     let _: () = redis.set_ex(&key, serialized, ttl).await?;
 
     Ok(Json(PreviewResponse { preview }))
+}
+
+/// Redis key for a preview, given the *canonical* URL string (see
+/// [`crate::net_safety::canonical_http_url`]). Single source of truth so the
+/// fetch path and the cache-only timeline path always agree on the key.
+pub fn cache_key_for(canonical_url: &str) -> String {
+    format!("lp:{}", hex_sha256(canonical_url))
+}
+
+fn first_url_re() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"(?i)https?://[^\s<]+").unwrap())
+}
+fn dotted_host_re() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"(?i)^https?://[^/]+\.[^/]").unwrap())
+}
+
+/// Server mirror of the web client's `firstUrl` (web/src/util.ts): the first
+/// http(s) URL in a post body, with trailing prose punctuation trimmed and a
+/// dotted host required. Kept byte-for-byte in step with the client so the cache
+/// key we compute here matches the URL the client would otherwise request —
+/// that's the whole point: a hit lets us inline the preview and skip the round-trip.
+pub fn first_url(text: &str) -> Option<String> {
+    if text.is_empty() {
+        return None;
+    }
+    let mut u = first_url_re().find(text)?.as_str().to_string();
+    loop {
+        match u.chars().last() {
+            Some(')') => {
+                // Keep a closing paren only if it balances one inside the URL
+                // (Wikipedia-style "…_(disambiguation)" links).
+                if u.matches(')').count() > u.matches('(').count() {
+                    u.pop();
+                    continue;
+                }
+                break;
+            }
+            Some(c) if ".,;:!?'\"»>]}".contains(c) => {
+                u.pop();
+                continue;
+            }
+            _ => break,
+        }
+    }
+    // Needs a dotted host to be worth unfurling (filters "http://localhost"-ish).
+    if u.len() > 10 && dotted_host_re().is_match(&u) {
+        Some(u)
+    } else {
+        None
+    }
+}
+
+/// Cache-only previews for a page of post bodies, resolved in a single MGET.
+/// Returns a Vec aligned 1:1 with `bodies`: `Some(preview)` only where a real
+/// preview is already cached for that body's first URL, else `None`. Never makes
+/// an outbound fetch, never rate-limits, never writes — so it's safe to call
+/// inline on the hot timeline path. A miss just means the client unfurls it the
+/// old way, so imperfect URL parity with the client only costs a round-trip, not
+/// correctness.
+pub async fn cached_previews(
+    redis: &mut ConnectionManager,
+    bodies: &[&str],
+) -> Vec<Option<LinkPreview>> {
+    // Per body: the cache key for its first unfurlable URL (None if it has none).
+    let keys: Vec<Option<String>> = bodies
+        .iter()
+        .map(|b| {
+            let raw = first_url(b)?;
+            let canonical = crate::net_safety::canonical_http_url(&raw)?;
+            Some(cache_key_for(&canonical))
+        })
+        .collect();
+
+    let present: Vec<&String> = keys.iter().flatten().collect();
+    if present.is_empty() {
+        return vec![None; bodies.len()];
+    }
+    // One round-trip for the whole page. On any redis hiccup, degrade to "no
+    // inline preview" (the client will fetch) rather than failing the request.
+    let raw: Vec<Option<String>> = match redis.mget(present.as_slice()).await {
+        Ok(v) => v,
+        Err(_) => return vec![None; bodies.len()],
+    };
+
+    // Re-align: only the Some-keyed slots consumed an MGET value, in order.
+    let mut vals = raw.into_iter();
+    keys.into_iter()
+        .map(|k| match k {
+            Some(_) => vals
+                .next()
+                .flatten()
+                .and_then(|s| serde_json::from_str::<Option<LinkPreview>>(&s).ok())
+                .flatten(),
+            None => None,
+        })
+        .collect()
 }
 
 async fn resolve_inner(raw: &str) -> anyhow::Result<Option<LinkPreview>> {
@@ -513,6 +611,45 @@ mod tests {
     fn numeric_entities_decode() {
         assert_eq!(decode_entities("a &#38; b &#x27;c&#x27;"), "a & b 'c'");
         assert_eq!(decode_entities("plain text"), "plain text");
+    }
+
+    // Locks parity with the web client's `firstUrl` (web/src/util.ts). If this
+    // drifts, the timeline's cache key won't match the one the client requests
+    // and the inline-preview optimization silently stops hitting.
+    #[test]
+    fn first_url_mirrors_client() {
+        // Trailing prose punctuation is trimmed.
+        assert_eq!(
+            first_url("check this https://example.com/path out.").as_deref(),
+            Some("https://example.com/path")
+        );
+        assert_eq!(
+            first_url("see https://example.com/a,").as_deref(),
+            Some("https://example.com/a")
+        );
+        // Balanced parens inside the URL are kept (Wikipedia-style)…
+        assert_eq!(
+            first_url("https://en.wikipedia.org/wiki/Rust_(programming_language)").as_deref(),
+            Some("https://en.wikipedia.org/wiki/Rust_(programming_language)")
+        );
+        // …but a dangling close paren (URL wrapped in parens) is dropped.
+        assert_eq!(
+            first_url("(see https://example.com/x)").as_deref(),
+            Some("https://example.com/x")
+        );
+        // The match stops at '<', so it works on HTML bodies too.
+        assert_eq!(
+            first_url("<a href=\"x\">https://example.com/y</a>").as_deref(),
+            Some("https://example.com/y")
+        );
+        // First of several wins.
+        assert_eq!(
+            first_url("a https://one.com/p then https://two.com/q").as_deref(),
+            Some("https://one.com/p")
+        );
+        // A host with no dot isn't worth unfurling; plain text yields nothing.
+        assert_eq!(first_url("http://localhost:3000/x"), None);
+        assert_eq!(first_url("just some text"), None);
     }
 
     // Real network fetch through the full SSRF-guarded path. Ignored so CI only

@@ -17,6 +17,7 @@ use crate::{
     content::{extract_mentions, render_markdown},
     errors::AppError,
     middleware::{client_ip, session::CurrentUser},
+    routes::link_preview::{self, LinkPreview},
     routes::notifications::notify,
     search::PostDoc,
     state::AppState,
@@ -128,6 +129,12 @@ pub struct PostView {
     #[serde(skip_serializing_if = "Option::is_none")]
     viewer_bookmarked: Option<bool>,
     created_at: DateTime<Utc>,
+    // Already-cached link unfurl for this post's first URL, embedded by the
+    // timeline so the above-the-fold card (the LCP image) renders without the
+    // client's extra /link-preview round-trip. Present only on a cache hit;
+    // otherwise omitted and the client fetches it lazily as before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    link_preview: Option<LinkPreview>,
 }
 
 #[derive(Serialize)]
@@ -600,7 +607,8 @@ async fn timeline(
     .await?;
 
     let next = rows.last().map(|r| (r.created_at, r.id));
-    let posts = rows.into_iter().map(PostRow::into_view).collect();
+    let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
+    enrich_cached_previews(&state, &mut posts).await;
 
     Ok(Json(TimelineResponse {
         posts,
@@ -1139,7 +1147,26 @@ impl PostRow {
             edited_at: self.edited_at,
             viewer_reacted: self.viewer_reacted,
             viewer_bookmarked: self.viewer_bookmarked,
+            link_preview: None,
         }
+    }
+}
+
+/// Embed already-cached link previews into a page of posts (cache-only, one
+/// MGET — see [`link_preview::cached_previews`]). This lets the first card's
+/// cover image (the timeline's LCP) render immediately instead of waiting on a
+/// per-card `/link-preview` round-trip that itself fetches the remote page.
+/// Best-effort: anything not already cached is left for the client to unfurl.
+pub async fn enrich_cached_previews(state: &AppState, posts: &mut [PostView]) {
+    if posts.is_empty() {
+        return;
+    }
+    let previews = {
+        let bodies: Vec<&str> = posts.iter().map(|p| p.body.as_str()).collect();
+        link_preview::cached_previews(&mut state.redis.clone(), &bodies).await
+    };
+    for (p, pv) in posts.iter_mut().zip(previews) {
+        p.link_preview = pv;
     }
 }
 

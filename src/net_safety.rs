@@ -42,6 +42,16 @@ pub async fn validate_public_http_url(raw: &str) -> Result<Url> {
     Ok(url)
 }
 
+/// Canonical string form of an http(s) URL — the `url` crate's normalized form,
+/// identical to what `validate_public_http_url` returns (that function hands back
+/// `parse_url(raw)` unchanged; its DNS lookup is validation-only and never alters
+/// the string). No DNS here, so it's cheap enough to run inline while assembling
+/// a timeline page — used to recompute a link-preview cache key without a fetch.
+/// Returns `None` for anything that isn't a credential-free http(s) URL.
+pub fn canonical_http_url(raw: &str) -> Option<String> {
+    parse_url(raw).ok().map(|u| u.to_string())
+}
+
 pub async fn safe_client_for(
     raw: &str,
     user_agent: &str,

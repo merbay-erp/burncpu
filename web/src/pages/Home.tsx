@@ -23,7 +23,7 @@ export default function Home() {
     try {
       const qs = cursor()
         ? `?limit=30&before=${encodeURIComponent(cursor()!)}${cursorId() ? `&before_id=${encodeURIComponent(cursorId()!)}` : ''}`
-        : '?limit=30';
+        : '?limit=12';
       const page = await api.get<Timeline>(`/posts${qs}`);
       setPosts((cur) => [...cur, ...page.posts]);
       if (page.next_before && page.posts.length > 0) {

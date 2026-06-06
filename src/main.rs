@@ -15,6 +15,7 @@ mod auth;
 mod cleanup;
 mod config;
 mod content;
+mod cover_cache;
 mod db;
 mod errors;
 mod federation;

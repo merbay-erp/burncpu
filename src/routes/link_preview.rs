@@ -137,7 +137,17 @@ pub async fn get_preview(
     // — timeout, momentary bot challenge, 5xx — which is usually transient and must
     // NOT hide the preview for hours: cache it only briefly so the next view retries.
     let (preview, ttl) = match resolve_inner(&normalized).await {
-        Ok(Some(p)) => (Some(p), CACHE_TTL_OK),
+        Ok(Some(mut p)) => {
+            // Pull the cover onto our own origin — downscaled + re-encoded — so the
+            // timeline's LCP image loads same-origin and small instead of as a big
+            // cross-origin PNG. Best-effort: on any failure we keep the source URL.
+            if let Some(orig) = p.image.clone()
+                && let Some(local) = crate::cover_cache::optimize(&state, &orig).await
+            {
+                p.image = Some(local);
+            }
+            (Some(p), CACHE_TTL_OK)
+        }
         Ok(None) => (None, CACHE_TTL_NULL),
         Err(e) => {
             tracing::debug!(error = %e, url = %normalized, "link preview fetch failed");
@@ -154,7 +164,11 @@ pub async fn get_preview(
 /// [`crate::net_safety::canonical_http_url`]). Single source of truth so the
 /// fetch path and the cache-only timeline path always agree on the key.
 pub fn cache_key_for(canonical_url: &str) -> String {
-    format!("lp:{}", hex_sha256(canonical_url))
+    // `v2`: bumped when cover images began being re-hosted same-origin (see
+    // cover_cache). Old `lp:` entries hold cross-origin cover URLs; letting them
+    // expire naturally would delay the LCP win, so a new namespace forces a
+    // re-resolve (which now also optimizes the cover) on next view.
+    format!("lp:v2:{}", hex_sha256(canonical_url))
 }
 
 fn first_url_re() -> &'static regex::Regex {

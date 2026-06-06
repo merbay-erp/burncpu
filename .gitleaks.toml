@@ -1,0 +1,20 @@
+# gitleaks configuration for burncpu.
+# Extends the upstream default ruleset and adds project-specific allowlists.
+# https://github.com/gitleaks/gitleaks
+title = "burncpu"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+Firebase Android client config. The `api_key` in google-services.json is a PUBLIC
+client identifier: it is compiled into the distributed APK by design and is NOT a
+server secret (per Google's own guidance, https://firebase.google.com/docs/projects/api-keys).
+It is secured by GCP API-key restrictions (Android package + signing SHA-256) and
+Firebase Security Rules — not by keeping it out of the repo. Excluded so this
+legitimate client config does not fail the secret scan.
+"""
+paths = [
+    '''mobile/google-services\.json''',
+]

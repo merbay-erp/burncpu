@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, Pressable, Linking, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
-import { fetchLinkPreview, type LinkPreview } from '@/api';
+import { fetchLinkPreview, mediaUrl, type LinkPreview } from '@/api';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
 import { hostOf } from '@/util';
 
@@ -52,7 +52,7 @@ export default function LinkCard({
       onPress={() => Linking.openURL(preview.url).catch(() => {})}
     >
       {preview.image ? (
-        <Image source={{ uri: preview.image }} style={s.image} contentFit="cover" transition={150} />
+        <Image source={{ uri: mediaUrl(preview.image) }} style={s.image} contentFit="cover" transition={150} />
       ) : null}
       <View style={s.body}>
         <Text style={s.domain} numberOfLines={1}>

@@ -109,8 +109,9 @@ pub async fn get_preview(
 
     // Cache hit (a cached `null` is a valid, meaningful answer).
     if let Ok(Some(cached)) = redis.get::<_, Option<String>>(&key).await
-        && let Ok(preview) = serde_json::from_str::<Option<LinkPreview>>(&cached)
+        && let Ok(mut preview) = serde_json::from_str::<Option<LinkPreview>>(&cached)
     {
+        absolutize_cover(&mut preview, &state.config.site_origin);
         return Ok(Json(PreviewResponse { preview }));
     }
 
@@ -136,7 +137,7 @@ pub async fn get_preview(
     // Distinguish a clean "no preview here" (cache a while) from a *fetch failure*
     // — timeout, momentary bot challenge, 5xx — which is usually transient and must
     // NOT hide the preview for hours: cache it only briefly so the next view retries.
-    let (preview, ttl) = match resolve_inner(&normalized).await {
+    let (mut preview, ttl) = match resolve_inner(&normalized).await {
         Ok(Some(mut p)) => {
             // Pull the cover onto our own origin — downscaled + re-encoded — so the
             // timeline's LCP image loads same-origin and small instead of as a big
@@ -157,7 +158,24 @@ pub async fn get_preview(
     let serialized = serde_json::to_string(&preview).unwrap_or_else(|_| "null".to_string());
     let _: () = redis.set_ex(&key, serialized, ttl).await?;
 
+    // Cache the cover as the origin-relative `/media/c/…` path, but hand the
+    // client an absolute URL (see absolutize_cover).
+    absolutize_cover(&mut preview, &state.config.site_origin);
     Ok(Json(PreviewResponse { preview }))
+}
+
+/// Cover images that `cover_cache` re-hosts are origin-relative (`/media/c/…`).
+/// Browsers resolve those against the page, but native clients (the mobile app)
+/// render the `uri` verbatim — a scheme-less path fails to load. So any preview
+/// leaving the API gets an absolute cover URL. External covers (a cache miss kept
+/// the original `http…` URL) are already absolute and pass through untouched.
+pub fn absolutize_cover(preview: &mut Option<LinkPreview>, origin: &str) {
+    if let Some(p) = preview.as_mut()
+        && let Some(img) = p.image.as_deref()
+        && img.starts_with('/')
+    {
+        p.image = Some(format!("{origin}{img}"));
+    }
 }
 
 /// Redis key for a preview, given the *canonical* URL string (see

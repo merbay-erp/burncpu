@@ -1165,7 +1165,8 @@ pub async fn enrich_cached_previews(state: &AppState, posts: &mut [PostView]) {
         let bodies: Vec<&str> = posts.iter().map(|p| p.body.as_str()).collect();
         link_preview::cached_previews(&mut state.redis.clone(), &bodies).await
     };
-    for (p, pv) in posts.iter_mut().zip(previews) {
+    for (p, mut pv) in posts.iter_mut().zip(previews) {
+        link_preview::absolutize_cover(&mut pv, &state.config.site_origin);
         p.link_preview = pv;
     }
 }

@@ -78,6 +78,96 @@ pub async fn log_action(
     }
 }
 
+// ── Account heat & escalation (P2) ──────────────────────────────────────────
+//
+// "Heat" is a decaying per-account misbehaviour signal (see migration 0028):
+// automated quarantines and upheld removals raise it; `current_heat()` decays it
+// 1 pt/day. `register_content_offense` is the single entry point the content
+// pipelines call — it raises heat and, past the configured threshold, escalates
+// to an autonomous suspend.
+
+/// Decay an account's heat to the present, add `points`, and return the new
+/// score. One atomic UPDATE via `current_heat()`; returns 0 on any error — heat
+/// is advisory and must never be a hard dependency of the calling action.
+pub async fn add_heat(state: &AppState, user_id: Uuid, points: i32) -> i32 {
+    sqlx::query_scalar(
+        r#"
+        UPDATE users
+        SET heat_score = current_heat(heat_score, heat_updated_at) + $2,
+            heat_updated_at = NOW()
+        WHERE id = $1
+        RETURNING heat_score
+        "#,
+    )
+    .bind(user_id)
+    .bind(points)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(0)
+}
+
+/// Record an automated content offense against `author_id`: raise heat by
+/// `points` and, if that reaches `HEAT_SUSPEND_THRESHOLD` (when configured > 0),
+/// auto-suspend the account. Keeps the whole escalation ladder in one place so
+/// every quarantine/removal path escalates identically. Best-effort throughout.
+pub async fn register_content_offense(
+    state: &AppState,
+    author_id: Uuid,
+    points: i32,
+    reason: &str,
+) {
+    let heat = add_heat(state, author_id, points).await;
+    let threshold = state.config.heat_suspend_threshold;
+    if threshold > 0 && heat >= threshold {
+        auto_suspend(state, author_id, &format!("heat {heat} >= {threshold} ({reason})")).await;
+    }
+}
+
+/// Autonomously suspend an account (the hard escalation tier), mirroring the
+/// manual admin suspend exactly: never touches an admin or an already-suspended
+/// account, revokes live sessions and API tokens, pulls the account's posts from
+/// search, and logs the decision as `actor_kind='ai'`. Reversible by an admin
+/// (PATCH /admin/users/{id} → member). The role guard makes it fire at most once.
+pub async fn auto_suspend(state: &AppState, user_id: Uuid, reason: &str) {
+    let suspended = sqlx::query(
+        "UPDATE users SET role = 'suspended', updated_at = NOW() \
+         WHERE id = $1 AND role NOT IN ('admin', 'suspended')",
+    )
+    .bind(user_id)
+    .execute(&state.pg)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0);
+    if suspended == 0 {
+        return; // admin, already suspended, or gone — no-op (and no duplicate log)
+    }
+    let _ = sqlx::query("UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL")
+        .bind(user_id)
+        .execute(&state.pg)
+        .await;
+    let _ = sqlx::query("UPDATE api_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL")
+        .bind(user_id)
+        .execute(&state.pg)
+        .await;
+    // Pull their posts from search off the request path — only active users'
+    // public posts are indexed (mirrors admin sync_user_search's suspend branch).
+    let pg = state.pg.clone();
+    let search = state.search.clone();
+    tokio::spawn(async move {
+        let ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM posts WHERE author_id = $1 AND deleted_at IS NULL")
+                .bind(user_id)
+                .fetch_all(&pg)
+                .await
+                .unwrap_or_default();
+        for id in ids {
+            search.delete_post(id).await;
+        }
+    });
+    log_action(state, "user", user_id, "auto_suspend", Actor::Ai, Some(reason), None).await;
+    tracing::warn!(%user_id, reason, "account auto-suspended (heat threshold)");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -134,27 +134,28 @@ async fn maybe_quarantine_reported_post(state: &AppState, post_id: Uuid) {
         return;
     }
 
-    // Transition exactly once, skipping staff-authored posts. rows_affected == 0
-    // means it was already non-live (or staff) — nothing to do, and crucially no
-    // duplicate log/search churn on every further report past the threshold.
-    let transitioned = sqlx::query(
+    // Transition exactly once, skipping staff-authored posts. A NULL result means
+    // it was already non-live (or staff) — nothing to do, and crucially no
+    // duplicate log/search/heat churn on every further report past the threshold.
+    let author_id: Option<Uuid> = sqlx::query_scalar(
         r#"
         UPDATE posts p SET moderation_state = 'quarantine', updated_at = NOW()
         WHERE p.id = $1 AND p.moderation_state = 'live'
           AND NOT EXISTS (
               SELECT 1 FROM users u WHERE u.id = p.author_id AND u.role IN ('admin', 'mod')
           )
+        RETURNING p.author_id
         "#,
     )
     .bind(post_id)
-    .execute(&state.pg)
+    .fetch_optional(&state.pg)
     .await
-    .map(|r| r.rows_affected())
-    .unwrap_or(0);
+    .ok()
+    .flatten();
 
-    if transitioned == 0 {
+    let Some(author_id) = author_id else {
         return;
-    }
+    };
 
     // A previously-live post was indexed; drop it from search (only public+live
     // posts surface) off the request path, mirroring the admin patch_post flow.
@@ -176,6 +177,11 @@ async fn maybe_quarantine_reported_post(state: &AppState, post_id: Uuid) {
         Some(i16::try_from(open_reports).unwrap_or(i16::MAX)),
     )
     .await;
+
+    // Raise the author's heat; an account whose posts keep getting community-
+    // quarantined escalates toward an autonomous suspend (P2).
+    crate::moderation::register_content_offense(state, author_id, 3, "report-threshold quarantine")
+        .await;
 
     tracing::info!(%post_id, reports = open_reports, "post auto-quarantined (report threshold)");
 }

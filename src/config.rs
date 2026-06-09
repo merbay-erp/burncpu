@@ -36,6 +36,10 @@ pub struct Config {
     /// Reactive moderation: a live post is auto-quarantined once this many distinct
     /// accounts file an open report against it (`REPORT_QUARANTINE_THRESHOLD`, default 4).
     pub report_quarantine_threshold: i64,
+    /// Escalation: an account is auto-suspended once its decaying moderation heat
+    /// reaches this (`HEAT_SUSPEND_THRESHOLD`, default 12; set 0 to disable the
+    /// hard tier and keep only heat-weighted quarantining).
+    pub heat_suspend_threshold: i32,
     /// Video transcode worker on/off (`VIDEO_TRANSCODE_ENABLED`, default true).
     /// When false, uploaded videos are kept verbatim and marked `ready` (the
     /// pre-pipeline behaviour) — a safety valve for hosts without ffmpeg.
@@ -84,6 +88,10 @@ impl Config {
                 .ok()
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(4),
+            heat_suspend_threshold: env::var("HEAT_SUSPEND_THRESHOLD")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(12),
             spam_denylist: env::var("SPAM_DENYLIST")
                 .unwrap_or_default()
                 .split(',')

@@ -304,16 +304,16 @@ async fn patch_post(
     ) {
         return Err(AppError::BadRequest("invalid state".into()));
     }
-    let updated =
-        sqlx::query("UPDATE posts SET moderation_state = $1, updated_at = NOW() WHERE id = $2")
-            .bind(&input.moderation_state)
-            .bind(id)
-            .execute(&state.pg)
-            .await?
-            .rows_affected();
-    if updated == 0 {
+    let author_id: Option<Uuid> = sqlx::query_scalar(
+        "UPDATE posts SET moderation_state = $1, updated_at = NOW() WHERE id = $2 RETURNING author_id",
+    )
+    .bind(&input.moderation_state)
+    .bind(id)
+    .fetch_optional(&state.pg)
+    .await?;
+    let Some(author_id) = author_id else {
         return Err(AppError::NotFound);
-    }
+    };
     // Sync search index: only public+live posts from active users surface anonymously.
     let search = state.search.clone();
     let pg = state.pg.clone();
@@ -352,6 +352,12 @@ async fn patch_post(
         .bind(id)
         .execute(&state.pg)
         .await;
+    }
+    // An admin removal is the strongest content signal — weight the author's heat
+    // heavily so a few upheld removals escalate the account toward an autonomous
+    // suspend (P2). Quarantine/live are not offenses (live exonerates).
+    if input.moderation_state == "removed" {
+        crate::moderation::register_content_offense(&state, author_id, 5, "admin removal").await;
     }
     Ok(StatusCode::NO_CONTENT)
 }

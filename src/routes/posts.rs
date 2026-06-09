@@ -262,6 +262,24 @@ async fn spam_score(state: &AppState, user: &CurrentUser, body: &str) -> (i32, V
         why.push(format!("denylist: {term}"));
     }
 
+    // Layer 6 — account heat (escalation). An account whose recent content was
+    // auto-quarantined or removed carries heat (current_heat decays it over time),
+    // biasing its borderline posts toward review. This is what turns a string of
+    // offenses into a rising auto-quarantine rate — the soft escalation tier (P2).
+    let heat: i32 =
+        sqlx::query_scalar("SELECT current_heat(heat_score, heat_updated_at) FROM users WHERE id = $1")
+            .bind(user.user_id)
+            .fetch_one(&state.pg)
+            .await
+            .unwrap_or(0);
+    if heat >= 8 {
+        pts += 3;
+        why.push(format!("account heat {heat}"));
+    } else if heat >= 4 {
+        pts += 2;
+        why.push(format!("account heat {heat}"));
+    }
+
     (pts, why)
 }
 
@@ -490,6 +508,9 @@ async fn create_post(
             Some(spam_pts as i16),
         )
         .await;
+        // Raise the author's heat; a sustained spam pattern escalates (P2).
+        crate::moderation::register_content_offense(&state, user.user_id, 2, "spam quarantine")
+            .await;
         return Ok((
             StatusCode::ACCEPTED,
             Json(CreateResponse {

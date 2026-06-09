@@ -51,6 +51,7 @@ pub fn router() -> Router<AppState> {
         .route("/posts/{id}", patch(patch_post))
         .route("/users", get(list_users))
         .route("/users/{id}", patch(patch_user))
+        .route("/users/{id}/shadow", patch(patch_user_shadow))
         .route("/login_attempts", get(login_attempts))
         .route("/audit", get(audit))
         .route("/sessions", get(sessions))
@@ -464,6 +465,37 @@ async fn patch_user(
         None,
     )
     .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ── PATCH user shadow-ban (P4) ──────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct PatchShadow {
+    shadow_banned: bool,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// Manually shadow-ban (`shadow_banned: true`) or lift it (`false`) for a user.
+/// The mechanism lives in `crate::moderation`; this is the admin surface beside
+/// the autonomous heat-driven path, logged with `actor_kind='admin'`.
+async fn patch_user_shadow(
+    State(state): State<AppState>,
+    admin: AdminUser,
+    Path(id): Path<Uuid>,
+    Json(input): Json<PatchShadow>,
+) -> Result<StatusCode, AppError> {
+    if id == admin.0.user_id {
+        return Err(AppError::BadRequest("cannot shadow-ban yourself".into()));
+    }
+    let actor = Actor::Admin(admin.0.user_id);
+    let reason = input.reason.as_deref().unwrap_or("admin action");
+    if input.shadow_banned {
+        crate::moderation::shadow_ban(&state, id, actor, reason).await;
+    } else {
+        crate::moderation::unshadow_ban(&state, id, actor, reason).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

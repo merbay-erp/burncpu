@@ -40,6 +40,10 @@ pub struct Config {
     /// reaches this (`HEAT_SUSPEND_THRESHOLD`, default 12; set 0 to disable the
     /// hard tier and keep only heat-weighted quarantining).
     pub heat_suspend_threshold: i32,
+    /// Escalation: below the suspend threshold, an account is auto-shadow-banned
+    /// once its heat reaches this (`SHADOW_BAN_THRESHOLD`, default 8; set 0 to
+    /// disable autonomous shadow-banning and keep it an admin-only tool).
+    pub shadow_ban_threshold: i32,
     /// Video transcode worker on/off (`VIDEO_TRANSCODE_ENABLED`, default true).
     /// When false, uploaded videos are kept verbatim and marked `ready` (the
     /// pre-pipeline behaviour) — a safety valve for hosts without ffmpeg.
@@ -92,6 +96,10 @@ impl Config {
                 .ok()
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(12),
+            shadow_ban_threshold: env::var("SHADOW_BAN_THRESHOLD")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(8),
             spam_denylist: env::var("SPAM_DENYLIST")
                 .unwrap_or_default()
                 .split(',')

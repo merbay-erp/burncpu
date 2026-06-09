@@ -465,12 +465,25 @@ async fn create_post(
         .filter(|s| !s.is_empty())
         .map(|s| s.chars().take(140).collect::<String>());
 
+    // A shadow-banned author's posts are stamped 'shadow' — visible to them, hidden
+    // from everyone else (P4). It takes precedence over the spam quarantine path:
+    // their content is already contained, and returning the normal post response
+    // (not the 202 "pending review") keeps the ban stealthy.
+    let shadow = crate::moderation::is_shadow_banned(&state, user.user_id).await;
+
     // Score the post; quarantine top-level public posts that cross the threshold.
     let (spam_pts, spam_reasons) = spam_score(&state, &user, body).await;
-    let quarantine = input.reply_to_id.is_none()
+    let quarantine = !shadow
+        && input.reply_to_id.is_none()
         && input.visibility == "public"
         && spam_pts >= state.config.spam_threshold;
-    let moderation_state = if quarantine { "quarantine" } else { "live" };
+    let moderation_state = if shadow {
+        "shadow"
+    } else if quarantine {
+        "quarantine"
+    } else {
+        "live"
+    };
 
     let id: Uuid = sqlx::query_scalar(
         r#"
@@ -655,7 +668,8 @@ async fn timeline(
         FROM posts p
         JOIN users u ON u.id = p.author_id
         WHERE p.visibility = 'public'
-          AND p.moderation_state = 'live'
+          AND (p.moderation_state = 'live'
+               OR (p.moderation_state = 'shadow' AND p.author_id = $3))
           AND p.deleted_at IS NULL
           AND p.reply_to_id IS NULL
           AND u.role <> 'suspended'
@@ -1300,7 +1314,8 @@ async fn attach_parent(state: &AppState, view: &mut PostView, viewer: Option<Uui
         FROM posts p JOIN users u ON u.id = p.author_id
         WHERE p.id = $1
           AND p.deleted_at IS NULL
-          AND p.moderation_state = 'live'
+          AND (p.moderation_state = 'live'
+               OR (p.moderation_state = 'shadow' AND p.author_id = $2))
           AND u.role <> 'suspended'
           AND (
               p.visibility = 'public'
@@ -1492,7 +1507,8 @@ async fn fetch_post(
         JOIN users u ON u.id = p.author_id
         WHERE p.id = $1
           AND p.deleted_at IS NULL
-          AND p.moderation_state = 'live'
+          AND (p.moderation_state = 'live'
+               OR (p.moderation_state = 'shadow' AND p.author_id = $2))
           AND u.role <> 'suspended'
           AND (
               p.visibility = 'public'
@@ -1555,7 +1571,8 @@ async fn replies(
         FROM posts p
         JOIN users u ON u.id = p.author_id
         WHERE p.reply_to_id = $1
-          AND p.moderation_state = 'live'
+          AND (p.moderation_state = 'live'
+               OR (p.moderation_state = 'shadow' AND p.author_id = $3))
           AND p.deleted_at IS NULL
           AND ((p.created_at < $2) OR (p.created_at = $2 AND p.id < $5))
           AND u.role <> 'suspended'
@@ -1631,16 +1648,21 @@ async fn thread(
         WITH RECURSIVE ancestor(id, reply_to_id) AS (
             SELECT id, reply_to_id
             FROM posts
-            WHERE id = $1 AND deleted_at IS NULL AND moderation_state = 'live'
+            WHERE id = $1 AND deleted_at IS NULL
+              AND (moderation_state = 'live'
+                   OR (moderation_state = 'shadow' AND author_id = $2))
             UNION ALL
             SELECT p.id, p.reply_to_id
             FROM posts p JOIN ancestor a ON p.id = a.reply_to_id
-            WHERE p.deleted_at IS NULL AND p.moderation_state = 'live'
+            WHERE p.deleted_at IS NULL
+              AND (p.moderation_state = 'live'
+                   OR (p.moderation_state = 'shadow' AND p.author_id = $2))
         )
         SELECT id FROM ancestor WHERE reply_to_id IS NULL LIMIT 1
         "#,
     )
     .bind(id)
+    .bind(viewer_id)
     .fetch_optional(&state.pg)
     .await?
     .ok_or(AppError::NotFound)?;
@@ -1669,7 +1691,8 @@ async fn thread(
         FROM descendants d
         JOIN posts p ON p.id = d.id
         JOIN users u ON u.id = p.author_id
-        WHERE p.moderation_state = 'live'
+        WHERE (p.moderation_state = 'live'
+               OR (p.moderation_state = 'shadow' AND p.author_id = $2))
           AND u.role <> 'suspended'
           AND (
               p.visibility = 'public'

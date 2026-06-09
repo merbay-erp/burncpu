@@ -69,7 +69,8 @@ async fn home(
         FROM posts p
         JOIN users u ON u.id = p.author_id
         WHERE p.deleted_at IS NULL
-          AND p.moderation_state = 'live'
+          AND (p.moderation_state = 'live'
+               OR (p.moderation_state = 'shadow' AND p.author_id = $1))
           AND p.reply_to_id IS NULL
           AND p.visibility IN ('public', 'followers')
           AND ((p.created_at < $2) OR (p.created_at = $2 AND p.id < $4))

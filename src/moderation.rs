@@ -121,9 +121,25 @@ pub async fn register_content_offense(
 ) {
     let heat = add_heat(state, author_id, points).await;
     penalize_domains(state, body, points).await;
-    let threshold = state.config.heat_suspend_threshold;
-    if threshold > 0 && heat >= threshold {
-        auto_suspend(state, author_id, &format!("heat {heat} >= {threshold} ({reason})")).await;
+    // Graduated hard escalation: suspend takes precedence over shadow-ban (it is
+    // the higher threshold); below it, a high-heat account is shadow-banned. Both
+    // are config-gated (0 disables) and reversible by an admin.
+    let cfg = &state.config;
+    if cfg.heat_suspend_threshold > 0 && heat >= cfg.heat_suspend_threshold {
+        auto_suspend(
+            state,
+            author_id,
+            &format!("heat {heat} >= {} ({reason})", cfg.heat_suspend_threshold),
+        )
+        .await;
+    } else if cfg.shadow_ban_threshold > 0 && heat >= cfg.shadow_ban_threshold {
+        shadow_ban(
+            state,
+            author_id,
+            Actor::Ai,
+            &format!("heat {heat} >= {} ({reason})", cfg.shadow_ban_threshold),
+        )
+        .await;
     }
 }
 
@@ -194,6 +210,108 @@ pub async fn auto_suspend(state: &AppState, user_id: Uuid, reason: &str) {
     });
     log_action(state, "user", user_id, "auto_suspend", Actor::Ai, Some(reason), None).await;
     tracing::warn!(%user_id, reason, "account auto-suspended (heat threshold)");
+}
+
+// ── Shadow-ban (P4) ─────────────────────────────────────────────────────────
+//
+// A shadow-banned account keeps posting and sees its own content normally, but it
+// is hidden from everyone else. Posts carry moderation_state='shadow', which the
+// existing 'live' filters exclude everywhere except the viewer-aware read paths
+// that grant the author sight of their own posts (see migration 0030).
+
+/// Whether `user_id` is shadow-banned. Best-effort (false on error); a users-PK
+/// lookup. Used by create_post (to stamp new posts 'shadow') and by notify (to
+/// suppress a shadow-banned actor's notifications to others).
+pub async fn is_shadow_banned(state: &AppState, user_id: Uuid) -> bool {
+    sqlx::query_scalar::<_, bool>("SELECT shadow_banned FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.pg)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false)
+}
+
+/// Shadow-ban an account: set the flag (never an admin, fire once), flip its
+/// existing live posts to 'shadow' and drop them from search, and log it. `actor`
+/// distinguishes an autonomous (Ai) ban from an admin one. Reversible via
+/// `unshadow_ban`.
+pub async fn shadow_ban(state: &AppState, user_id: Uuid, actor: Actor, reason: &str) {
+    let banned = sqlx::query(
+        "UPDATE users SET shadow_banned = true, updated_at = NOW() \
+         WHERE id = $1 AND role <> 'admin' AND NOT shadow_banned",
+    )
+    .bind(user_id)
+    .execute(&state.pg)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0);
+    if banned == 0 {
+        return; // admin, already shadow-banned, or gone — no-op, no duplicate log
+    }
+    // Hide their existing live content immediately.
+    let _ = sqlx::query(
+        "UPDATE posts SET moderation_state = 'shadow', updated_at = NOW() \
+         WHERE author_id = $1 AND moderation_state = 'live'",
+    )
+    .bind(user_id)
+    .execute(&state.pg)
+    .await;
+    let pg = state.pg.clone();
+    let search = state.search.clone();
+    tokio::spawn(async move {
+        let ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM posts WHERE author_id = $1 AND deleted_at IS NULL")
+                .bind(user_id)
+                .fetch_all(&pg)
+                .await
+                .unwrap_or_default();
+        for id in ids {
+            search.delete_post(id).await;
+        }
+    });
+    log_action(state, "user", user_id, "shadow_ban", actor, Some(reason), None).await;
+    tracing::warn!(%user_id, reason, "account shadow-banned");
+}
+
+/// Lift a shadow-ban: clear the flag (fire once), restore the account's hidden
+/// posts to 'live', reindex them for search, and log it. Admin-initiated.
+pub async fn unshadow_ban(state: &AppState, user_id: Uuid, actor: Actor, reason: &str) {
+    let lifted = sqlx::query(
+        "UPDATE users SET shadow_banned = false, updated_at = NOW() WHERE id = $1 AND shadow_banned",
+    )
+    .bind(user_id)
+    .execute(&state.pg)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0);
+    if lifted == 0 {
+        return;
+    }
+    let _ = sqlx::query(
+        "UPDATE posts SET moderation_state = 'live', updated_at = NOW() \
+         WHERE author_id = $1 AND moderation_state = 'shadow'",
+    )
+    .bind(user_id)
+    .execute(&state.pg)
+    .await;
+    // Reindex each restored post: sync_post_search re-reads and indexes the now-live
+    // public ones (and removes the rest) — exactly the post-unban search state.
+    let pg = state.pg.clone();
+    let search = state.search.clone();
+    tokio::spawn(async move {
+        let ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM posts WHERE author_id = $1 AND deleted_at IS NULL")
+                .bind(user_id)
+                .fetch_all(&pg)
+                .await
+                .unwrap_or_default();
+        for id in ids {
+            crate::routes::admin::sync_post_search(pg.clone(), search.clone(), id).await;
+        }
+    });
+    log_action(state, "user", user_id, "unshadow_ban", actor, Some(reason), None).await;
+    tracing::info!(%user_id, reason, "account shadow-ban lifted");
 }
 
 #[cfg(test)]

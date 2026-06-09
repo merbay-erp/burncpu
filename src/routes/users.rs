@@ -644,6 +644,7 @@ async fn user_posts(
     State(state): State<AppState>,
     Path(username): Path<String>,
     Query(q): Query<PageQuery>,
+    viewer: Option<CurrentUser>,
 ) -> Result<Json<Vec<PostBrief>>, AppError> {
     let user_id: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM users WHERE username = $1 AND role <> 'suspended'")
@@ -653,6 +654,8 @@ async fn user_posts(
     let user_id = user_id.ok_or(AppError::NotFound)?;
     let limit = q.limit.clamp(1, 100);
     let before = q.before.unwrap_or_else(Utc::now);
+    // A shadow-banned author still sees their own posts on their own profile (P4).
+    let viewer_id = viewer.as_ref().map(|u| u.user_id);
 
     let rows: Vec<PostBrief> = sqlx::query_as(
         r#"
@@ -660,7 +663,8 @@ async fn user_posts(
         FROM posts
         WHERE author_id = $1
           AND deleted_at IS NULL
-          AND moderation_state = 'live'
+          AND (moderation_state = 'live'
+               OR (moderation_state = 'shadow' AND author_id = $4))
           AND visibility = 'public'
           AND created_at < $2
         ORDER BY created_at DESC
@@ -670,6 +674,7 @@ async fn user_posts(
     .bind(user_id)
     .bind(before)
     .bind(limit)
+    .bind(viewer_id)
     .fetch_all(&state.pg)
     .await?;
 

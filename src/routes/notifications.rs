@@ -251,6 +251,13 @@ pub async fn notify(
     if Some(user_id) == actor_id {
         return;
     }
+    // A shadow-banned actor's activity is invisible to others — suppress every
+    // notification it would generate (reply, mention, reaction, follow) (P4).
+    if let Some(actor_id) = actor_id
+        && crate::moderation::is_shadow_banned(state, actor_id).await
+    {
+        return;
+    }
     if let Some(actor_id) = actor_id
         && notification_suppressed(state, user_id, actor_id).await
     {

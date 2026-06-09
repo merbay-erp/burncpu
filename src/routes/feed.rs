@@ -15,7 +15,7 @@
 use crate::{
     errors::AppError,
     middleware::session::CurrentUser,
-    routes::posts::{PostRow, PostView, enrich_cached_previews},
+    routes::posts::{PostRow, PostView, enrich_cached_previews, overlay_viewer_state},
     state::AppState,
 };
 use axum::{
@@ -65,9 +65,7 @@ async fn home(
         SELECT
             p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at, p.edited_at,
-            EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $1) AS viewer_reacted,
-            EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.user_id = $1) AS viewer_bookmarked
+            p.reactions_count, p.replies_count, p.created_at, p.edited_at
         FROM posts p
         JOIN users u ON u.id = p.author_id
         WHERE p.deleted_at IS NULL
@@ -115,6 +113,7 @@ async fn home(
     let next = rows.last().map(|r| r.cursor());
     let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
     enrich_cached_previews(&state, &mut posts).await;
+    overlay_viewer_state(&state, &mut posts, Some(user.user_id)).await;
 
     Ok(Json(FeedResponse {
         posts,

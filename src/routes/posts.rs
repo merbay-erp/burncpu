@@ -584,13 +584,7 @@ async fn timeline(
         SELECT
             p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
-            p.reactions_count, p.replies_count, p.created_at, p.edited_at,
-            CASE WHEN $3::uuid IS NOT NULL THEN
-                EXISTS(SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $3)
-            ELSE NULL END AS viewer_reacted,
-            CASE WHEN $3::uuid IS NOT NULL THEN
-                EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.user_id = $3)
-            ELSE NULL END AS viewer_bookmarked
+            p.reactions_count, p.replies_count, p.created_at, p.edited_at
         FROM posts p
         JOIN users u ON u.id = p.author_id
         WHERE p.visibility = 'public'
@@ -622,6 +616,7 @@ async fn timeline(
         let next = rows.last().map(|r| (r.created_at, r.id));
         let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
         enrich_cached_previews(&state, &mut posts).await;
+        overlay_viewer_state(&state, &mut posts, viewer_id).await;
         let resp = TimelineResponse {
             posts,
             next_before: next.map(|(t, _)| t),
@@ -1203,6 +1198,44 @@ pub async fn enrich_cached_previews(state: &AppState, posts: &mut [PostView]) {
     for (p, mut pv) in posts.iter_mut().zip(previews) {
         link_preview::absolutize_cover(&mut pv, &state.config.site_origin);
         p.link_preview = pv;
+    }
+}
+
+/// Fill `viewer_reacted` / `viewer_bookmarked` on a page of posts with two indexed
+/// batch lookups, instead of the per-row correlated `EXISTS` subqueries the
+/// timeline/feed SQL used to carry (2×N — the dominant cost of those hot queries
+/// at scale). No-op for an anonymous viewer (the flags stay `None`), which is also
+/// what lets the anonymous public timeline be cached. Best-effort: on a DB error
+/// the flags fall back to "not reacted/bookmarked" rather than failing the page.
+pub async fn overlay_viewer_state(state: &AppState, posts: &mut [PostView], viewer: Option<Uuid>) {
+    let Some(viewer) = viewer else {
+        return;
+    };
+    if posts.is_empty() {
+        return;
+    }
+    let ids: Vec<Uuid> = posts.iter().map(|p| p.id).collect();
+    let reacted: std::collections::HashSet<Uuid> =
+        sqlx::query_scalar("SELECT post_id FROM reactions WHERE user_id = $1 AND post_id = ANY($2)")
+            .bind(viewer)
+            .bind(&ids)
+            .fetch_all(&state.pg)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+    let bookmarked: std::collections::HashSet<Uuid> =
+        sqlx::query_scalar("SELECT post_id FROM bookmarks WHERE user_id = $1 AND post_id = ANY($2)")
+            .bind(viewer)
+            .bind(&ids)
+            .fetch_all(&state.pg)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+    for p in posts.iter_mut() {
+        p.viewer_reacted = Some(reacted.contains(&p.id));
+        p.viewer_bookmarked = Some(bookmarked.contains(&p.id));
     }
 }
 

@@ -33,6 +33,10 @@ pub struct Config {
     pub spam_threshold: i32,
     /// Lowercased phrases that strongly mark a post as spam (`SPAM_DENYLIST`, csv).
     pub spam_denylist: Vec<String>,
+    /// Lowercased phrases marking a post as toxic/harassing (`TOXICITY_DENYLIST`,
+    /// csv) — a free, operator-tuned heuristic standing in for an ML classifier.
+    /// Kept separate from spam so the two tune and log independently.
+    pub toxicity_denylist: Vec<String>,
     /// Reactive moderation: a live post is auto-quarantined once this many distinct
     /// accounts file an open report against it (`REPORT_QUARANTINE_THRESHOLD`, default 4).
     pub report_quarantine_threshold: i64,
@@ -100,6 +104,12 @@ impl Config {
                 .ok()
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(8),
+            toxicity_denylist: env::var("TOXICITY_DENYLIST")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect(),
             spam_denylist: env::var("SPAM_DENYLIST")
                 .unwrap_or_default()
                 .split(',')

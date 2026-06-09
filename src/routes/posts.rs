@@ -287,6 +287,21 @@ async fn spam_score(state: &AppState, user: &CurrentUser, body: &str) -> (i32, V
         why.push(format!("denylist: {term}"));
     }
 
+    // Layer 5b — toxicity denylist (TOXICITY_DENYLIST, P7). A free, operator-tuned
+    // stand-in for an ML classifier: a match is a strong signal that lands the post
+    // in review. Reuses `lower`; kept separate from spam so the two tune and log
+    // independently. (Proactive on top-level public posts here; toxic replies are
+    // caught reactively by the report-threshold path.)
+    if let Some(term) = state
+        .config
+        .toxicity_denylist
+        .iter()
+        .find(|t| lower.contains(t.as_str()))
+    {
+        pts += 4;
+        why.push(format!("toxicity: {term}"));
+    }
+
     // Layer 6 — account heat (escalation). An account whose recent content was
     // auto-quarantined or removed carries heat (current_heat decays it over time),
     // biasing its borderline posts toward review. This is what turns a string of

@@ -76,8 +76,13 @@ async fn hashtags(
         // miss the capital N entirely and silently truncate the tag).
         let rows: Vec<TagCount> = sqlx::query_as(
         r#"
-        SELECT tag, COUNT(*)::bigint AS count FROM (
-            SELECT unnest(regexp_matches(lower(body), '(?<![[:alnum:]_])#([a-z0-9_]{2,32})', 'g')) AS tag
+        -- Anti-gaming (P8): rank tags by the number of DISTINCT authors using them,
+        -- not raw occurrences, and require at least 2 — so one account spamming a tag
+        -- can't trend it. Accounts carrying recent moderation heat (current_heat, P2)
+        -- are excluded so repeat offenders can't push a tag.
+        SELECT tag, COUNT(DISTINCT author_id)::bigint AS count FROM (
+            SELECT p.author_id,
+                   unnest(regexp_matches(lower(body), '(?<![[:alnum:]_])#([a-z0-9_]{2,32})', 'g')) AS tag
             FROM posts p
             JOIN users u ON u.id = p.author_id
             WHERE p.deleted_at IS NULL
@@ -85,8 +90,10 @@ async fn hashtags(
               AND p.visibility = 'public'
               AND p.created_at > $1
               AND u.role <> 'suspended'
+              AND current_heat(u.heat_score, u.heat_updated_at) < 4
         ) m
         GROUP BY tag
+        HAVING COUNT(DISTINCT author_id) >= 2
         ORDER BY count DESC, tag ASC
         LIMIT $2
         "#,
@@ -140,6 +147,12 @@ async fn posts(
           AND p.visibility = 'public'
           AND p.created_at > $1
           AND u.role <> 'suspended'
+          -- Anti-gaming (P8): the author must be at least 2 days old, and free of
+          -- recent moderation heat (current_heat, P2) — a fresh sock-puppet ring or
+          -- a flagged repeat offender can't trend. Trust-weighting the reactions
+          -- themselves belongs in the at-scale materialized view noted above.
+          AND u.created_at < NOW() - interval '48 hours'
+          AND current_heat(u.heat_score, u.heat_updated_at) < 4
         ORDER BY (p.reactions_count + p.replies_count) DESC, p.created_at DESC
         LIMIT $2
         "#,

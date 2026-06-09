@@ -37,18 +37,31 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, code) = match &self {
-            AppError::NotFound => (StatusCode::NOT_FOUND, "not_found"),
-            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
-            AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
-            AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
-            AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+        // The `message` is client-facing. For 4xx it is our own text (validation
+        // hints, etc.) and safe to surface; for the 5xx group it is forced to a
+        // static string so an internal error's detail (a sqlx/anyhow message that
+        // can name tables, columns, or hosts) is never leaked — the full error is
+        // logged server-side instead.
+        let (status, code, message) = match &self {
+            AppError::NotFound => (StatusCode::NOT_FOUND, "not_found", self.to_string()),
+            AppError::Unauthorized => {
+                (StatusCode::UNAUTHORIZED, "unauthorized", self.to_string())
+            }
+            AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden", self.to_string()),
+            AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request", self.to_string()),
+            AppError::RateLimited => {
+                (StatusCode::TOO_MANY_REQUESTS, "rate_limited", self.to_string())
+            }
             AppError::Database(_) | AppError::Redis(_) | AppError::Internal(_) => {
                 tracing::error!(error = ?self, "internal error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal")
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    "internal error".to_string(),
+                )
             }
         };
-        let body = Json(json!({ "error": code, "message": self.to_string() }));
+        let body = Json(json!({ "error": code, "message": message }));
         let mut resp = (status, body).into_response();
         // Give API / mobile clients a concrete backoff hint on 429s.
         if matches!(self, AppError::RateLimited) {

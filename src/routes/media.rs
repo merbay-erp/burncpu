@@ -182,6 +182,21 @@ pub(crate) async fn ingest_image_bytes(
     h.update(&re_encoded);
     let digest = h.finalize();
     let digest_vec = digest.to_vec();
+
+    // Reject content an admin has blocklisted (P5). The hash is over the re-encoded
+    // (EXIF-stripped, normalized) bytes, so a re-upload of a blocked image is caught
+    // even if its metadata or container changed. Checked before any disk/DB write.
+    let blocked: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM blocked_media_hashes WHERE sha256 = $1)",
+    )
+    .bind(&digest_vec)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false);
+    if blocked {
+        return Err(AppError::BadRequest("this image is not allowed".into()));
+    }
+
     let hex_short: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
     let filename = format!("{hex_short}.{ext}");
 

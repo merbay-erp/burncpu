@@ -369,7 +369,7 @@
     },
     "/admin/posts/{id}": {
       "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
-      "patch": { "tags": ["Admin"], "summary": "Change moderation_state", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["moderation_state"], "properties": { "moderation_state": { "type": "string", "enum": ["live", "quarantine", "removed"] }, "reason": { "type": "string" } } } } } }, "responses": { "204": { "description": "Updated." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+      "patch": { "tags": ["Admin"], "summary": "Change moderation_state", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["moderation_state"], "properties": { "moderation_state": { "type": "string", "enum": ["live", "quarantine", "removed"] }, "reason": { "type": "string" }, "block_media": { "type": "boolean", "description": "On removal, also blocklist the post's image hashes (P5)." } } } } } }, "responses": { "204": { "description": "Updated." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
     },
     "/admin/users": {
       "get": { "tags": ["Admin"], "summary": "User list + counts", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Users", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }

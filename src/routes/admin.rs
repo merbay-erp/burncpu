@@ -291,6 +291,10 @@ pub struct PatchPost {
     moderation_state: String,
     #[serde(default)]
     reason: Option<String>,
+    /// On removal, also blocklist the post's image hashes so they can't be
+    /// re-uploaded (P5). Opt-in, since the removal may be unrelated to the image.
+    #[serde(default)]
+    block_media: Option<bool>,
 }
 
 async fn patch_post(
@@ -360,6 +364,24 @@ async fn patch_post(
     if input.moderation_state == "removed" {
         crate::moderation::register_content_offense(&state, author_id, &body, 5, "admin removal")
             .await;
+        // Opt-in: blocklist this post's image hashes so the same image can't be
+        // re-uploaded (P5). Idempotent; keyed on the re-encoded content hash.
+        if input.block_media == Some(true) {
+            let _ = sqlx::query(
+                r#"
+                INSERT INTO blocked_media_hashes (sha256, reason, blocked_by)
+                SELECT m.sha256, $2, $3
+                FROM media m JOIN post_media pm ON pm.media_id = m.id
+                WHERE pm.post_id = $1
+                ON CONFLICT (sha256) DO NOTHING
+                "#,
+            )
+            .bind(id)
+            .bind(input.reason.as_deref())
+            .bind(admin.0.user_id)
+            .execute(&state.pg)
+            .await;
+        }
     }
     Ok(StatusCode::NO_CONTENT)
 }

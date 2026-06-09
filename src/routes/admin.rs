@@ -304,14 +304,14 @@ async fn patch_post(
     ) {
         return Err(AppError::BadRequest("invalid state".into()));
     }
-    let author_id: Option<Uuid> = sqlx::query_scalar(
-        "UPDATE posts SET moderation_state = $1, updated_at = NOW() WHERE id = $2 RETURNING author_id",
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        "UPDATE posts SET moderation_state = $1, updated_at = NOW() WHERE id = $2 RETURNING author_id, body",
     )
     .bind(&input.moderation_state)
     .bind(id)
     .fetch_optional(&state.pg)
     .await?;
-    let Some(author_id) = author_id else {
+    let Some((author_id, body)) = row else {
         return Err(AppError::NotFound);
     };
     // Sync search index: only public+live posts from active users surface anonymously.
@@ -357,7 +357,8 @@ async fn patch_post(
     // heavily so a few upheld removals escalate the account toward an autonomous
     // suspend (P2). Quarantine/live are not offenses (live exonerates).
     if input.moderation_state == "removed" {
-        crate::moderation::register_content_offense(&state, author_id, 5, "admin removal").await;
+        crate::moderation::register_content_offense(&state, author_id, &body, 5, "admin removal")
+            .await;
     }
     Ok(StatusCode::NO_CONTENT)
 }

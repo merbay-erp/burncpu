@@ -137,14 +137,14 @@ async fn maybe_quarantine_reported_post(state: &AppState, post_id: Uuid) {
     // Transition exactly once, skipping staff-authored posts. A NULL result means
     // it was already non-live (or staff) — nothing to do, and crucially no
     // duplicate log/search/heat churn on every further report past the threshold.
-    let author_id: Option<Uuid> = sqlx::query_scalar(
+    let row: Option<(Uuid, String)> = sqlx::query_as(
         r#"
         UPDATE posts p SET moderation_state = 'quarantine', updated_at = NOW()
         WHERE p.id = $1 AND p.moderation_state = 'live'
           AND NOT EXISTS (
               SELECT 1 FROM users u WHERE u.id = p.author_id AND u.role IN ('admin', 'mod')
           )
-        RETURNING p.author_id
+        RETURNING p.author_id, p.body
         "#,
     )
     .bind(post_id)
@@ -153,7 +153,7 @@ async fn maybe_quarantine_reported_post(state: &AppState, post_id: Uuid) {
     .ok()
     .flatten();
 
-    let Some(author_id) = author_id else {
+    let Some((author_id, body)) = row else {
         return;
     };
 
@@ -178,10 +178,16 @@ async fn maybe_quarantine_reported_post(state: &AppState, post_id: Uuid) {
     )
     .await;
 
-    // Raise the author's heat; an account whose posts keep getting community-
-    // quarantined escalates toward an autonomous suspend (P2).
-    crate::moderation::register_content_offense(state, author_id, 3, "report-threshold quarantine")
-        .await;
+    // Raise the author's heat + the linked domains' reputation; an account whose
+    // posts keep getting community-quarantined escalates toward a suspend (P2/P3).
+    crate::moderation::register_content_offense(
+        state,
+        author_id,
+        &body,
+        3,
+        "report-threshold quarantine",
+    )
+    .await;
 
     tracing::info!(%post_id, reports = open_reports, "post auto-quarantined (report threshold)");
 }

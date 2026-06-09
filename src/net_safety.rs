@@ -52,6 +52,33 @@ pub fn canonical_http_url(raw: &str) -> Option<String> {
     parse_url(raw).ok().map(|u| u.to_string())
 }
 
+/// Distinct host names of the http(s) links in a body of text, lowercased and
+/// `www.`-stripped — the keys the link-reputation table (P3) tracks. Tokenises on
+/// whitespace and the usual markdown/quote delimiters so `[t](https://x.com)`
+/// yields `x.com`, trims trailing sentence punctuation, and keeps only http(s)
+/// hosts. Best-effort and allocation-light; not security-sensitive (SSRF checks
+/// live in `validate_public_http_url`).
+pub(crate) fn extract_domains(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for raw in body.split(|c: char| {
+        c.is_whitespace() || matches!(c, '(' | ')' | '[' | ']' | '<' | '>' | '"' | '\'' | '`')
+    }) {
+        let tok = raw.trim_end_matches(['.', ',', '!', '?', ';', ':']);
+        if !(tok.starts_with("http://") || tok.starts_with("https://")) {
+            continue;
+        }
+        if let Ok(url) = Url::parse(tok)
+            && let Some(host) = url.host_str()
+        {
+            let host = host.trim_start_matches("www.").to_ascii_lowercase();
+            if !host.is_empty() && !out.contains(&host) {
+                out.push(host);
+            }
+        }
+    }
+    out
+}
+
 pub async fn safe_client_for(
     raw: &str,
     user_agent: &str,
@@ -201,5 +228,17 @@ mod tests {
             let ip: IpAddr = raw.parse().unwrap();
             assert!(is_forbidden_ip(ip), "{raw}");
         }
+    }
+
+    #[test]
+    fn extract_domains_handles_markdown_and_punctuation() {
+        // Bare, markdown-wrapped, case/www-normalised, dedup'd, trailing-punct'd.
+        let body = "see https://Evil.com/x and [t](http://www.evil.com), also https://good.org!";
+        let mut d = extract_domains(body);
+        d.sort();
+        assert_eq!(d, vec!["evil.com".to_string(), "good.org".to_string()]);
+        // No links, and non-http schemes, yield nothing.
+        assert!(extract_domains("no links here, just text.").is_empty());
+        assert!(extract_domains("ftp://x.com mailto:a@b.com").is_empty());
     }
 }

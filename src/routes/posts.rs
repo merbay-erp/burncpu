@@ -235,6 +235,31 @@ async fn spam_score(state: &AppState, user: &CurrentUser, body: &str) -> (i32, V
         why.push("link from new account".into());
     }
 
+    // Layer 2b — domain reputation (P3). Links to hosts repeatedly seen in
+    // quarantined/removed content score higher; the worst current (decayed) score
+    // among the post's domains drives it. Deliberately a *tip, not a decider*: the
+    // max contribution (+3) stays below spam_threshold, so a bad-reputation domain
+    // can never single-handedly quarantine a trusted account's post (which matters
+    // because popular domains appear in both good and bad content and could be
+    // poisoned) — it only pushes content that already carries other signals over.
+    let domains = crate::net_safety::extract_domains(body);
+    if !domains.is_empty() {
+        let worst: i32 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(current_heat(bad_score, updated_at)), 0) FROM link_reputation WHERE domain = ANY($1)",
+        )
+        .bind(&domains)
+        .fetch_one(&state.pg)
+        .await
+        .unwrap_or(0);
+        if worst >= 12 {
+            pts += 3;
+            why.push(format!("bad-reputation domain (score {worst})"));
+        } else if worst >= 6 {
+            pts += 2;
+            why.push(format!("flagged domain (score {worst})"));
+        }
+    }
+
     // Layer 3 — mention flooding.
     let mentions = body.matches('@').count();
     if mentions >= 6 {
@@ -508,9 +533,16 @@ async fn create_post(
             Some(spam_pts as i16),
         )
         .await;
-        // Raise the author's heat; a sustained spam pattern escalates (P2).
-        crate::moderation::register_content_offense(&state, user.user_id, 2, "spam quarantine")
-            .await;
+        // Raise the author's heat + the linked domains' reputation; a sustained
+        // spam pattern escalates (P2/P3).
+        crate::moderation::register_content_offense(
+            &state,
+            user.user_id,
+            body,
+            2,
+            "spam quarantine",
+        )
+        .await;
         return Ok((
             StatusCode::ACCEPTED,
             Json(CreateResponse {

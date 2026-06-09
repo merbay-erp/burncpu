@@ -106,21 +106,49 @@ pub async fn add_heat(state: &AppState, user_id: Uuid, points: i32) -> i32 {
     .unwrap_or(0)
 }
 
-/// Record an automated content offense against `author_id`: raise heat by
-/// `points` and, if that reaches `HEAT_SUSPEND_THRESHOLD` (when configured > 0),
-/// auto-suspend the account. Keeps the whole escalation ladder in one place so
-/// every quarantine/removal path escalates identically. Best-effort throughout.
+/// Record an automated content offense: raise the author's heat by `points`,
+/// penalize the reputation of every domain linked in `body` by the same amount,
+/// and — if the heat reaches `HEAT_SUSPEND_THRESHOLD` (when configured > 0) —
+/// auto-suspend the account. The single entry point every quarantine/removal path
+/// calls, so author heat (P2) and domain reputation (P3) escalate together and
+/// identically. Best-effort throughout.
 pub async fn register_content_offense(
     state: &AppState,
     author_id: Uuid,
+    body: &str,
     points: i32,
     reason: &str,
 ) {
     let heat = add_heat(state, author_id, points).await;
+    penalize_domains(state, body, points).await;
     let threshold = state.config.heat_suspend_threshold;
     if threshold > 0 && heat >= threshold {
         auto_suspend(state, author_id, &format!("heat {heat} >= {threshold} ({reason})")).await;
     }
+}
+
+/// Add `points` of badness to every http(s) domain linked in `body` (decay-then-add
+/// via current_heat, keyed by host). Driven by the same offense events as heat, so a
+/// domain's reputation tracks the quarantines/removals of the posts it rode in on.
+/// Best-effort; a no-op when the body carries no links.
+async fn penalize_domains(state: &AppState, body: &str, points: i32) {
+    let domains = crate::net_safety::extract_domains(body);
+    if domains.is_empty() {
+        return;
+    }
+    let _ = sqlx::query(
+        r#"
+        INSERT INTO link_reputation (domain, bad_score, updated_at)
+        SELECT d, $2, NOW() FROM unnest($1::text[]) AS d
+        ON CONFLICT (domain) DO UPDATE
+        SET bad_score = current_heat(link_reputation.bad_score, link_reputation.updated_at) + $2,
+            updated_at = NOW()
+        "#,
+    )
+    .bind(&domains)
+    .bind(points)
+    .execute(&state.pg)
+    .await;
 }
 
 /// Autonomously suspend an account (the hard escalation tier), mirroring the

@@ -69,17 +69,24 @@ async fn hashtags(
     let dur = parse_window(&q.window).min(chrono::Duration::hours(168));
     let since = Utc::now() - dur;
     let key = format!("tr:tags:{}m:l{}", dur.num_minutes(), limit);
+    // The default 24h window — the hottest — is served from the hourly materialized
+    // view (migration 0036), avoiding the live regex scan; other windows fall back
+    // to the scan. Same P8 anti-gaming is baked into the view.
+    let use_mv = dur == chrono::Duration::hours(24);
     let compute = || async {
-        // Postgres regex extraction. Same rules as the Rust extractor: 2-32
-        // chars, lowercase, alphanumeric or _. Lowercase the body first so a tag
-        // typed `#News` matches as `news` (the `[a-z0-9_]` class would otherwise
-        // miss the capital N entirely and silently truncate the tag).
-        let rows: Vec<TagCount> = sqlx::query_as(
-        r#"
-        -- Anti-gaming (P8): rank tags by the number of DISTINCT authors using them,
-        -- not raw occurrences, and require at least 2 — so one account spamming a tag
-        -- can't trend it. Accounts carrying recent moderation heat (current_heat, P2)
-        -- are excluded so repeat offenders can't push a tag.
+        let rows: Vec<TagCount> = if use_mv {
+            sqlx::query_as(
+                "SELECT tag, count FROM trending_hashtags_24h ORDER BY count DESC, tag ASC LIMIT $1",
+            )
+            .bind(limit)
+            .fetch_all(&state.pg)
+            .await
+            .unwrap_or_default()
+        } else {
+            // Live regex extraction (2-32 chars, lowercase, alphanumeric/_), ranked
+            // by DISTINCT authors (>= 2) and excluding heated accounts.
+            sqlx::query_as(
+                r#"
         SELECT tag, COUNT(DISTINCT author_id)::bigint AS count FROM (
             SELECT p.author_id,
                    unnest(regexp_matches(lower(body), '(?<![[:alnum:]_])#([a-z0-9_]{2,32})', 'g')) AS tag
@@ -97,12 +104,13 @@ async fn hashtags(
         ORDER BY count DESC, tag ASC
         LIMIT $2
         "#,
-    )
-    .bind(since)
-    .bind(limit)
-    .fetch_all(&state.pg)
-    .await
-    .unwrap_or_default();
+            )
+            .bind(since)
+            .bind(limit)
+            .fetch_all(&state.pg)
+            .await
+            .unwrap_or_default()
+        };
         serde_json::to_string(&rows).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))
     };
     let json =
@@ -135,9 +143,27 @@ async fn posts(
     let dur = parse_window(&q.window).min(chrono::Duration::hours(168));
     let since = Utc::now() - dur;
     let key = format!("tr:posts:{}m:l{}", dur.num_minutes(), limit);
+    // Default 24h window served from the hourly materialized view (migration 0036);
+    // other windows use the live ranked scan. P8 anti-gaming is baked into the view.
+    let use_mv = dur == chrono::Duration::hours(24);
     let compute = || async {
-        let rows: Vec<TrendingPost> = sqlx::query_as(
-            r#"
+        let rows: Vec<TrendingPost> = if use_mv {
+            sqlx::query_as(
+                r#"
+        SELECT id, author_id, author_username, author_display_name, author_avatar_url,
+               body, body_html, reactions_count, replies_count, created_at
+        FROM trending_posts_24h
+        ORDER BY score DESC, created_at DESC
+        LIMIT $1
+        "#,
+            )
+            .bind(limit)
+            .fetch_all(&state.pg)
+            .await
+            .unwrap_or_default()
+        } else {
+            sqlx::query_as(
+                r#"
         SELECT p.id, p.author_id, u.username AS author_username,
                u.display_name AS author_display_name, u.avatar_url AS author_avatar_url,
                p.body, p.body_html, p.reactions_count, p.replies_count, p.created_at
@@ -147,21 +173,21 @@ async fn posts(
           AND p.visibility = 'public'
           AND p.created_at > $1
           AND u.role <> 'suspended'
-          -- Anti-gaming (P8): the author must be at least 2 days old, and free of
-          -- recent moderation heat (current_heat, P2) — a fresh sock-puppet ring or
-          -- a flagged repeat offender can't trend. Trust-weighting the reactions
-          -- themselves belongs in the at-scale materialized view noted above.
+          -- Anti-gaming (P8): author at least 2 days old and free of recent
+          -- moderation heat (current_heat, P2) — a fresh sock-puppet ring or a
+          -- flagged repeat offender can't trend.
           AND u.created_at < NOW() - interval '48 hours'
           AND current_heat(u.heat_score, u.heat_updated_at) < 4
         ORDER BY (p.reactions_count + p.replies_count) DESC, p.created_at DESC
         LIMIT $2
         "#,
-        )
-        .bind(since)
-        .bind(limit)
-        .fetch_all(&state.pg)
-        .await
-        .unwrap_or_default();
+            )
+            .bind(since)
+            .bind(limit)
+            .fetch_all(&state.pg)
+            .await
+            .unwrap_or_default()
+        };
         serde_json::to_string(&rows).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))
     };
     let json =

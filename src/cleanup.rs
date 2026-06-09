@@ -61,6 +61,17 @@ async fn run_once(pg: &PgPool, media_dir: &str) {
             "login_attempts partitions",
             "SELECT manage_log_partitions('login_attempts', 7)",
         ),
+        // Trending materialized views (migration 0036): refresh hourly so the 24h
+        // surfaces are precomputed, not regex-scanned on read. CONCURRENTLY never
+        // blocks readers (relies on the views' unique indexes).
+        (
+            "trending_hashtags_24h",
+            "REFRESH MATERIALIZED VIEW CONCURRENTLY trending_hashtags_24h",
+        ),
+        (
+            "trending_posts_24h",
+            "REFRESH MATERIALIZED VIEW CONCURRENTLY trending_posts_24h",
+        ),
         (
             "notifications",
             "DELETE FROM notifications WHERE created_at < NOW() - interval '180 days'",

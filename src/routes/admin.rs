@@ -564,7 +564,7 @@ pub(crate) async fn sync_post_search(pg: sqlx::PgPool, search: Search, post_id: 
     }
 }
 
-async fn sync_user_search(pg: sqlx::PgPool, search: Search, user_id: Uuid, role: &str) {
+pub(crate) async fn sync_user_search(pg: sqlx::PgPool, search: Search, user_id: Uuid, role: &str) {
     if role == "suspended" {
         let ids: Vec<Uuid> =
             sqlx::query_scalar("SELECT id FROM posts WHERE author_id = $1 AND deleted_at IS NULL")

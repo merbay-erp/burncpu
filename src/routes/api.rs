@@ -123,6 +123,7 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "GET    /api/v1/admin/reports":        "report queue (admin, ?open=1)",
                         "PATCH  /api/v1/admin/reports/{id}":   "resolve { resolution } (admin)",
                         "POST   /api/v1/appeals":              "appeal own quarantined/removed post",
+                        "POST   /api/v1/appeals/account":      "appeal account suspension (email, no auth)",
                         "GET    /api/v1/appeals/eligible":     "own posts that can be appealed",
                         "GET    /api/v1/admin/appeals":        "appeal queue (admin, ?open=1)",
                         "PATCH  /api/v1/admin/appeals/{id}":   "grant/deny { decision } (admin)",

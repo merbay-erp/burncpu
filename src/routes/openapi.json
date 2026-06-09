@@ -360,6 +360,9 @@
     "/appeals": {
       "post": { "tags": ["Reports"], "summary": "Appeal own quarantined/removed post", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["post_id"], "properties": { "post_id": { "type": "string", "format": "uuid" }, "note": { "type": "string" } } } } } }, "responses": { "201": { "description": "Appeal filed." }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } } }
     },
+    "/appeals/account": {
+      "post": { "tags": ["Reports"], "summary": "Appeal an account suspension (unauthenticated, email-identified)", "description": "Out-of-band channel for suspended users. Always 202 (enumeration-safe); an appeal is filed only when the email maps to a suspended account.", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["email"], "properties": { "email": { "type": "string", "format": "email" }, "note": { "type": "string" } } } } } }, "responses": { "202": { "description": "Received." }, "429": { "$ref": "#/components/responses/RateLimited" } } }
+    },
     "/appeals/eligible": {
       "get": { "tags": ["Reports"], "summary": "Own posts that can be appealed", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Eligible posts", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
     },

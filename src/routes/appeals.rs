@@ -11,20 +11,21 @@
 
 use crate::{
     errors::AppError,
-    middleware::{auth_extractor::AdminUser, session::CurrentUser},
+    middleware::{auth_extractor::AdminUser, client_ip, session::CurrentUser},
     moderation::{Actor, log_action},
-    routes::admin::sync_post_search,
+    routes::admin::{sync_post_search, sync_user_search},
     state::AppState,
 };
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{ConnectInfo, Path, Query, State},
+    http::{HeaderMap, StatusCode},
     routing::{get, patch, post},
 };
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
+use std::net::SocketAddr;
 use uuid::Uuid;
 
 // Per-author appeal rate limit (anti-spam).
@@ -35,12 +36,90 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", post(create))
         .route("/eligible", get(eligible))
+        // Unauthenticated: a suspended user can't log in to use the in-app flow.
+        .route("/account", post(create_account))
 }
 
 pub fn admin_router() -> Router<AppState> {
     Router::new()
         .route("/", get(list))
         .route("/{id}", patch(resolve))
+}
+
+#[derive(Deserialize)]
+pub struct AccountAppealBody {
+    email: String,
+    note: Option<String>,
+}
+
+/// Out-of-band account-suspension appeal. Unauthenticated and identified by email
+/// (a suspended user can't authenticate). Enumeration-safe: it always returns 202,
+/// and an appeal + confirmation email happen only when the email maps to a
+/// suspended account — so the response never reveals whether an address exists or
+/// is suspended. IP rate-limited; one open account appeal per user.
+async fn create_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Json(b): Json<AccountAppealBody>,
+) -> Result<StatusCode, AppError> {
+    let ip = client_ip::extract(&headers, Some(&peer))
+        .map(|i| i.to_string())
+        .unwrap_or_else(|| "unknown".into());
+    {
+        let mut redis = state.redis.clone();
+        let key = format!("rl:appeal:account:{ip}");
+        let count: u32 = redis.incr(&key, 1u32).await?;
+        if count == 1 {
+            let _: () = redis.expire(&key, 3600).await?;
+        }
+        if count > 5 {
+            return Err(AppError::RateLimited);
+        }
+    }
+
+    let email = b.email.trim().to_lowercase();
+    let appellant: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE email = $1 AND role = 'suspended'")
+            .bind(&email)
+            .fetch_optional(&state.pg)
+            .await?;
+
+    if let Some(uid) = appellant {
+        let note = b
+            .note
+            .as_deref()
+            .map(|s| s.trim().chars().take(1000).collect::<String>())
+            .filter(|s| !s.is_empty());
+        let inserted = sqlx::query(
+            r#"
+            INSERT INTO appeals (appellant_id, target_kind, note)
+            VALUES ($1, 'account', $2)
+            ON CONFLICT (appellant_id) WHERE status = 'open' AND target_kind = 'account'
+            DO NOTHING
+            "#,
+        )
+        .bind(uid)
+        .bind(note)
+        .execute(&state.pg)
+        .await?
+        .rows_affected();
+
+        if inserted > 0
+            && let Ok(sender) = crate::auth::email::Sender::from_env(&state.config.site_origin)
+        {
+            let _ = sender
+                .send(
+                    &email,
+                    "burncpu.com — itiraz alındı",
+                    "İtirazını aldık. Bir yönetici hesabını gözden geçirecek; sonucu \
+                     giriş yapmayı deneyerek görebilirsin.\n\n🐢 burncpu",
+                )
+                .await;
+        }
+    }
+
+    Ok(StatusCode::ACCEPTED)
 }
 
 #[derive(Deserialize)]
@@ -161,10 +240,11 @@ pub struct ListQuery {
 #[derive(Serialize, sqlx::FromRow)]
 pub struct AppealRow {
     id: Uuid,
+    target_kind: String,
     appellant_username: String,
-    post_id: Uuid,
-    post_body: String,
-    post_state: String,
+    post_id: Option<Uuid>,
+    post_body: Option<String>,
+    post_state: Option<String>,
     note: Option<String>,
     status: String,
     created_at: DateTime<Utc>,
@@ -181,13 +261,13 @@ async fn list(
     let rows: Vec<AppealRow> = sqlx::query_as(
         r#"
         SELECT
-            a.id, au.username AS appellant_username, a.post_id,
+            a.id, a.target_kind, au.username AS appellant_username, a.post_id,
             p.body AS post_body, p.moderation_state AS post_state,
             a.note, a.status, a.created_at, a.resolved_at,
             ru.username AS resolved_by_username
         FROM appeals a
         JOIN users au ON au.id = a.appellant_id
-        JOIN posts p ON p.id = a.post_id
+        LEFT JOIN posts p ON p.id = a.post_id
         LEFT JOIN users ru ON ru.id = a.resolved_by
         WHERE ($1 = false OR a.status = 'open')
         ORDER BY a.created_at DESC
@@ -220,13 +300,13 @@ async fn resolve(
             ));
         }
     };
-    // Close the appeal (only if still open) and learn which post it concerned.
-    let post_id: Option<Uuid> = sqlx::query_scalar(
+    // Close the appeal (only if still open) and learn what it concerned.
+    let row: Option<(String, Option<Uuid>, Uuid)> = sqlx::query_as(
         r#"
         UPDATE appeals
         SET status = $2, resolved_at = NOW(), resolved_by = $3
         WHERE id = $1 AND status = 'open'
-        RETURNING post_id
+        RETURNING target_kind, post_id, appellant_id
         "#,
     )
     .bind(id)
@@ -234,11 +314,40 @@ async fn resolve(
     .bind(admin.0.user_id)
     .fetch_optional(&state.pg)
     .await?;
-    let Some(post_id) = post_id else {
+    let Some((target_kind, post_id, appellant_id)) = row else {
         return Err(AppError::NotFound); // unknown or already resolved
     };
 
     let actor = Actor::Admin(admin.0.user_id);
+    let decision = if grant { "appeal_granted" } else { "appeal_denied" };
+
+    // Account appeal — granting lifts the suspension and re-indexes the account.
+    if target_kind == "account" {
+        if grant {
+            let restored = sqlx::query(
+                "UPDATE users SET role = 'member', updated_at = NOW() WHERE id = $1 AND role = 'suspended'",
+            )
+            .bind(appellant_id)
+            .execute(&state.pg)
+            .await
+            .map(|r| r.rows_affected())
+            .unwrap_or(0);
+            if restored > 0 {
+                let pg = state.pg.clone();
+                let search = state.search.clone();
+                tokio::spawn(async move {
+                    sync_user_search(pg, search, appellant_id, "member").await;
+                });
+            }
+        }
+        log_action(&state, "user", appellant_id, decision, actor, None, None).await;
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    // Post appeal — post_id is guaranteed present by the appeals_target_ck constraint.
+    let Some(post_id) = post_id else {
+        return Ok(StatusCode::NO_CONTENT);
+    };
     if grant {
         // Restore the post to live (if still moderated), reindex it, and clear the
         // community flags that pointed at it — mirrors admin patch_post → live.
@@ -266,9 +375,7 @@ async fn resolve(
             .execute(&state.pg)
             .await;
         }
-        log_action(&state, "post", post_id, "appeal_granted", actor, None, None).await;
-    } else {
-        log_action(&state, "post", post_id, "appeal_denied", actor, None, None).await;
     }
+    log_action(&state, "post", post_id, decision, actor, None, None).await;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,8 +1,8 @@
 // /api/v1 — public API surface. Submodules attach themselves below.
 
 use super::{
-    admin, auth, bookmarks, dm, feed, invites, link_preview, media, notifications, oauth, openapi,
-    posts, push, relations, reports, search, tokens, trending, users, webhooks,
+    admin, appeals, auth, bookmarks, dm, feed, invites, link_preview, media, notifications, oauth,
+    openapi, posts, push, relations, reports, search, tokens, trending, users, webhooks,
 };
 use crate::state::AppState;
 use axum::{Router, routing::get};
@@ -122,6 +122,10 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "POST   /api/v1/reports":              "report post / user / dm",
                         "GET    /api/v1/admin/reports":        "report queue (admin, ?open=1)",
                         "PATCH  /api/v1/admin/reports/{id}":   "resolve { resolution } (admin)",
+                        "POST   /api/v1/appeals":              "appeal own quarantined/removed post",
+                        "GET    /api/v1/appeals/eligible":     "own posts that can be appealed",
+                        "GET    /api/v1/admin/appeals":        "appeal queue (admin, ?open=1)",
+                        "PATCH  /api/v1/admin/appeals/{id}":   "grant/deny { decision } (admin)",
                         "GET    /healthz":                     "liveness probe",
                         "GET    /api/v1/openapi.json":         "machine-readable OpenAPI 3.1 spec",
                     },
@@ -151,4 +155,6 @@ pub fn router(_state: AppState) -> Router<AppState> {
         .nest("/users", relations::router())   // /users/{u}/block + /mute + /me/blocks etc
         .nest("/reports", reports::router())
         .nest("/admin/reports", reports::admin_router())
+        .nest("/appeals", appeals::router())
+        .nest("/admin/appeals", appeals::admin_router())
 }

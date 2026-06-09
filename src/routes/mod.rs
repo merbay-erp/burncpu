@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod api;
+pub mod appeals;
 pub mod applinks;
 pub mod auth;
 pub mod bookmarks;

@@ -548,23 +548,18 @@ async fn get_profile(
     .await
     .unwrap_or(0);
 
-    let followers: i64 =
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.follower_id WHERE f.followee_id = $1 AND u.role <> 'suspended'",
-        )
-            .bind(id)
-            .fetch_one(&state.pg)
-            .await
-            .unwrap_or(0);
-
-    let following: i64 =
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = $1 AND u.role <> 'suspended'",
-        )
-            .bind(id)
-            .fetch_one(&state.pg)
-            .await
-            .unwrap_or(0);
+    // followers_count / following_count are denormalized columns kept in sync by
+    // the follows trigger (migration 0027) — one PK lookup instead of two
+    // COUNT(*)-over-`follows` scans (a 500k-row scan per view for a big account).
+    // Trade-off: a suspended follower now still counts (the old query filtered
+    // u.role; a denormalized counter can't track that) — an accepted small skew.
+    let (followers, following): (i64, i64) = sqlx::query_as(
+        "SELECT followers_count::bigint, following_count::bigint FROM users WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or((0, 0));
 
     // 19 May 2026 — Viewer-spesifik state. Anonim ziyaretci icin hepsi false.
     // Tek SQL ile 4 flag birden cekiliyor (4 ayri query yerine).

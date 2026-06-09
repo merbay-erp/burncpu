@@ -1009,9 +1009,9 @@ async fn react(
     .await
     .unwrap_or(false);
 
-    // Upsert reaction. If user already had a reaction, replace it. Either
-    // way reactions_count increments by 0 or 1; do a final recount to stay
-    // consistent.
+    // Upsert the reaction. A brand-new row fires the reactions_count trigger
+    // (+1); an emoji change (the ON CONFLICT UPDATE path) does not, so the count
+    // tracks distinct reactors — maintained entirely by the DB trigger (0027).
     sqlx::query(
         r#"
         INSERT INTO reactions (post_id, user_id, emoji)
@@ -1024,8 +1024,6 @@ async fn react(
     .bind(emoji)
     .execute(&state.pg)
     .await?;
-
-    refresh_reactions_count(&state, id).await?;
 
     // Notify the post author on first reaction only. `author_id` was already
     // resolved (and visibility-checked) above — no need to re-query. notify()
@@ -1056,7 +1054,7 @@ async fn unreact(
         .bind(user.user_id)
         .execute(&state.pg)
         .await?;
-    refresh_reactions_count(&state, id).await?;
+    // reactions_count is decremented by the DB trigger (migration 0027).
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1104,20 +1102,6 @@ async fn reactions(
         by_emoji,
         viewer,
     }))
-}
-
-async fn refresh_reactions_count(state: &AppState, post_id: Uuid) -> Result<(), AppError> {
-    sqlx::query(
-        r#"
-        UPDATE posts SET reactions_count = (
-            SELECT COUNT(*) FROM reactions WHERE post_id = $1
-        ) WHERE id = $1
-        "#,
-    )
-    .bind(post_id)
-    .execute(&state.pg)
-    .await?;
-    Ok(())
 }
 
 // ── helpers ─────────────────────────────────────────────────────

@@ -76,7 +76,7 @@ async fn list_threads(
     let rows: Vec<ThreadSummary> = sqlx::query_as(
         r#"
         WITH my AS (
-            SELECT id, a_id, b_id, last_message_at,
+            SELECT id, a_id, b_id, last_message_at, last_body, last_sender_id,
                    COALESCE(CASE WHEN a_id = $1 THEN a_cleared_at ELSE b_cleared_at END, '-infinity'::timestamptz) AS cleared
             FROM dm_threads
             WHERE (a_id = $1 OR b_id = $1)
@@ -87,8 +87,8 @@ async fn list_threads(
             u.username AS other_username,
             u.display_name AS other_display_name,
             u.avatar_url AS other_avatar_url,
-            (SELECT body FROM dm_messages m WHERE m.thread_id = my.id AND m.deleted_at IS NULL AND m.created_at > my.cleared ORDER BY m.created_at DESC LIMIT 1) AS last_body,
-            (SELECT sender_id FROM dm_messages m WHERE m.thread_id = my.id AND m.deleted_at IS NULL AND m.created_at > my.cleared ORDER BY m.created_at DESC LIMIT 1) AS last_sender_id,
+            my.last_body,
+            my.last_sender_id,
             my.last_message_at,
             (SELECT COUNT(*)::bigint FROM dm_messages m WHERE m.thread_id = my.id AND m.sender_id <> $1 AND m.read_at IS NULL AND m.deleted_at IS NULL AND m.created_at > my.cleared) AS unread_count
         FROM my
@@ -431,11 +431,16 @@ async fn send(
         msg.media_state = Some(proc_state);
     }
 
-    // Bump thread last_message_at (in case ON CONFLICT didn't fire)
-    let _ = sqlx::query("UPDATE dm_threads SET last_message_at = NOW() WHERE id = $1")
-        .bind(thread_id)
-        .execute(&state.pg)
-        .await;
+    // Bump last_message_at + the denormalized last-message preview (migration
+    // 0034) so the thread list needn't subquery the newest message per row.
+    let _ = sqlx::query(
+        "UPDATE dm_threads SET last_message_at = NOW(), last_body = $2, last_sender_id = $3 WHERE id = $1",
+    )
+    .bind(thread_id)
+    .bind(body)
+    .bind(user.user_id)
+    .execute(&state.pg)
+    .await;
 
     // SSE signal to recipient (no body — they refetch from API to read)
     let sender_username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
@@ -562,20 +567,36 @@ async fn delete_message(
     let Some(thread_id) = thread_id else {
         return Err(AppError::NotFound);
     };
+    recompute_thread_last(&state.pg, thread_id).await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Recompute a thread's denormalized last-message fields (last_message_at,
+/// last_body, last_sender_id) from its newest non-deleted message — or reset them
+/// to the thread's own timestamp / NULL when none remain. Called after every DM
+/// message deletion so the thread-list preview never shows a removed message
+/// (migration 0034). Best-effort.
+async fn recompute_thread_last(pg: &sqlx::PgPool, thread_id: Uuid) {
     let _ = sqlx::query(
         r#"
-        UPDATE dm_threads
-        SET last_message_at = COALESCE(
-            (SELECT MAX(created_at) FROM dm_messages WHERE thread_id = $1 AND deleted_at IS NULL),
-            created_at
-        )
-        WHERE id = $1
+        UPDATE dm_threads t
+        SET last_message_at = COALESCE(m.created_at, t.created_at),
+            last_body       = m.body,
+            last_sender_id  = m.sender_id
+        FROM (SELECT $1::uuid AS tid) k
+        LEFT JOIN LATERAL (
+            SELECT created_at, body, sender_id
+            FROM dm_messages
+            WHERE thread_id = k.tid AND deleted_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) m ON true
+        WHERE t.id = k.tid
         "#,
     )
     .bind(thread_id)
-    .execute(&state.pg)
+    .execute(pg)
     .await;
-    Ok(StatusCode::NO_CONTENT)
 }
 
 // ─── POST /dm/messages/delete — bulk soft-delete own messages ──────
@@ -607,19 +628,7 @@ async fn bulk_delete(
     threads.sort();
     threads.dedup();
     for tid in threads {
-        let _ = sqlx::query(
-            r#"
-            UPDATE dm_threads
-            SET last_message_at = COALESCE(
-                (SELECT MAX(created_at) FROM dm_messages WHERE thread_id = $1 AND deleted_at IS NULL),
-                created_at
-            )
-            WHERE id = $1
-            "#,
-        )
-        .bind(tid)
-        .execute(&state.pg)
-        .await;
+        recompute_thread_last(&state.pg, tid).await;
     }
     Ok(StatusCode::NO_CONTENT)
 }

@@ -12,6 +12,7 @@ use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 mod auth;
+mod cache;
 mod cleanup;
 mod config;
 mod content;

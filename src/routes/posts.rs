@@ -252,7 +252,12 @@ async fn spam_score(state: &AppState, user: &CurrentUser, body: &str) -> (i32, V
 
     // Layer 5 — configurable denylist (SPAM_DENYLIST). Strong signal.
     let lower = body.to_lowercase();
-    if let Some(term) = state.config.spam_denylist.iter().find(|t| lower.contains(t.as_str())) {
+    if let Some(term) = state
+        .config
+        .spam_denylist
+        .iter()
+        .find(|t| lower.contains(t.as_str()))
+    {
         pts += 4;
         why.push(format!("denylist: {term}"));
     }
@@ -473,7 +478,10 @@ async fn create_post(
         tracing::info!(user_id = %user.user_id, post_id = %id, score = spam_pts, reasons = ?spam_reasons, "post quarantined (spam score)");
         return Ok((
             StatusCode::ACCEPTED,
-            Json(CreateResponse { post: None, quarantined: true }),
+            Json(CreateResponse {
+                post: None,
+                quarantined: true,
+            }),
         ));
     }
 
@@ -535,7 +543,10 @@ async fn create_post(
     tracing::info!(user_id = %user.user_id, post_id = %id, "post created");
     Ok((
         StatusCode::CREATED,
-        Json(CreateResponse { post: Some(post), quarantined: false }),
+        Json(CreateResponse {
+            post: Some(post),
+            quarantined: false,
+        }),
     ))
 }
 
@@ -561,13 +572,15 @@ async fn timeline(
     State(state): State<AppState>,
     viewer_opt: Option<CurrentUser>,
     Query(q): Query<TimelineQuery>,
-) -> Result<Json<TimelineResponse>, AppError> {
+) -> Result<impl IntoResponse, AppError> {
     let limit = q.limit.clamp(1, 100);
     let before = q.before.unwrap_or_else(Utc::now);
     let viewer_id = viewer_opt.as_ref().map(|u| u.user_id);
+    let before_id = q.before_id.unwrap_or(Uuid::nil());
 
-    let rows: Vec<PostRow> = sqlx::query_as(
-        r#"
+    let compute = || async {
+        let rows: Vec<PostRow> = sqlx::query_as(
+            r#"
         SELECT
             p.id, p.author_id, u.username, u.display_name, u.avatar_url,
             p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
@@ -598,23 +611,45 @@ async fn timeline(
         ORDER BY p.created_at DESC, p.id DESC
         LIMIT $2
         "#,
-    )
-    .bind(before)
-    .bind(limit)
-    .bind(viewer_id)
-    .bind(q.before_id.unwrap_or(Uuid::nil()))
-    .fetch_all(&state.pg)
-    .await?;
+        )
+        .bind(before)
+        .bind(limit)
+        .bind(viewer_id)
+        .bind(before_id)
+        .fetch_all(&state.pg)
+        .await?;
 
-    let next = rows.last().map(|r| (r.created_at, r.id));
-    let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
-    enrich_cached_previews(&state, &mut posts).await;
+        let next = rows.last().map(|r| (r.created_at, r.id));
+        let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
+        enrich_cached_previews(&state, &mut posts).await;
+        let resp = TimelineResponse {
+            posts,
+            next_before: next.map(|(t, _)| t),
+            next_before_id: next.map(|(_, id)| id),
+        };
+        serde_json::to_string(&resp).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))
+    };
 
-    Ok(Json(TimelineResponse {
-        posts,
-        next_before: next.map(|(t, _)| t),
-        next_before_id: next.map(|(_, id)| id),
-    }))
+    // The anonymous public timeline page 1 is identical for every viewer, so it's
+    // computed once and shared from Redis for a few seconds (stampede-guarded).
+    // Logged-in (viewer-specific reaction/bookmark flags) or paginated requests
+    // bypass the cache and compute directly.
+    let json = if viewer_id.is_none() && q.before.is_none() {
+        crate::cache::read_through_json(
+            &mut state.redis.clone(),
+            &format!("tl:pub:l{limit}"),
+            20,
+            compute,
+        )
+        .await?
+    } else {
+        compute().await?
+    };
+
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        json,
+    ))
 }
 
 #[derive(Serialize)]

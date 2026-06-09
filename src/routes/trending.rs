@@ -8,8 +8,9 @@
 
 use crate::{errors::AppError, state::AppState};
 use axum::{
-    Json, Router,
+    Router,
     extract::{Query, State},
+    response::IntoResponse,
     routing::get,
 };
 use serde::{Deserialize, Serialize};
@@ -60,14 +61,20 @@ pub struct TagCount {
 async fn hashtags(
     State(state): State<AppState>,
     Query(q): Query<WindowQuery>,
-) -> Result<Json<Vec<TagCount>>, AppError> {
-    let since = Utc::now() - parse_window(&q.window);
+) -> Result<impl IntoResponse, AppError> {
     let limit = q.limit.clamp(1, 100);
-    // Postgres regex extraction. Same rules as the Rust extractor: 2-32
-    // chars, lowercase, alphanumeric or _. Lowercase the body first so a tag
-    // typed `#News` matches as `news` (the `[a-z0-9_]` class would otherwise
-    // miss the capital N entirely and silently truncate the tag).
-    let rows: Vec<TagCount> = sqlx::query_as(
+    // Cap the window at ~7 days so trending never regex-scans more than that
+    // slice of the public corpus (the scan is O(posts-in-window)); this also
+    // bounds the cache key space. Result is viewer-independent → cache 5 min.
+    let dur = parse_window(&q.window).min(chrono::Duration::hours(168));
+    let since = Utc::now() - dur;
+    let key = format!("tr:tags:{}m:l{}", dur.num_minutes(), limit);
+    let compute = || async {
+        // Postgres regex extraction. Same rules as the Rust extractor: 2-32
+        // chars, lowercase, alphanumeric or _. Lowercase the body first so a tag
+        // typed `#News` matches as `news` (the `[a-z0-9_]` class would otherwise
+        // miss the capital N entirely and silently truncate the tag).
+        let rows: Vec<TagCount> = sqlx::query_as(
         r#"
         SELECT tag, COUNT(*)::bigint AS count FROM (
             SELECT unnest(regexp_matches(lower(body), '(?<![[:alnum:]_])#([a-z0-9_]{2,32})', 'g')) AS tag
@@ -89,7 +96,14 @@ async fn hashtags(
     .fetch_all(&state.pg)
     .await
     .unwrap_or_default();
-    Ok(Json(rows))
+        serde_json::to_string(&rows).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))
+    };
+    let json =
+        crate::cache::read_through_json(&mut state.redis.clone(), &key, 300, compute).await?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        json,
+    ))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -109,11 +123,14 @@ pub struct TrendingPost {
 async fn posts(
     State(state): State<AppState>,
     Query(q): Query<WindowQuery>,
-) -> Result<Json<Vec<TrendingPost>>, AppError> {
-    let since = Utc::now() - parse_window(&q.window);
+) -> Result<impl IntoResponse, AppError> {
     let limit = q.limit.clamp(1, 50);
-    let rows: Vec<TrendingPost> = sqlx::query_as(
-        r#"
+    let dur = parse_window(&q.window).min(chrono::Duration::hours(168));
+    let since = Utc::now() - dur;
+    let key = format!("tr:posts:{}m:l{}", dur.num_minutes(), limit);
+    let compute = || async {
+        let rows: Vec<TrendingPost> = sqlx::query_as(
+            r#"
         SELECT p.id, p.author_id, u.username AS author_username,
                u.display_name AS author_display_name, u.avatar_url AS author_avatar_url,
                p.body, p.body_html, p.reactions_count, p.replies_count, p.created_at
@@ -126,11 +143,18 @@ async fn posts(
         ORDER BY (p.reactions_count + p.replies_count) DESC, p.created_at DESC
         LIMIT $2
         "#,
-    )
-    .bind(since)
-    .bind(limit)
-    .fetch_all(&state.pg)
-    .await
-    .unwrap_or_default();
-    Ok(Json(rows))
+        )
+        .bind(since)
+        .bind(limit)
+        .fetch_all(&state.pg)
+        .await
+        .unwrap_or_default();
+        serde_json::to_string(&rows).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))
+    };
+    let json =
+        crate::cache::read_through_json(&mut state.redis.clone(), &key, 300, compute).await?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        json,
+    ))
 }

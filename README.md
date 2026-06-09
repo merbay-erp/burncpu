@@ -242,6 +242,8 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - **Mobil uygulama** (React Native/Expo, Android) — native push (FCM/APNs), web ile parite
 - **Otonom moderasyon** — spam skoru + **hesap ısısı/eskalasyon** (shadow-ban → askıya alma) + rapor-eşiği karantina + **link/domain itibarı** + toksisite heuristiği + görsel **hash-blocklist** + **itiraz akışı** + trend anti-gaming · tümü `moderation_log` denetimli
 - **100k-ölçek denetimi** — PG tuning, partial/FK indexler, denormalize sayaçlar (trigger'lı), anon timeline/trending **read-through cache**, viewer-state batch
+- **Ölçek cilası** — `posts_count`/`replies_count` trigger sayaçları, DM thread son-mesaj denormalize, audit/login **aylık partition** (DROP-tabanlı retention), **trending materialized-view** (saatlik refresh)
+- **Hesap-düzeyi itiraz** — askıya alınanlar için kimliksiz, enum-safe e-posta itiraz kanalı (`POST /appeals/account`)
 - **Güvenlik sertleştirme** — trusted-proxy IP gate (forwarded-header spoof + rate-limit baypası kapalı), iç-hata mesajı sızıntısı kapatma
 - Link önizlemeleri (SSRF-korumalı), görsel yükleme (EXIF strip)
 - Komut paleti (⌘K), avatar cropper, taslak kaydetme
@@ -250,13 +252,10 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - SMTP gerçek gönderim, gece yedekleri (7 gün rotasyon)
 
 🔜 **Sırada**
-- **Ölçek cilası** (kalan): `audit_log`/`notifications` aylık **partition**, DM thread `last_message` denormalize, `posts_count`/`replies_count` trigger sayaçları
-- **Trending**: ölçekte saatlik **materialized-view** precompute (şu an read-time + 5 dk cache)
-- **Görsel/toksisite**: opsiyonel **ML sınıflandırıcı** (şu an ücretsiz denylist/hash heuristiği)
-- **Hesap-düzeyi itiraz**: askıya alınan hesaplar için out-of-band (e-posta) kanal
-- Federation kültürü: relay/keşif politikaları
-- Mobil: in-app video oynatıcı + foreground mesaj sesi
+- **Federation tüketiciliği**: uzak-post içe alma + federe timeline → relay/keşif politikaları (büyük iş — şu an federation yalnız *yayıncı*: yerel post'ları gönderir, uzak içeriği göstermez)
+- **Mobil**: in-app video oynatıcı + foreground mesaj sesi
 - **Apple ile giriş** + iOS dağıtımı
+- *(opsiyonel)* görsel/toksisite **ML sınıflandırıcı** — şu an ücretsiz hash-blocklist + denylist heuristiği yeterli görüldü
 
 ## Katkı
 

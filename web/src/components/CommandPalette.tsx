@@ -188,7 +188,7 @@ export default function CommandPalette() {
         class="fixed inset-0 z-[120] flex items-start justify-center px-4 pt-[14vh] bg-black/50 backdrop-blur-sm cmdk-overlay"
         onClick={(e) => { if (e.target === e.currentTarget) close(); }}
       >
-        <div class="w-full max-w-[580px] bg-surface-container-high/95 backdrop-blur-xl border border-outline-variant rounded-2xl shadow-2xl shadow-black/40 overflow-hidden cmdk-panel">
+        <div class="w-full max-w-[580px] bg-surface-container-lowest border border-outline-variant rounded-2xl shadow-2xl shadow-black/40 overflow-hidden cmdk-panel">
           {/* Search row */}
           <div class="flex items-center gap-3 px-4 h-14 border-b border-outline-variant/70">
             <span
@@ -236,14 +236,14 @@ export default function CommandPalette() {
                             onMouseMove={() => setSelected(row.idx)}
                             onClick={() => row.it.run()}
                             class="w-full flex items-center gap-3 px-2 py-2 rounded-xl text-left transition-colors"
-                            classList={{ 'bg-primary/12': isSel(), 'hover:bg-surface-container': !isSel() }}
+                            classList={{ 'bg-primary/15': isSel(), 'hover:bg-on-surface-variant/10': !isSel() }}
                           >
                             <Show
                               when={row.it.avatar}
                               fallback={
                                 <span
                                   class="shrink-0 w-9 h-9 rounded-lg flex items-center justify-center material-symbols-outlined"
-                                  classList={{ 'bg-primary/15 text-primary': isSel(), 'bg-surface-container text-on-surface-variant': !isSel() }}
+                                  classList={{ 'bg-primary/20 text-primary': isSel(), 'bg-on-surface-variant/10 text-on-surface-variant': !isSel() }}
                                   style="font-size: 20px;"
                                 >
                                   {row.it.icon ?? 'chevron_right'}

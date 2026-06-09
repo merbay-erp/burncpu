@@ -242,11 +242,12 @@ export default function CommandPalette() {
                               when={row.it.avatar}
                               fallback={
                                 <span
-                                  class="shrink-0 w-9 h-9 rounded-lg flex items-center justify-center material-symbols-outlined"
+                                  class="shrink-0 w-9 h-9 rounded-lg flex items-center justify-center"
                                   classList={{ 'bg-primary/20 text-primary': isSel(), 'bg-on-surface-variant/10 text-on-surface-variant': !isSel() }}
-                                  style="font-size: 20px;"
                                 >
-                                  {row.it.icon ?? 'chevron_right'}
+                                  <span class="material-symbols-outlined" style="font-size: 20px;">
+                                    {row.it.icon ?? 'chevron_right'}
+                                  </span>
                                 </span>
                               }
                             >

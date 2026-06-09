@@ -1,9 +1,10 @@
 // /api/v1/admin — admin-only moderation surface.
 //
 // Every state-changing action writes a row to `moderation_log` so we have
-// an append-only record of who did what, when, and why. The `actor_kind`
-// is always 'admin' here; AI-driven decisions will land here later under
-// 'ai' / 'system'.
+// an append-only record of who did what, when, and why. Admin actions here log
+// with `actor_kind='admin'`; automated decisions (e.g. spam auto-quarantine in
+// the post pipeline) log to the same table with `actor_kind='ai'` via the shared
+// `crate::moderation::log_action` writer.
 //
 // Endpoints:
 //   GET    /admin/posts?state=live|quarantine|removed|all  → recent posts
@@ -18,6 +19,7 @@
 use crate::{
     errors::AppError,
     middleware::auth_extractor::AdminUser,
+    moderation::{Actor, log_action},
     search::{PostDoc, Search},
     state::AppState,
 };
@@ -318,12 +320,12 @@ async fn patch_post(
     tokio::spawn(async move {
         sync_post_search(pg, search, id).await;
     });
-    log_mod(
+    log_action(
         &state,
         "post",
         id,
         &format!("set_state:{}", input.moderation_state),
-        Some(admin.0.user_id),
+        Actor::Admin(admin.0.user_id),
         input.reason.as_deref(),
         None,
     )
@@ -422,12 +424,12 @@ async fn patch_user(
     tokio::spawn(async move {
         sync_user_search(pg, search, id, &role).await;
     });
-    log_mod(
+    log_action(
         &state,
         "user",
         id,
         &format!("set_role:{}", input.role),
-        Some(admin.0.user_id),
+        Actor::Admin(admin.0.user_id),
         input.reason.as_deref(),
         None,
     )
@@ -693,32 +695,6 @@ async fn mod_log(
     Ok(Json(rows))
 }
 
-// ── log helper ──────────────────────────────────────────────────
-
-async fn log_mod(
-    state: &AppState,
-    target_kind: &str,
-    target_id: Uuid,
-    action: &str,
-    actor_id: Option<Uuid>,
-    reason: Option<&str>,
-    ai_score: Option<i16>,
-) {
-    let r = sqlx::query(
-        r#"
-        INSERT INTO moderation_log (target_kind, target_id, action, actor_kind, actor_id, reason, ai_score)
-        VALUES ($1, $2, $3, 'admin', $4, $5, $6)
-        "#,
-    )
-    .bind(target_kind)
-    .bind(target_id)
-    .bind(action)
-    .bind(actor_id)
-    .bind(reason)
-    .bind(ai_score)
-    .execute(&state.pg)
-    .await;
-    if let Err(e) = r {
-        tracing::warn!(?e, action, "moderation_log insert failed");
-    }
-}
+// The moderation_log writer lives in `crate::moderation` (`log_action` + `Actor`)
+// so the post pipeline can record automated (`Actor::Ai`) decisions through the
+// same path; the admin routes above log human actions via `Actor::Admin`.

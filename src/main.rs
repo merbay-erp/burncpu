@@ -21,6 +21,7 @@ mod db;
 mod errors;
 mod federation;
 mod middleware;
+mod moderation;
 mod net_safety;
 mod routes;
 mod search;

@@ -431,8 +431,8 @@ async fn create_post(
 
     let id: Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO posts (author_id, body, body_html, visibility, reply_to_id, content_warning, moderation_state)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO posts (author_id, body, body_html, visibility, reply_to_id, content_warning, moderation_state, spam_score)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
         "#,
     )
@@ -443,6 +443,7 @@ async fn create_post(
     .bind(input.reply_to_id)
     .bind(cw)
     .bind(moderation_state)
+    .bind(spam_pts as i16)
     .fetch_one(&state.pg)
     .await?;
 
@@ -476,6 +477,19 @@ async fn create_post(
     // it's pending review.
     if quarantine {
         tracing::info!(user_id = %user.user_id, post_id = %id, score = spam_pts, reasons = ?spam_reasons, "post quarantined (spam score)");
+        // Durable audit trail in the same moderation_log the admin queue reads, so
+        // an automated quarantine is reviewable beside human actions — actor_kind
+        // ='ai', with the score and the joined signal reasons captured for tuning.
+        crate::moderation::log_action(
+            &state,
+            "post",
+            id,
+            "auto_quarantine",
+            crate::moderation::Actor::Ai,
+            Some(&spam_reasons.join(", ")),
+            Some(spam_pts as i16),
+        )
+        .await;
         return Ok((
             StatusCode::ACCEPTED,
             Json(CreateResponse {

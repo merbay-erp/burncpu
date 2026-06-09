@@ -357,6 +357,12 @@
     "/reports": {
       "post": { "tags": ["Reports"], "summary": "Report a post / user / dm", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["target_kind", "target_id", "reason"], "properties": { "target_kind": { "type": "string", "enum": ["post", "user", "dm"] }, "target_id": { "type": "string", "format": "uuid" }, "reason": { "type": "string" } } } } } }, "responses": { "204": { "description": "Reported." }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
     },
+    "/appeals": {
+      "post": { "tags": ["Reports"], "summary": "Appeal own quarantined/removed post", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["post_id"], "properties": { "post_id": { "type": "string", "format": "uuid" }, "note": { "type": "string" } } } } } }, "responses": { "201": { "description": "Appeal filed." }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } } }
+    },
+    "/appeals/eligible": {
+      "get": { "tags": ["Reports"], "summary": "Own posts that can be appealed", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Eligible posts", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
 
     "/admin/posts": {
       "get": { "tags": ["Admin"], "summary": "Moderation queue", "security": [ { "cookieAuth": [] } ], "parameters": [ { "name": "state", "in": "query", "schema": { "type": "string", "enum": ["live", "quarantine", "removed"] } }, { "$ref": "#/components/parameters/Limit" } ], "responses": { "200": { "description": "Posts", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/AdminPost" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
@@ -390,6 +396,13 @@
     "/admin/reports/{id}": {
       "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
       "patch": { "tags": ["Admin"], "summary": "Resolve a report", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "resolution": { "type": "string" } } } } } }, "responses": { "204": { "description": "Resolved." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/appeals": {
+      "get": { "tags": ["Admin"], "summary": "Appeal queue", "security": [ { "cookieAuth": [] } ], "parameters": [ { "name": "open", "in": "query", "schema": { "type": "integer", "enum": [0, 1] } } ], "responses": { "200": { "description": "Appeals", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/appeals/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "patch": { "tags": ["Admin"], "summary": "Grant or deny an appeal", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["decision"], "properties": { "decision": { "type": "string", "enum": ["grant", "deny"] } } } } } }, "responses": { "204": { "description": "Resolved." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
     },
     "/admin/federation/instances": {
       "get": { "tags": ["Admin"], "summary": "Known federated instances + block state", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Instances", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/FedInstance" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }

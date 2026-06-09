@@ -63,6 +63,13 @@ paylaşılan, küçük ama yüksek-sinyalli bir alan.** Az kişi, çok değer.
 - 🖼️ Görsel yükleme (EXIF temizleme + yeniden kodlama)
 - 🔇 Engelleme / sessize alma, 🚩 raporlama + dedupe
 
+**Moderasyon (otonom)**
+- 🤖 Çok-katmanlı **spam skoru** (hesap-güveni · link yoğunluğu + **domain itibarı** · mention/bağırma · denylist · **toksisite** · **hesap ısısı**) → otomatik karantina, denetim kaydı `actor_kind='ai'`
+- 🚩 **Rapor-eşiği** otomatik karantina (farklı hesaplardan, brigade-dirençli; admin onayı raporları çözer)
+- 🌡️ **Hesap ısısı** (zamanla decay'li) + kademeli **otonom eskalasyon**: karantina eğilimi → **shadow-ban** → **askıya alma** (hepsi geri-alınabilir, config-eşikli)
+- 👻 **Shadow-ban** (sahibine görünür, herkesten gizli) · 🖼️ görsel **hash-blocklist** (re-upload engeli) · 🔁 **itiraz akışı** (insan geri-dönüşü)
+- 📈 Trend **anti-gaming** (distinct-yazar + yaş/ısı kapısı) — tüm AI/admin kararları tek **`moderation_log`**'da
+
 **Keşif & gerçek-zamanlı**
 - 🔎 **Meilisearch** ile typo-toleranslı arama + hashtag sayfaları
 - 📈 Trending (hashtag + post, 1s/24s/7g pencereleri)
@@ -233,7 +240,9 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - Bildirimler + **SSE canlı akış** + "yeni sinyal" balonu
 - **Tam DM sistemi** — karşılıklı-takip · resim+video ekleri · reaksiyon · gönderildi/okundu · mesaj-sil/toplu-sil/sohbet-sil · yeni-mesaj · yazıyor · ses
 - **Mobil uygulama** (React Native/Expo, Android) — native push (FCM/APNs), web ile parite
-- **Çok-katmanlı spam skoru** (hesap-güveni · link/mention/bağırma · denylist) → karantina + admin kuyruğu
+- **Otonom moderasyon** — spam skoru + **hesap ısısı/eskalasyon** (shadow-ban → askıya alma) + rapor-eşiği karantina + **link/domain itibarı** + toksisite heuristiği + görsel **hash-blocklist** + **itiraz akışı** + trend anti-gaming · tümü `moderation_log` denetimli
+- **100k-ölçek denetimi** — PG tuning, partial/FK indexler, denormalize sayaçlar (trigger'lı), anon timeline/trending **read-through cache**, viewer-state batch
+- **Güvenlik sertleştirme** — trusted-proxy IP gate (forwarded-header spoof + rate-limit baypası kapalı), iç-hata mesajı sızıntısı kapatma
 - Link önizlemeleri (SSRF-korumalı), görsel yükleme (EXIF strip)
 - Komut paleti (⌘K), avatar cropper, taslak kaydetme
 - RSS/Atom, **ActivityPub** federasyon (signatures/webfinger/nodeinfo)
@@ -241,10 +250,13 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - SMTP gerçek gönderim, gece yedekleri (7 gün rotasyon)
 
 🔜 **Sırada**
-- Spam motoru — ek katmanlar (davranışsal sinyaller, görsel/ML skoru); **v1 çok-katmanlı skor canlı**
+- **Ölçek cilası** (kalan): `audit_log`/`notifications` aylık **partition**, DM thread `last_message` denormalize, `posts_count`/`replies_count` trigger sayaçları
+- **Trending**: ölçekte saatlik **materialized-view** precompute (şu an read-time + 5 dk cache)
+- **Görsel/toksisite**: opsiyonel **ML sınıflandırıcı** (şu an ücretsiz denylist/hash heuristiği)
+- **Hesap-düzeyi itiraz**: askıya alınan hesaplar için out-of-band (e-posta) kanal
 - Federation kültürü: relay/keşif politikaları
 - Mobil: in-app video oynatıcı + foreground mesaj sesi
-- Apple ile giriş + iOS dağıtımı
+- **Apple ile giriş** + iOS dağıtımı
 
 ## Katkı
 

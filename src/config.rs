@@ -33,6 +33,9 @@ pub struct Config {
     pub spam_threshold: i32,
     /// Lowercased phrases that strongly mark a post as spam (`SPAM_DENYLIST`, csv).
     pub spam_denylist: Vec<String>,
+    /// Reactive moderation: a live post is auto-quarantined once this many distinct
+    /// accounts file an open report against it (`REPORT_QUARANTINE_THRESHOLD`, default 4).
+    pub report_quarantine_threshold: i64,
     /// Video transcode worker on/off (`VIDEO_TRANSCODE_ENABLED`, default true).
     /// When false, uploaded videos are kept verbatim and marked `ready` (the
     /// pre-pipeline behaviour) — a safety valve for hosts without ffmpeg.
@@ -74,6 +77,10 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .collect(),
             spam_threshold: env::var("SPAM_THRESHOLD")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(4),
+            report_quarantine_threshold: env::var("REPORT_QUARANTINE_THRESHOLD")
                 .ok()
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(4),

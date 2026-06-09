@@ -330,6 +330,29 @@ async fn patch_post(
         None,
     )
     .await;
+    // An admin's terminal decision settles the community flags that pointed at the
+    // post: approving (live) dismisses them as no_action, removing upholds them.
+    // This also stops the report-threshold auto-quarantine (reports.rs) from
+    // re-firing on a post an admin just approved while its reports sat open. A
+    // manual 'quarantine' is non-terminal, so its reports stay open for the queue.
+    if matches!(input.moderation_state.as_str(), "live" | "removed") {
+        let resolution = if input.moderation_state == "removed" {
+            "removed"
+        } else {
+            "no_action"
+        };
+        let _ = sqlx::query(
+            r#"
+            UPDATE reports SET resolved_at = NOW(), resolved_by = $1, resolution = $2
+            WHERE target_kind = 'post' AND target_id = $3 AND resolved_at IS NULL
+            "#,
+        )
+        .bind(admin.0.user_id)
+        .bind(resolution)
+        .bind(id)
+        .execute(&state.pg)
+        .await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -437,7 +460,7 @@ async fn patch_user(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn sync_post_search(pg: sqlx::PgPool, search: Search, post_id: Uuid) {
+pub(crate) async fn sync_post_search(pg: sqlx::PgPool, search: Search, post_id: Uuid) {
     let row: Option<SearchPostRow> = sqlx::query_as(
         r#"
             SELECT p.author_id, u.username, p.body, p.visibility, p.moderation_state,

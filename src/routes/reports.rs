@@ -79,7 +79,7 @@ async fn create(
     // Dedupe: one open report per (reporter, target). A repeat is an
     // idempotent no-op (the reports_dedupe_idx partial unique index backs
     // the ON CONFLICT), so a buggy/abusive client can't multiply rows.
-    sqlx::query(
+    let inserted = sqlx::query(
         r#"
         INSERT INTO reports (reporter_id, target_kind, target_id, reason, note)
         VALUES ($1, $2, $3, $4, $5)
@@ -93,8 +93,91 @@ async fn create(
     .bind(&b.reason)
     .bind(b.note.as_deref())
     .execute(&state.pg)
-    .await?;
+    .await?
+    .rows_affected();
+
+    // Reactive auto-moderation: once enough *distinct* accounts open a report
+    // against a live post, quarantine it into the existing admin review queue
+    // without waiting for a human. Gated on a genuinely new report (dedupe
+    // no-ops must not re-trigger) and post targets only.
+    if inserted > 0 && b.target_kind == "post" {
+        maybe_quarantine_reported_post(&state, b.target_id).await;
+    }
+
     Ok(StatusCode::CREATED)
+}
+
+/// Auto-quarantine a live post that has crossed the open-report threshold.
+///
+/// Strictly best-effort and self-contained: the report itself is already
+/// committed, so any failure here is logged and swallowed rather than failing
+/// the reporter's request. Safe to call on every new post report — it no-ops
+/// unless the post is currently `live` and at/over the threshold.
+///
+/// Brigade resistance: staff-authored posts are exempt (a coordinated
+/// false-report ring can't silence an admin/mod), the transition is gated to
+/// fire exactly once (`live` → `quarantine`), and the destination is the
+/// reversible review queue — never an irreversible removal. Reporter weighting
+/// by reputation is a later layer (roadmap P3).
+async fn maybe_quarantine_reported_post(state: &AppState, post_id: Uuid) {
+    // Dedupe guarantees one open report per reporter, so this COUNT is the number
+    // of distinct accounts that currently want the post gone.
+    let open_reports: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM reports WHERE target_kind = 'post' AND target_id = $1 AND resolved_at IS NULL",
+    )
+    .bind(post_id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(0);
+
+    if open_reports < state.config.report_quarantine_threshold {
+        return;
+    }
+
+    // Transition exactly once, skipping staff-authored posts. rows_affected == 0
+    // means it was already non-live (or staff) — nothing to do, and crucially no
+    // duplicate log/search churn on every further report past the threshold.
+    let transitioned = sqlx::query(
+        r#"
+        UPDATE posts p SET moderation_state = 'quarantine', updated_at = NOW()
+        WHERE p.id = $1 AND p.moderation_state = 'live'
+          AND NOT EXISTS (
+              SELECT 1 FROM users u WHERE u.id = p.author_id AND u.role IN ('admin', 'mod')
+          )
+        "#,
+    )
+    .bind(post_id)
+    .execute(&state.pg)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0);
+
+    if transitioned == 0 {
+        return;
+    }
+
+    // A previously-live post was indexed; drop it from search (only public+live
+    // posts surface) off the request path, mirroring the admin patch_post flow.
+    let pg = state.pg.clone();
+    let search = state.search.clone();
+    tokio::spawn(async move {
+        crate::routes::admin::sync_post_search(pg, search, post_id).await;
+    });
+
+    // Record the automated decision in the same moderation_log the admin queue
+    // reads, beside human actions — actor_kind='ai', score = the report count.
+    crate::moderation::log_action(
+        state,
+        "post",
+        post_id,
+        "auto_quarantine",
+        crate::moderation::Actor::Ai,
+        Some(&format!("report threshold: {open_reports} open reports")),
+        Some(i16::try_from(open_reports).unwrap_or(i16::MAX)),
+    )
+    .await;
+
+    tracing::info!(%post_id, reports = open_reports, "post auto-quarantined (report threshold)");
 }
 
 #[derive(Deserialize)]

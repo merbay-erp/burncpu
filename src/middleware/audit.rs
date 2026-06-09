@@ -55,16 +55,17 @@ pub async fn layer(State(state): State<AppState>, req: Request<Body>, next: Next
         response.headers_mut().insert("x-request-id", val);
     }
 
-    // Async write — don't block the response on DB
-    let pg = state.pg.clone();
-    let path_clone = path.clone();
-    let method_str = method.to_string();
-    tokio::spawn(async move {
-        // Skip very-noisy endpoints (healthchecks) — flip to allowlist if needed
-        if matches!(path_clone.as_str(), "/healthz") {
-            return;
-        }
-        let _ = sqlx::query(
+    // Async write — don't block the response on DB. Gated: at scale the audit
+    // row is the dominant write, and successful read traffic (GET 2xx) has little
+    // forensic value, so only durably record mutations, failures, and security-
+    // relevant surfaces (see `audit_worthy`). Skipped requests still emit a
+    // tracing event below.
+    if audit_worthy(&method, status, &path) {
+        let pg = state.pg.clone();
+        let path_clone = path.clone();
+        let method_str = method.to_string();
+        tokio::spawn(async move {
+            let _ = sqlx::query(
             r#"
             INSERT INTO audit_log
                 (id, method, path, status, latency_ms, ip, user_agent, user_id, ts)
@@ -81,7 +82,8 @@ pub async fn layer(State(state): State<AppState>, req: Request<Body>, next: Next
         .bind(user_id)
         .execute(&pg)
         .await;
-    });
+        });
+    }
 
     // Emit a tracing event so logs still capture the call
     if status.is_client_error() || status.is_server_error() {
@@ -114,14 +116,44 @@ fn redact_sensitive_path(path: &str) -> String {
     path.to_string()
 }
 
-#[allow(dead_code)]
-fn _status_help(s: StatusCode) -> bool {
-    s.is_success()
+/// Which requests get a durable `audit_log` row. Always kept: mutations (non-GET)
+/// and failures (4xx/5xx) — the forensically valuable events. Successful GETs are
+/// kept only on security-relevant, low-volume surfaces; the bulk of read traffic
+/// (feed / posts / profiles / search) is dropped, which is the per-request
+/// write-amplification fix for scale.
+fn audit_worthy(method: &axum::http::Method, status: StatusCode, path: &str) -> bool {
+    use axum::http::Method;
+    if path == "/healthz" {
+        return false;
+    }
+    if *method != Method::GET || !status.is_success() {
+        return true;
+    }
+    const SENSITIVE: &[&str] = &[
+        "/admin", "/auth", "/oauth", "/2fa", "/passkeys", "/tokens", "/sessions", "/webhooks",
+    ];
+    SENSITIVE.iter().any(|p| path.contains(p))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::redact_sensitive_path;
+    use super::{audit_worthy, redact_sensitive_path};
+    use axum::http::{Method, StatusCode};
+
+    #[test]
+    fn audit_keeps_mutations_failures_and_sensitive_gets() {
+        let ok = StatusCode::OK;
+        // Bulk successful read traffic is dropped (the write-amplification fix).
+        assert!(!audit_worthy(&Method::GET, ok, "/api/v1/posts"));
+        assert!(!audit_worthy(&Method::GET, ok, "/api/v1/feed"));
+        assert!(!audit_worthy(&Method::GET, ok, "/healthz"));
+        // Mutations, failures, and security-relevant GETs are kept.
+        assert!(audit_worthy(&Method::POST, StatusCode::CREATED, "/api/v1/posts"));
+        assert!(audit_worthy(&Method::DELETE, ok, "/api/v1/posts/x"));
+        assert!(audit_worthy(&Method::GET, StatusCode::UNAUTHORIZED, "/api/v1/feed"));
+        assert!(audit_worthy(&Method::GET, ok, "/api/v1/admin/reports"));
+        assert!(audit_worthy(&Method::GET, ok, "/api/v1/auth/verify/[redacted]"));
+    }
 
     #[test]
     fn redacts_magic_link_tokens() {

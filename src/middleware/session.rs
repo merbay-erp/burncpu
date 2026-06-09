@@ -182,6 +182,13 @@ pub async fn layer(State(state): State<AppState>, mut req: Request<Body>, next: 
                 );
             }
 
+            // Throttle the "last seen" write to at most once per minute, exactly
+            // like the API-token path above: updating on *every* authenticated
+            // request turns a read into a per-request row UPDATE (WAL + row lock +
+            // dead-tuple/vacuum churn) that serializes concurrent calls on the same
+            // session — the single biggest write-amplifier at scale. The WHERE makes
+            // the throttled case a 0-row no-op (index probe, no write). A genuine
+            // anomaly ($4 = should_flag) always writes so the flag is never dropped.
             let _ = sqlx::query(
                 r#"
                 UPDATE sessions
@@ -193,6 +200,7 @@ pub async fn layer(State(state): State<AppState>, mut req: Request<Body>, next: 
                         ELSE flagged_at
                     END
                 WHERE id = $1
+                  AND ($4 OR last_seen_at < NOW() - interval '60 seconds')
                 "#,
             )
             .bind(session_id)

@@ -50,13 +50,16 @@ async fn run_once(pg: &PgPool, media_dir: &str) {
             "sessions",
             "DELETE FROM sessions WHERE expires_at < NOW() OR (revoked_at IS NOT NULL AND revoked_at < NOW() - interval '30 days')",
         ),
+        // Partitioned (migration 0035): retention is a DROP of old monthly
+        // partitions, not a DELETE scan. manage_log_partitions also creates the
+        // upcoming months ahead of time and sweeps the DEFAULT partition.
         (
-            "audit_log",
-            "DELETE FROM audit_log WHERE ts < NOW() - interval '90 days'",
+            "audit_log partitions",
+            "SELECT manage_log_partitions('audit_log', 4)",
         ),
         (
-            "login_attempts",
-            "DELETE FROM login_attempts WHERE ts < NOW() - interval '180 days'",
+            "login_attempts partitions",
+            "SELECT manage_log_partitions('login_attempts', 7)",
         ),
         (
             "notifications",

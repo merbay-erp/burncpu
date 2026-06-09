@@ -74,13 +74,8 @@ async fn restore(
     }
     let post = fetch_post(&state, id, Some(user.user_id)).await?;
 
-    // Undo the decrement that delete_post applied to the parent's reply count.
-    if let Some(parent) = post.reply_to_id {
-        let _ = sqlx::query("UPDATE posts SET replies_count = replies_count + 1 WHERE id = $1")
-            .bind(parent)
-            .execute(&state.pg)
-            .await;
-    }
+    // The parent's replies_count is restored by the post_counts trigger off the
+    // deleted_at → NULL update above (migration 0033).
 
     // Re-add to search if public+live
     if post.visibility == "public" {
@@ -523,24 +518,21 @@ async fn create_post(
     // they stay hidden until approved, at which point the index is already there).
     sync_hashtags(&state.pg, id, body).await;
 
-    // Bump parent reply count + notify parent author
-    if let Some(reply_id) = input.reply_to_id {
-        let _ = sqlx::query("UPDATE posts SET replies_count = replies_count + 1 WHERE id = $1")
-            .bind(reply_id)
-            .execute(&state.pg)
-            .await;
-        if let Some(parent_author) = parent_author {
-            notify(
-                &state,
-                parent_author,
-                Some(user.user_id),
-                "reply",
-                "post",
-                id,
-                Some(serde_json::json!({ "reply_to_id": reply_id })),
-            )
-            .await;
-        }
+    // Notify the parent author. The reply count (and the author's posts_count) is
+    // maintained by the post_counts trigger (migration 0033), not here.
+    if let Some(reply_id) = input.reply_to_id
+        && let Some(parent_author) = parent_author
+    {
+        notify(
+            &state,
+            parent_author,
+            Some(user.user_id),
+            "reply",
+            "post",
+            id,
+            Some(serde_json::json!({ "reply_to_id": reply_id })),
+        )
+        .await;
     }
 
     // Quarantined posts are invisible (no fetch, fanout, index, mention pings,
@@ -803,7 +795,7 @@ async fn delete_post(
     .fetch_optional(&state.pg)
     .await?;
 
-    let (author_id, reply_to_id) = row.ok_or(AppError::NotFound)?;
+    let (author_id, _) = row.ok_or(AppError::NotFound)?;
     // Author, or an admin acting through a browser session (never an API
     // token — those must not wield admin moderation power).
     let is_admin_session = user.role == "admin" && !user.is_api_token();
@@ -811,26 +803,12 @@ async fn delete_post(
         return Err(AppError::Forbidden);
     }
 
-    let affected =
-        sqlx::query("UPDATE posts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL")
-            .bind(id)
-            .execute(&state.pg)
-            .await?
-            .rows_affected();
-
-    // Keep the parent's denormalized replies_count honest. It's only ever
-    // incremented on reply create, so without this it inflates forever as
-    // replies are deleted. GREATEST clamps against underflow.
-    if affected > 0
-        && let Some(parent) = reply_to_id
-    {
-        let _ = sqlx::query(
-            "UPDATE posts SET replies_count = GREATEST(replies_count - 1, 0) WHERE id = $1",
-        )
-        .bind(parent)
+    // Soft-delete. The parent's replies_count and the author's posts_count are
+    // adjusted by the post_counts trigger (migration 0033) off this update.
+    sqlx::query("UPDATE posts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL")
+        .bind(id)
         .execute(&state.pg)
-        .await;
-    }
+        .await?;
 
     let search = state.search.clone();
     tokio::spawn(async move { search.delete_post(id).await });

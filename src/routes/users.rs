@@ -536,30 +536,19 @@ async fn get_profile(
         }
     }
 
-    let posts: i64 = sqlx::query_scalar(
-        r#"
-        SELECT COUNT(*) FROM posts
-        WHERE author_id = $1 AND deleted_at IS NULL
-          AND moderation_state = 'live' AND visibility = 'public'
-        "#,
+    // followers_count / following_count / posts_count are denormalized columns kept
+    // in sync by triggers (migrations 0027, 0033) — one PK lookup instead of two
+    // COUNT(*)-over-`follows` scans plus a COUNT(*)-over-`posts` scan per view (each
+    // an O(rows) scan for a big/prolific account). Trade-off: a suspended follower
+    // still counts (a denormalized counter can't track a follower's live role) — an
+    // accepted small skew.
+    let (followers, following, posts): (i64, i64, i64) = sqlx::query_as(
+        "SELECT followers_count::bigint, following_count::bigint, posts_count::bigint FROM users WHERE id = $1",
     )
     .bind(id)
     .fetch_one(&state.pg)
     .await
-    .unwrap_or(0);
-
-    // followers_count / following_count are denormalized columns kept in sync by
-    // the follows trigger (migration 0027) — one PK lookup instead of two
-    // COUNT(*)-over-`follows` scans (a 500k-row scan per view for a big account).
-    // Trade-off: a suspended follower now still counts (the old query filtered
-    // u.role; a denormalized counter can't track that) — an accepted small skew.
-    let (followers, following): (i64, i64) = sqlx::query_as(
-        "SELECT followers_count::bigint, following_count::bigint FROM users WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_one(&state.pg)
-    .await
-    .unwrap_or((0, 0));
+    .unwrap_or((0, 0, 0));
 
     // 19 May 2026 — Viewer-spesifik state. Anonim ziyaretci icin hepsi false.
     // Tek SQL ile 4 flag birden cekiliyor (4 ayri query yerine).

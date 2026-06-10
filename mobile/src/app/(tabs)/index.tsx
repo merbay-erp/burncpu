@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 
 import Post from '@/components/Post';
 import Brand from '@/components/Brand';
+import SuggestedAccounts from '@/components/SuggestedAccounts';
 import { api, type PostView, type Timeline } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, useTheme, type Palette } from '@/theme';
@@ -125,7 +126,12 @@ export default function Home() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
           }
-          ListEmptyComponent={<Text style={s.empty}>{t('home.empty')}</Text>}
+          ListEmptyComponent={
+            <View>
+              <Text style={s.empty}>{t('home.empty')}</Text>
+              {tab === 'foryou' && me ? <SuggestedAccounts limit={6} /> : null}
+            </View>
+          }
           ListFooterComponent={
             done && posts.length > 0 ? <Text style={s.end}>{t('home.end')}</Text> : null
           }

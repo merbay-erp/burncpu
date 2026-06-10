@@ -22,7 +22,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::{get, patch, post},
 };
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
 use std::net::SocketAddr;
@@ -69,10 +68,7 @@ async fn create_account(
     {
         let mut redis = state.redis.clone();
         let key = format!("rl:appeal:account:{ip}");
-        let count: u32 = redis.incr(&key, 1u32).await?;
-        if count == 1 {
-            let _: () = redis.expire(&key, 3600).await?;
-        }
+        let count = crate::ratelimit::hit(&mut redis, &key, 3600).await;
         if count > 5 {
             return Err(AppError::RateLimited);
         }
@@ -159,12 +155,8 @@ async fn create(
     {
         let mut redis = state.redis.clone();
         let key = format!("rl:appeal:create:{}", user.user_id);
-        let count: u32 = redis.incr(&key, 1u32).await?;
-        if count == 1 {
-            let _: () = redis
-                .expire(&key, APPEAL_RATE_LIMIT_WINDOW_SECS as i64)
-                .await?;
-        }
+        let count =
+            crate::ratelimit::hit(&mut redis, &key, APPEAL_RATE_LIMIT_WINDOW_SECS as i64).await;
         if count > APPEAL_RATE_LIMIT_MAX {
             return Err(AppError::RateLimited);
         }

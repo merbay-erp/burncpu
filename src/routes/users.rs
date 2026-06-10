@@ -966,14 +966,10 @@ async fn rehost_external_avatar(
     uid: Uuid,
     url: &str,
 ) -> Result<String, AppError> {
-    use redis::AsyncCommands;
     // Outbound fetch → rate-limit per user (10/hour).
     let mut redis = state.redis.clone();
     let key = format!("avatar_rehost:{uid}");
-    let n: u32 = redis.incr(&key, 1u32).await?;
-    if n == 1 {
-        let _: () = redis.expire(&key, 3600).await?;
-    }
+    let n = crate::ratelimit::hit(&mut redis, &key, 3600).await;
     if n > 10 {
         return Err(AppError::RateLimited);
     }
@@ -1107,13 +1103,9 @@ async fn revoke_other_sessions(
     State(state): State<AppState>,
     user: CurrentUser,
 ) -> Result<Json<RevokedCount>, AppError> {
-    use redis::AsyncCommands;
     let mut redis = state.redis.clone();
     let key = format!("rl:sec:revoke_all:{}", user.user_id);
-    let n: u32 = redis.incr(&key, 1u32).await?;
-    if n == 1 {
-        let _: () = redis.expire(&key, 3600).await?;
-    }
+    let n = crate::ratelimit::hit(&mut redis, &key, 3600).await;
     if n > 5 {
         return Err(AppError::RateLimited);
     }

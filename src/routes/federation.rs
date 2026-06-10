@@ -20,7 +20,6 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;
@@ -306,10 +305,7 @@ async fn inbox(
     if !ip.is_empty() {
         let mut redis = state.redis.clone();
         let rkey = format!("rl:ap:inbox:{ip}");
-        let count: u32 = redis.incr(&rkey, 1u32).await.unwrap_or(0);
-        if count == 1 {
-            let _: () = redis.expire(&rkey, 60).await.unwrap_or(());
-        }
+        let count = crate::ratelimit::hit(&mut redis, &rkey, 60).await;
         if count > 60 {
             return Err(AppError::RateLimited);
         }
@@ -404,10 +400,7 @@ async fn instance_inbox(
     if !ip.is_empty() {
         let mut redis = state.redis.clone();
         let rkey = format!("rl:ap:inbox:{ip}");
-        let count: u32 = redis.incr(&rkey, 1u32).await.unwrap_or(0);
-        if count == 1 {
-            let _: () = redis.expire(&rkey, 60).await.unwrap_or(());
-        }
+        let count = crate::ratelimit::hit(&mut redis, &rkey, 60).await;
         if count > 60 {
             return Err(AppError::RateLimited);
         }

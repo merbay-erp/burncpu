@@ -126,10 +126,7 @@ pub async fn get_preview(
             (format!("lp:rl:ip:{ip}"), RL_MAX_ANON)
         }
     };
-    let hits: i64 = redis.incr(&rl_key, 1).await?;
-    if hits == 1 {
-        let _: () = redis.expire(&rl_key, RL_WINDOW_SECS).await?;
-    }
+    let hits = crate::ratelimit::hit(&mut redis, &rl_key, RL_WINDOW_SECS).await as i64;
     if hits > rl_max {
         return Err(AppError::RateLimited);
     }

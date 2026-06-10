@@ -376,10 +376,7 @@ async fn send(
     {
         let mut redis = state.redis.clone();
         let key = format!("rl:dm:send:{}", user.user_id);
-        let count: u32 = redis.incr(&key, 1u32).await?;
-        if count == 1 {
-            let _: () = redis.expire(&key, DM_RATE_LIMIT_WINDOW_SECS as i64).await?;
-        }
+        let count = crate::ratelimit::hit(&mut redis, &key, DM_RATE_LIMIT_WINDOW_SECS as i64).await;
         if count > DM_RATE_LIMIT_MAX {
             return Err(AppError::RateLimited);
         }

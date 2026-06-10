@@ -23,7 +23,6 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     routing::post,
 };
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
@@ -46,10 +45,7 @@ const TOTP_RL_MAX: u32 = 10; // verify attempts per window, per key
 /// the limit and should be rejected.
 async fn over_limit(state: &AppState, key: &str) -> Result<bool, AppError> {
     let mut redis = state.redis.clone();
-    let count: u32 = redis.incr(key, 1u32).await?;
-    if count == 1 {
-        let _: () = redis.expire(key, TOTP_RL_WINDOW_SECS).await?;
-    }
+    let count = crate::ratelimit::hit(&mut redis, key, TOTP_RL_WINDOW_SECS).await;
     Ok(count > TOTP_RL_MAX)
 }
 

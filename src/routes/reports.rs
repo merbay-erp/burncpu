@@ -15,7 +15,6 @@ use axum::{
     http::StatusCode,
     routing::{get, patch, post},
 };
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -65,12 +64,8 @@ async fn create(
     {
         let mut redis = state.redis.clone();
         let key = format!("rl:report:create:{}", user.user_id);
-        let count: u32 = redis.incr(&key, 1u32).await?;
-        if count == 1 {
-            let _: () = redis
-                .expire(&key, REPORT_RATE_LIMIT_WINDOW_SECS as i64)
-                .await?;
-        }
+        let count =
+            crate::ratelimit::hit(&mut redis, &key, REPORT_RATE_LIMIT_WINDOW_SECS as i64).await;
         if count > REPORT_RATE_LIMIT_MAX {
             return Err(AppError::RateLimited);
         }

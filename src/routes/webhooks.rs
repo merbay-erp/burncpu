@@ -251,13 +251,9 @@ async fn test_webhook(
     user: CurrentUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
-    use redis::AsyncCommands;
     let mut redis = state.redis.clone();
     let key = format!("rl:wh:test:{}", user.user_id);
-    let n: u32 = redis.incr(&key, 1u32).await?;
-    if n == 1 {
-        let _: () = redis.expire(&key, 60).await?;
-    }
+    let n = crate::ratelimit::hit(&mut redis, &key, 60).await;
     if n > 5 {
         return Err(AppError::RateLimited);
     }

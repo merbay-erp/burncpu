@@ -74,10 +74,7 @@ pub async fn request_handler(
     // ── Rate limit per-(IP, email) — prevents single attacker mailing many
     let mut redis = state.redis.clone();
     let key = format!("rl:auth:request:{ip_str}:{email}");
-    let count: u32 = redis.incr(&key, 1u32).await?;
-    if count == 1 {
-        let _: () = redis.expire(&key, RATE_LIMIT_WINDOW_SECS as i64).await?;
-    }
+    let count = crate::ratelimit::hit(&mut redis, &key, RATE_LIMIT_WINDOW_SECS as i64).await;
     if count > RATE_LIMIT_MAX {
         log_attempt(
             &state,

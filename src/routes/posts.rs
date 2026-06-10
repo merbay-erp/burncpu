@@ -394,24 +394,16 @@ async fn create_post(
     let mut redis = state.redis.clone();
 
     let user_key = format!("rl:post:create:user:{}", user.user_id);
-    let user_count: u32 = redis.incr(&user_key, 1u32).await?;
-    if user_count == 1 {
-        let _: () = redis
-            .expire(&user_key, POST_RATE_LIMIT_WINDOW_SECS as i64)
-            .await?;
-    }
+    let user_count =
+        crate::ratelimit::hit(&mut redis, &user_key, POST_RATE_LIMIT_WINDOW_SECS as i64).await;
     if user_count > POST_RATE_LIMIT_MAX_USER {
         return Err(AppError::RateLimited);
     }
 
     if !ip.is_empty() {
         let ip_key = format!("rl:post:create:ip:{ip}");
-        let ip_count: u32 = redis.incr(&ip_key, 1u32).await?;
-        if ip_count == 1 {
-            let _: () = redis
-                .expire(&ip_key, POST_RATE_LIMIT_WINDOW_SECS as i64)
-                .await?;
-        }
+        let ip_count =
+            crate::ratelimit::hit(&mut redis, &ip_key, POST_RATE_LIMIT_WINDOW_SECS as i64).await;
         if ip_count > POST_RATE_LIMIT_MAX_IP {
             return Err(AppError::RateLimited);
         }
@@ -961,12 +953,8 @@ async fn repost(
     {
         let mut redis = state.redis.clone();
         let user_key = format!("rl:post:create:user:{}", user.user_id);
-        let user_count: u32 = redis.incr(&user_key, 1u32).await?;
-        if user_count == 1 {
-            let _: () = redis
-                .expire(&user_key, POST_RATE_LIMIT_WINDOW_SECS as i64)
-                .await?;
-        }
+        let user_count =
+            crate::ratelimit::hit(&mut redis, &user_key, POST_RATE_LIMIT_WINDOW_SECS as i64).await;
         if user_count > POST_RATE_LIMIT_MAX_USER {
             return Err(AppError::RateLimited);
         }

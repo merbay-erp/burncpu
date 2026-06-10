@@ -23,6 +23,7 @@ mod federation;
 mod middleware;
 mod moderation;
 mod net_safety;
+mod ratelimit;
 mod routes;
 mod search;
 mod state;

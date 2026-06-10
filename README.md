@@ -212,7 +212,7 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 | **Medya** | `POST /media` (resim+video) · `GET /media` · `DELETE /media/{id}` |
 | **Gerçek-zamanlı** | `GET /notifications/stream` (SSE) · `GET /notifications` |
 | **Geliştirici** | `GET\|POST /tokens` · `GET\|POST /webhooks` · `POST /push/subscribe` |
-| **Federasyon** | `/.well-known/webfinger` · `/nodeinfo/2.1` · `/ap/*` · `/rss/*` |
+| **Federasyon** | `/.well-known/webfinger` · `/nodeinfo/2.1` · `/ap/*` (users + `/ap/instance`) · `/rss/*` · `GET\|POST\|DELETE /admin/federation/relays` |
 
 ## Dokümanlar
 
@@ -254,11 +254,11 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - SMTP gerçek gönderim, gece yedekleri (7 gün rotasyon)
 - **Mobil medya & ses** — in-app **video oynatıcı** (expo-video, lazy/akışlı; post + DM) + **foreground mesaj sesi** (açık DM thread'ine gelen mesajda anlık chime; aktif thread'de push susturularak çift-ding önlenir)
 - **İlk-izlenim & onboarding** — logged-out **landing** (value-prop + tek CTA) · gerçek **PNG paylaşım kartı** (1200×630, og/twitter) · **"kimi takip etmeli"** önerileri (`GET /users/suggestions`; web boş-feed + sağ rail + mobil) · avatar-eksik hesaplara **profil-tamamlama nudge'u** (web + mobil, kapatılabilir)
+- **Federation relay** — singleton instance "Application" actor (`/ap/instance`) + **admin-gated** relay aboneliği (`/admin/federation/relays` + web admin UI). Relay firehose'u: imzalayan-doğrulamalı (signer ≠ author), içerik **origin'den yeniden-fetch** (relay forge edemez), yalnız *active* relay'den ingest, host-block. Otomatik abone yok — sahibi açar. (Canlı el-sıkışma gerçek bir relay'le test edilmeli.)
 
 🔜 **Sırada**
-- **Federation relay** — instance-actor + relay aboneliği (takip etmeden firehose). Bilerek sonraya: relay-forward'larda imzalayan ≠ aktör olduğundan *authorized-fetch* doğrulama modeli + gerçek-relay entegrasyon testi gerekir; ayrıca modere edilmemiş firehose, ilk 50-100 kullanıcı aşamasına göre erken — bütçesiz ama kasıtlı aktive edilmeli. (Şu an: takip edilen uzak hesapların post + boost'ları zaten federe akışa düşüyor.)
-- **Apple ile giriş** + iOS dağıtımı
-- *(opsiyonel)* görsel/toksisite **ML sınıflandırıcı** — şu an ücretsiz hash-blocklist + denylist heuristiği yeterli görüldü
+- **Apple ile giriş** + iOS dağıtımı *(ücretli — Apple Developer hesabı)*
+- *(opsiyonel)* görsel/toksisite **ML sınıflandırıcı** — ücretsiz hash-blocklist + denylist heuristiği yeterli; gerçek model ücretli API ya da ağır yerel altyapı gerektirdiğinden (bütçesiz) ertelendi
 
 ## Katkı
 

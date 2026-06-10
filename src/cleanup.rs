@@ -92,6 +92,22 @@ async fn run_once(pg: &PgPool, media_dir: &str) {
             "remote_posts",
             "DELETE FROM remote_posts WHERE ingested_at < NOW() - interval '30 days'",
         ),
+        // Orphan media rows: a media row whose file no surviving post body,
+        // avatar, or DM still references (a post hard-delete leaves its row +
+        // file behind — post images live in posts.body markdown, not post_media).
+        // 30-day floor so an in-flight or just-detached upload is never caught.
+        // sweep_orphan_media then reclaims the now-unreferenced file from disk.
+        // NOTE: at very large scale these body-LIKE scans want a denormalized
+        // media-reference table; fine for now, runs hourly off the hot path.
+        (
+            "media_orphans",
+            "DELETE FROM media m \
+             WHERE m.created_at < NOW() - interval '30 days' \
+               AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.body LIKE '%' || m.filename || '%') \
+               AND NOT EXISTS (SELECT 1 FROM users u WHERE u.avatar_url LIKE '%' || m.filename) \
+               AND NOT EXISTS (SELECT 1 FROM dm_messages d WHERE d.media_url LIKE '%' || m.filename) \
+               AND NOT EXISTS (SELECT 1 FROM post_media pm WHERE pm.url LIKE '%' || m.filename)",
+        ),
     ];
 
     let mut total_removed = 0u64;

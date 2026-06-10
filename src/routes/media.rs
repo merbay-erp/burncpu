@@ -53,6 +53,31 @@ const ALLOWED: &[(&str, ImageFormat, &str)] = &[
     ("image/gif", ImageFormat::Gif, "gif"),
 ];
 const MAX_VIDEO_BYTES: usize = 64 * 1024 * 1024; // 64 MiB — short clips
+/// Per-user stored-media ceiling. Without this one account could fill the disk
+/// (videos are 64 MiB each). Override via MEDIA_USER_QUOTA_BYTES; default 2 GiB.
+fn user_media_quota() -> i64 {
+    std::env::var("MEDIA_USER_QUOTA_BYTES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2 * 1024 * 1024 * 1024)
+}
+
+/// Reject an upload that would push the owner over their media quota. Slightly
+/// conservative: counts the raw incoming size (the stored, re-encoded image is
+/// usually smaller) and doesn't discount a possible content-hash dedupe — both
+/// err toward protecting the disk.
+async fn enforce_media_quota(state: &AppState, owner_id: Uuid, incoming: i64) -> Result<(), AppError> {
+    let used: i64 =
+        sqlx::query_scalar("SELECT COALESCE(SUM(size_bytes), 0) FROM media WHERE owner_id = $1")
+            .bind(owner_id)
+            .fetch_one(&state.pg)
+            .await
+            .unwrap_or(0);
+    if used + incoming > user_media_quota() {
+        return Err(AppError::BadRequest("medya depolama kotası doldu".into()));
+    }
+    Ok(())
+}
 const ALLOWED_VIDEO: &[(&str, &str)] = &[
     ("video/mp4", "mp4"),
     ("video/webm", "webm"),
@@ -133,6 +158,7 @@ pub(crate) async fn ingest_image_bytes(
     if raw.is_empty() {
         return Err(AppError::BadRequest("empty image".into()));
     }
+    enforce_media_quota(state, owner_id, raw.len() as i64).await?;
 
     // Sniff MIME from the bytes (not from any client claim).
     let kind =
@@ -262,6 +288,7 @@ async fn ingest_video_bytes(
     raw: &[u8],
     mime: &str,
 ) -> Result<MediaResponse, AppError> {
+    enforce_media_quota(state, owner_id, raw.len() as i64).await?;
     let ext = ALLOWED_VIDEO
         .iter()
         .find(|(m, _)| *m == mime)

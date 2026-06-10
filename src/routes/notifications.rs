@@ -315,25 +315,29 @@ pub async fn notify(
         created_at: sqlx::types::chrono::Utc::now().to_rfc3339(),
     });
 
-    crate::routes::webhooks::dispatch_event(state, user_id, kind, &payload).await;
-    crate::routes::push::send_to_user(
-        state,
-        user_id,
-        kind,
-        actor_username_clone.as_deref(),
-        target_kind,
-        target_id,
-    )
-    .await;
-    crate::routes::push::send_to_device_tokens(
-        state,
-        user_id,
-        kind,
-        actor_username_clone.as_deref(),
-        target_kind,
-        target_id,
-    )
-    .await;
+    // Off the hot path: webhook + push fan-out each does a DB lookup plus
+    // outbound HTTP (Expo, subscriber endpoints, web-push). Awaiting them inline
+    // made every post/reaction/follow/DM block on a 100–500ms round-trip. The SSE
+    // broadcast above already delivered the in-app notification instantly; the
+    // rest is fire-and-forget.
+    let state = state.clone();
+    let kind = kind.to_string();
+    let target_kind = target_kind.to_string();
+    tokio::spawn(async move {
+        let actor = actor_username_clone.as_deref();
+        crate::routes::webhooks::dispatch_event(&state, user_id, &kind, &payload).await;
+        crate::routes::push::send_to_user(&state, user_id, &kind, actor, &target_kind, target_id)
+            .await;
+        crate::routes::push::send_to_device_tokens(
+            &state,
+            user_id,
+            &kind,
+            actor,
+            &target_kind,
+            target_id,
+        )
+        .await;
+    });
 }
 
 async fn notification_suppressed(state: &AppState, user_id: Uuid, actor_id: Uuid) -> bool {

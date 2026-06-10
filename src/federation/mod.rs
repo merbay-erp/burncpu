@@ -667,15 +667,46 @@ pub async fn fanout_post(state: &AppState, post_id: Uuid) {
     .execute(&state.pg)
     .await;
 
-    let cfg = state.config.clone();
-    let key_clone = ActorKey {
+    // Fan out concurrently, bounded. The old loop delivered to every follower
+    // inbox *sequentially*, so one slow/hung Mastodon (up to the 8s deliver
+    // timeout) stalled the whole fanout — at thousands of followers that's
+    // minutes of head-of-line blocking. Now up to 16 inboxes are in flight at
+    // once, and each delivery gets one retry (a transient 5xx/timeout shouldn't
+    // silently drop the post for that follower). Shared inputs are Arc'd so each
+    // task borrows rather than clones the signing key + activity.
+    let cfg = std::sync::Arc::new(state.config.clone());
+    let key = std::sync::Arc::new(ActorKey {
         public_pem: key.public_pem.clone(),
         private_pem: key.private_pem.clone(),
-    };
+    });
+    let create = std::sync::Arc::new(create);
+    let actor_uri = std::sync::Arc::new(actor_uri);
     tokio::spawn(async move {
+        let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(16));
+        let mut set = tokio::task::JoinSet::new();
         for inbox in inboxes {
-            let _ = sign::deliver(&cfg, &key_clone, &actor_uri, &inbox, &create).await;
+            let Ok(permit) = sem.clone().acquire_owned().await else {
+                break;
+            };
+            let (cfg, key, create, actor_uri) =
+                (cfg.clone(), key.clone(), create.clone(), actor_uri.clone());
+            set.spawn(async move {
+                let _permit = permit;
+                for attempt in 0..2u32 {
+                    match sign::deliver(&cfg, &key, &actor_uri, &inbox, &create).await {
+                        Ok(()) => return,
+                        Err(_) if attempt == 0 => {
+                            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        }
+                        Err(e) => {
+                            tracing::warn!(%inbox, ?e, "federation: delivery failed after retry");
+                            return;
+                        }
+                    }
+                }
+            });
         }
+        while set.join_next().await.is_some() {}
     });
 }
 

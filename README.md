@@ -204,7 +204,7 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 |------|-------------|
 | **Auth** | `POST /auth/request` · `POST /auth/logout` · `POST /auth/2fa/*` · `GET /oauth/providers` · `GET /oauth/{p}/start` · `/oauth/{p}/callback` · `POST /oauth/exchange` |
 | **Posts** | `GET\|POST /posts` · `GET\|DELETE /posts/{id}` · `POST\|DELETE /posts/{id}/react` · `GET /posts/{id}/thread` · `POST /posts/{id}/repost` |
-| **Users** | `GET /users/{u}` · `PATCH /users/me` · `POST\|DELETE /users/{u}/follow` · `GET /users/lookup` · `GET /users/me/export` |
+| **Users** | `GET /users/{u}` · `PATCH /users/me` · `POST\|DELETE /users/{u}/follow` · `GET /users/lookup` · `GET /users/suggestions` (kimi takip etmeli) · `GET /users/me/export` |
 | **Feed / keşif** | `GET /feed` · `GET /feed/federated` (federe) · `GET /search?q=` · `GET /hashtags/{tag}` · `GET /trending/{posts,hashtags}` |
 | **Sosyal** | `GET\|POST /bookmarks` · `POST /users/{u}/{block,mute}` · `POST /reports` |
 | **Moderasyon** | `POST /appeals` · `POST /appeals/account` (kimliksiz) · `GET /admin/appeals` · `PATCH /admin/posts\|users/{id}` · `GET /admin/moderation_log` |
@@ -249,13 +249,14 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - Link önizlemeleri (SSRF-korumalı), görsel yükleme (EXIF strip)
 - Komut paleti (⌘K), avatar cropper, taslak kaydetme
 - RSS/Atom, **ActivityPub** federasyon (signatures/webfinger/nodeinfo)
-- **Federation tüketiciliği** — uzak `Create`/`Announce`/`Delete` içe alma (imza-doğrulamalı; boost'lar **origin'den yeniden-fetch** ile doğrulanır → relay/booster forge'una kapalı; ammonia-sanitize, host-block, 8k-cap) → **federe keşif akışı** (`GET /feed/federated` + web `/federated` sekmesi)
+- **Federation tüketiciliği** — uzak `Create`/`Announce`/`Delete` içe alma (imza-doğrulamalı; boost'lar **origin'den yeniden-fetch** ile doğrulanır → relay/booster forge'una kapalı; ammonia-sanitize, host-block, 8k-cap) → **federe keşif akışı** (`GET /feed/federated` + web `/federated` sekmesi); 30g cache-retention + gelecek-tarihli post anti-pin
 - Web Push (VAPID), webhook'lar, scope'lu API token'ları
 - SMTP gerçek gönderim, gece yedekleri (7 gün rotasyon)
+- **Mobil medya & ses** — in-app **video oynatıcı** (expo-video, lazy/akışlı; post + DM) + **foreground mesaj sesi** (açık DM thread'ine gelen mesajda anlık chime; aktif thread'de push susturularak çift-ding önlenir)
+- **İlk-izlenim & onboarding** — logged-out **landing** (value-prop + tek CTA) · gerçek **PNG paylaşım kartı** (1200×630, og/twitter) · **"kimi takip etmeli"** önerileri (`GET /users/suggestions`; web boş-feed + sağ rail + mobil) · avatar-eksik hesaplara **profil-tamamlama nudge'u**
 
 🔜 **Sırada**
 - **Federation relay** — instance-actor + relay aboneliği (takip etmeden firehose). Bilerek sonraya: relay-forward'larda imzalayan ≠ aktör olduğundan *authorized-fetch* doğrulama modeli + gerçek-relay entegrasyon testi gerekir; ayrıca modere edilmemiş firehose, ilk 50-100 kullanıcı aşamasına göre erken — bütçesiz ama kasıtlı aktive edilmeli. (Şu an: takip edilen uzak hesapların post + boost'ları zaten federe akışa düşüyor.)
-- **Mobil**: in-app video oynatıcı + foreground mesaj sesi
 - **Apple ile giriş** + iOS dağıtımı
 - *(opsiyonel)* görsel/toksisite **ML sınıflandırıcı** — şu an ücretsiz hash-blocklist + denylist heuristiği yeterli görüldü
 

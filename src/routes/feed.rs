@@ -28,7 +28,9 @@ use sqlx::types::chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(home))
+    Router::new()
+        .route("/", get(home))
+        .route("/federated", get(federated))
 }
 
 #[derive(Deserialize)]
@@ -121,4 +123,68 @@ async fn home(
         next_before: next.map(|(t, _)| t),
         next_before_id: next.map(|(_, id)| id),
     }))
+}
+
+// --- Federated explore -----------------------------------------------------
+//
+// Public, unauthenticated discovery timeline of posts the instance has
+// *consumed* from the fediverse (migration 0038 `remote_posts`, ingested by
+// `federation::handle_create` after signature-verification + ammonia
+// sanitization). Distinct from `home`: no local posts, no viewer state, no
+// follow graph — just the freshest non-hidden top-level remote posts. This is
+// the read side of "federation consumption"; the write side never trusts the
+// payload (host-blocked actors are dropped at ingest, content_html is already
+// sanitized so it ships as-is).
+
+#[derive(Deserialize)]
+pub struct FederatedQuery {
+    #[serde(default = "default_limit")]
+    limit: i64,
+    before: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct RemotePostView {
+    uri: String,
+    actor_uri: String,
+    actor_handle: Option<String>,
+    actor_name: Option<String>,
+    actor_avatar: Option<String>,
+    content_html: String,
+    url: Option<String>,
+    published_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+pub struct FederatedResponse {
+    posts: Vec<RemotePostView>,
+    next_before: Option<DateTime<Utc>>,
+}
+
+async fn federated(
+    State(state): State<AppState>,
+    Query(q): Query<FederatedQuery>,
+) -> Result<Json<FederatedResponse>, AppError> {
+    let limit = q.limit.clamp(1, 100);
+    let before = q.before.unwrap_or_else(Utc::now);
+
+    let posts: Vec<RemotePostView> = sqlx::query_as(
+        r#"
+        SELECT uri, actor_uri, actor_handle, actor_name, actor_avatar,
+               content_html, url, published_at
+        FROM remote_posts
+        WHERE NOT hidden
+          AND in_reply_to IS NULL
+          AND published_at < $1
+        ORDER BY published_at DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(before)
+    .bind(limit)
+    .fetch_all(&state.pg)
+    .await?;
+
+    let next_before = posts.last().map(|p| p.published_at);
+    Ok(Json(FederatedResponse { posts, next_before }))
 }

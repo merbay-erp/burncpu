@@ -287,6 +287,16 @@ fn sanitizer() -> &'static ammonia::Builder<'static> {
     })
 }
 
+/// Sanitize already-rendered HTML from an untrusted REMOTE source (federated
+/// posts ingested over ActivityPub). Same allowlist as local content: scripts,
+/// iframes, objects, event handlers and styles are dropped, and any non-local
+/// `<img>` src collapses to empty — so a federated post can neither run JS nor
+/// beacon the reader with a remote tracking pixel. Used at ingest in
+/// `crate::federation`.
+pub fn sanitize_html(html: &str) -> String {
+    sanitizer().clean(html).to_string()
+}
+
 /// First N characters of plain text, used for previews / timeline meta.
 pub fn excerpt(body: &str, max: usize) -> String {
     body.chars().take(max).collect::<String>()

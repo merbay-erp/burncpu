@@ -204,11 +204,92 @@ pub async fn handle_inbox(
     match activity.typ.as_str() {
         "Follow" => handle_follow(state, local_user_id, &activity).await,
         "Undo" => handle_undo(state, local_user_id, &activity).await,
+        "Create" => handle_create(state, &activity).await,
+        "Delete" => handle_delete(state, &activity).await,
         _ => {
             tracing::info!(kind = %activity.typ, actor = %activity.actor, "inbox: ignored");
             Ok(())
         }
     }
+}
+
+/// Ingest a remote Create (a remote actor's new post) into the federated explore
+/// store. The activity is already signature-verified by the inbox route, so the
+/// actor is authentic; we still drop host-blocked instances and sanitize the
+/// content with the local ammonia allowlist (no scripts, no remote images).
+async fn handle_create(state: &AppState, activity: &IncomingActivity) -> Result<()> {
+    if let Some(host) = host_of(&activity.actor)
+        && is_host_blocked(state, &host).await
+    {
+        return Ok(());
+    }
+    ingest_remote_note(state, &activity.object, &activity.actor).await;
+    Ok(())
+}
+
+/// Store a remote `Note` object as a remote_post. Best-effort: malformed objects
+/// are skipped, never erroring the inbox. content_html is sanitized at the door.
+async fn ingest_remote_note(state: &AppState, object: &serde_json::Value, actor_uri: &str) {
+    if object.get("type").and_then(|v| v.as_str()) != Some("Note") {
+        return;
+    }
+    let uri = match object.get("id").and_then(|v| v.as_str()) {
+        Some(u) if u.starts_with("https://") => u,
+        _ => return,
+    };
+    let content_raw = object.get("content").and_then(|v| v.as_str()).unwrap_or("");
+    if content_raw.trim().is_empty() {
+        return;
+    }
+    // Cap before sanitizing so a hostile peer can't hand us a megabyte of HTML.
+    let capped: String = content_raw.chars().take(8000).collect();
+    let content_html = crate::content::sanitize_html(&capped);
+    let author = object
+        .get("attributedTo")
+        .and_then(|v| v.as_str())
+        .unwrap_or(actor_uri);
+    let url = object.get("url").and_then(|v| v.as_str());
+    let in_reply_to = object.get("inReplyTo").and_then(|v| v.as_str());
+    let published = object
+        .get("published")
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+    let handle = host_of(author).map(|h| format!("@{h}"));
+
+    let _ = sqlx::query(
+        r#"
+        INSERT INTO remote_posts (uri, actor_uri, actor_handle, content_html, url, in_reply_to, published_at)
+        VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()))
+        ON CONFLICT (uri) DO NOTHING
+        "#,
+    )
+    .bind(uri)
+    .bind(author)
+    .bind(handle)
+    .bind(&content_html)
+    .bind(url)
+    .bind(in_reply_to)
+    .bind(published)
+    .execute(&state.pg)
+    .await;
+}
+
+/// A remote Delete tombstones one of its own posts.
+async fn handle_delete(state: &AppState, activity: &IncomingActivity) -> Result<()> {
+    let uri = activity
+        .object
+        .as_str()
+        .or_else(|| activity.object.get("id").and_then(|v| v.as_str()));
+    if let Some(uri) = uri {
+        // An actor may only delete its own post.
+        let _ = sqlx::query("DELETE FROM remote_posts WHERE uri = $1 AND actor_uri = $2")
+            .bind(uri)
+            .bind(&activity.actor)
+            .execute(&state.pg)
+            .await;
+    }
+    Ok(())
 }
 
 async fn handle_follow(

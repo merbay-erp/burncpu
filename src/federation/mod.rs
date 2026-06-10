@@ -913,7 +913,10 @@ pub async fn subscribe_relay(state: &AppState, relay_actor_uri: &str) -> Result<
     Ok(())
 }
 
-/// Unsubscribe: mark the relay disabled and best-effort POST an Undo Follow.
+/// Unsubscribe: remove the relay row and best-effort POST an Undo Follow. The
+/// row is deleted (not just flagged) so an unsubscribed relay leaves no trace in
+/// the admin list — re-subscribing is a fresh INSERT. is_active_relay already
+/// gates ingestion, so a deleted row also stops the firehose immediately.
 pub async fn unsubscribe_relay(state: &AppState, relay_actor_uri: &str) -> Result<()> {
     let row: Option<(String, Option<String>)> =
         sqlx::query_as("SELECT inbox, follow_id FROM federation_relays WHERE actor_uri = $1")
@@ -923,7 +926,7 @@ pub async fn unsubscribe_relay(state: &AppState, relay_actor_uri: &str) -> Resul
     let Some((inbox, follow_id)) = row else {
         return Ok(());
     };
-    sqlx::query("UPDATE federation_relays SET state = 'disabled' WHERE actor_uri = $1")
+    sqlx::query("DELETE FROM federation_relays WHERE actor_uri = $1")
         .bind(relay_actor_uri)
         .execute(&state.pg)
         .await?;

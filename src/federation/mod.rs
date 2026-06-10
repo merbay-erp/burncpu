@@ -22,8 +22,7 @@ use crate::{auth::totp, state::AppState};
 use anyhow::{Result, anyhow};
 use rsa::{
     RsaPrivateKey, RsaPublicKey,
-    pkcs1::EncodeRsaPublicKey,
-    pkcs8::{DecodePrivateKey, EncodePrivateKey, LineEnding},
+    pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey, LineEnding},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::Utc;
@@ -53,11 +52,14 @@ pub async fn ensure_actor_key(state: &AppState, user_id: Uuid) -> Result<ActorKe
     let Some((enc, nonce, pubpem)) = row else {
         return Err(anyhow!("user not found"));
     };
-    if let (Some(enc), Some(nonce), Some(pubpem)) = (enc.clone(), nonce.clone(), pubpem.clone()) {
+    if let (Some(enc), Some(nonce), Some(_pubpem)) = (enc.clone(), nonce.clone(), pubpem.clone()) {
         let priv_bytes = totp::decrypt_blob(&enc, &nonce)?;
         let private_pem = String::from_utf8(priv_bytes)?;
+        // Re-derive the public PEM as SPKI rather than trusting the stored copy,
+        // which may be the old PKCS#1 form that peers reject.
+        let public_pem = public_spki_pem(&private_pem)?;
         return Ok(ActorKey {
-            public_pem: pubpem,
+            public_pem,
             private_pem,
         });
     }
@@ -79,8 +81,8 @@ pub async fn ensure_actor_key(state: &AppState, user_id: Uuid) -> Result<ActorKe
         .map_err(|e| anyhow!("pkcs8: {e}"))?
         .to_string();
     let public_pem = pub_key
-        .to_pkcs1_pem(LineEnding::LF)
-        .map_err(|e| anyhow!("pkcs1: {e}"))?;
+        .to_public_key_pem(LineEnding::LF)
+        .map_err(|e| anyhow!("spki: {e}"))?;
 
     let (enc, nonce) = totp::encrypt_blob(private_pem.as_bytes())?;
     sqlx::query(
@@ -107,6 +109,18 @@ pub async fn ensure_actor_key(state: &AppState, user_id: Uuid) -> Result<ActorKe
 
 pub fn load_private(pem: &str) -> Result<RsaPrivateKey> {
     RsaPrivateKey::from_pkcs8_pem(pem).map_err(|e| anyhow!("load priv: {e}"))
+}
+
+/// The SPKI (`-----BEGIN PUBLIC KEY-----`) PEM for a private key. ActivityPub
+/// peers (Mastodon, relays, …) expect SPKI in `publicKey.publicKeyPem`; the
+/// PKCS#1 form (`BEGIN RSA PUBLIC KEY`) makes them reject the actor ("couldn't
+/// encode public key"). Derived from the private key so it's correct even for
+/// keys generated before this fix — no DB backfill needed.
+fn public_spki_pem(private_pem: &str) -> Result<String> {
+    let priv_key = load_private(private_pem)?;
+    RsaPublicKey::from(&priv_key)
+        .to_public_key_pem(LineEnding::LF)
+        .map_err(|e| anyhow!("spki encode: {e}"))
 }
 
 // ─── Actor JSON ────────────────────────────────────────────────
@@ -731,9 +745,10 @@ pub async fn ensure_instance_key(state: &AppState) -> Result<ActorKey> {
     )
     .fetch_optional(&state.pg)
     .await?;
-    if let Some((enc, nonce, pubpem)) = row {
+    if let Some((enc, nonce, _pubpem)) = row {
         let private_pem = String::from_utf8(totp::decrypt_blob(&enc, &nonce)?)?;
-        return Ok(ActorKey { public_pem: pubpem, private_pem });
+        let public_pem = public_spki_pem(&private_pem)?;
+        return Ok(ActorKey { public_pem, private_pem });
     }
 
     let (priv_key, pub_key) =
@@ -751,8 +766,8 @@ pub async fn ensure_instance_key(state: &AppState) -> Result<ActorKey> {
         .map_err(|e| anyhow!("pkcs8: {e}"))?
         .to_string();
     let public_pem = pub_key
-        .to_pkcs1_pem(LineEnding::LF)
-        .map_err(|e| anyhow!("pkcs1: {e}"))?;
+        .to_public_key_pem(LineEnding::LF)
+        .map_err(|e| anyhow!("spki: {e}"))?;
     let (enc, nonce) = totp::encrypt_blob(private_pem.as_bytes())?;
     sqlx::query(
         "INSERT INTO instance_actor (id, private_key_encrypted, private_key_nonce, public_key_pem) VALUES (true, $1, $2, $3) ON CONFLICT (id) DO NOTHING",
@@ -763,13 +778,14 @@ pub async fn ensure_instance_key(state: &AppState) -> Result<ActorKey> {
     .execute(&state.pg)
     .await?;
     // Re-read the canonical row in case a concurrent request won the insert.
-    let (enc, nonce, pubpem): (Vec<u8>, Vec<u8>, String) = sqlx::query_as(
+    let (enc, nonce, _pubpem): (Vec<u8>, Vec<u8>, String) = sqlx::query_as(
         "SELECT private_key_encrypted, private_key_nonce, public_key_pem FROM instance_actor WHERE id = true",
     )
     .fetch_one(&state.pg)
     .await?;
     let private_pem = String::from_utf8(totp::decrypt_blob(&enc, &nonce)?)?;
-    Ok(ActorKey { public_pem: pubpem, private_pem })
+    let public_pem = public_spki_pem(&private_pem)?;
+    Ok(ActorKey { public_pem, private_pem })
 }
 
 /// The instance actor document (type Application).

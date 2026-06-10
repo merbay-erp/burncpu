@@ -25,9 +25,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check advisories licenses bans sources
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Run cargo-deny directly rather than EmbarkStudios/cargo-deny-action@v2,
+      # whose Docker image pull intermittently times out against Docker Hub and
+      # red-flags green builds. Same checks, native runner — no Docker.
+      - run: cargo install cargo-deny --locked
+      - run: cargo deny check advisories licenses bans sources
 
   build-check:
     name: cargo check + test

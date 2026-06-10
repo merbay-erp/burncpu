@@ -244,6 +244,7 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - **Otonom moderasyon** — spam skoru + **hesap ısısı/eskalasyon** (shadow-ban → askıya alma) + rapor-eşiği karantina + **link/domain itibarı** + toksisite heuristiği + görsel **hash-blocklist** + **itiraz akışı** + trend anti-gaming · tümü `moderation_log` denetimli
 - **100k-ölçek denetimi** — PG tuning, partial/FK indexler, denormalize sayaçlar (trigger'lı), anon timeline/trending **read-through cache**, viewer-state batch
 - **Ölçek cilası** — `posts_count`/`replies_count` trigger sayaçları, DM thread son-mesaj denormalize, audit/login **aylık partition** (DROP-tabanlı retention), **trending materialized-view** (saatlik refresh)
+- **Darboğaz denetimi (100k)** — DB havuzu 16→48 (`DB_MAX_CONNECTIONS`), görsel decode/resize **`spawn_blocking`** (async runtime açlığı yok), federation fanout **bounded-paralel + retry** (yavaş inbox HoL-bloklamıyor), bildirim webhook/push fanout'u hot-path'ten **spawn**, **atomik** rate-limit (TTL-sız anahtar sızıntısı yok), per-user **medya kotası** + orphan-media temizliği, reaksiyon bildiriminde TOCTOU kapatıldı, **PG tuning** (shared_buffers/work_mem/parallel/io)
 - **Hesap-düzeyi itiraz** — askıya alınanlar için kimliksiz, enum-safe e-posta itiraz kanalı (`POST /appeals/account`)
 - **Güvenlik sertleştirme** — trusted-proxy IP gate (forwarded-header spoof + rate-limit baypası kapalı), iç-hata mesajı sızıntısı kapatma
 - Link önizlemeleri (SSRF-korumalı), görsel yükleme (EXIF strip)

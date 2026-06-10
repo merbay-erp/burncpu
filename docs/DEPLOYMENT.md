@@ -90,6 +90,22 @@ proxies to it; Cloudflare fronts nginx on `:443`.
 - **Restore drill** — verified 2026-06-10: latest nightly restored cleanly into
   a throwaway `postgres:16-alpine` container; row counts matched prod modulo
   post-backup activity. Re-run the drill after any major schema change.
+- **Postgres tuning** — applied via `ALTER SYSTEM` (persisted to
+  `postgresql.auto.conf` in the data volume; survives container recreation). The
+  prod box is 18 cores / 94 GB with the burncpu-pg container limited to 24 GB,
+  shared with other small DBs. Re-apply these on a fresh DB host (run each as a
+  separate statement — `ALTER SYSTEM` can't share a transaction):
+  ```sql
+  ALTER SYSTEM SET shared_buffers = '8GB';                 -- needs restart
+  ALTER SYSTEM SET effective_cache_size = '20GB';
+  ALTER SYSTEM SET work_mem = '48MB';
+  ALTER SYSTEM SET max_worker_processes = 16;              -- needs restart
+  ALTER SYSTEM SET max_parallel_workers = 16;
+  ALTER SYSTEM SET max_parallel_workers_per_gather = 4;
+  ALTER SYSTEM SET effective_io_concurrency = 200;         -- SSD
+  SELECT pg_reload_conf();                                 -- then: docker restart burncpu-pg
+  ```
+  The app's pool is `DB_MAX_CONNECTIONS` (default 48, under Postgres's 100).
 - **Restore (example)**:
 
   ```bash

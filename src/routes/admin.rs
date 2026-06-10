@@ -63,6 +63,10 @@ pub fn router() -> Router<AppState> {
             "/federation/relays",
             get(fed_relays).post(fed_relay_subscribe).delete(fed_relay_unsubscribe),
         )
+        .route(
+            "/federation/remote_posts",
+            get(fed_remote_posts).patch(fed_remote_post_hide),
+        )
 }
 
 // ─── Federation: instance list + defederation blocklist ─────────
@@ -211,6 +215,65 @@ async fn fed_relay_unsubscribe(
     crate::federation::unsubscribe_relay(&state, input.actor_uri.trim())
         .await
         .map_err(AppError::Internal)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ─── Federation: remote-post moderation ─────────────────────────
+//
+// Per-post moderation for consumed federated content. Host-blocks defederate a
+// whole instance; this hides a single remote post from the explore feed (the
+// `hidden` flag from migration 0038 — until now it had no surface). Like the
+// defederation blocklist, the flipped row itself is the audit record.
+
+#[derive(Serialize, sqlx::FromRow)]
+struct RemotePostRow {
+    uri: String,
+    actor_uri: String,
+    actor_handle: Option<String>,
+    content_html: String,
+    published_at: DateTime<Utc>,
+    hidden: bool,
+}
+
+async fn fed_remote_posts(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<Json<Vec<RemotePostRow>>, AppError> {
+    let rows: Vec<RemotePostRow> = sqlx::query_as(
+        r#"
+        SELECT uri, actor_uri, actor_handle,
+               left(content_html, 400) AS content_html,
+               published_at, hidden
+        FROM remote_posts
+        ORDER BY ingested_at DESC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(&state.pg)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Deserialize)]
+pub struct RemotePostHideBody {
+    uri: String,
+    hidden: bool,
+}
+
+async fn fed_remote_post_hide(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(input): Json<RemotePostHideBody>,
+) -> Result<StatusCode, AppError> {
+    let n = sqlx::query("UPDATE remote_posts SET hidden = $2 WHERE uri = $1")
+        .bind(&input.uri)
+        .bind(input.hidden)
+        .execute(&state.pg)
+        .await?
+        .rows_affected();
+    if n == 0 {
+        return Err(AppError::NotFound);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

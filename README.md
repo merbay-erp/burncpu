@@ -254,7 +254,8 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - SMTP gerçek gönderim, gece yedekleri (7 gün rotasyon)
 - **Mobil medya & ses** — in-app **video oynatıcı** (expo-video, lazy/akışlı; post + DM) + **foreground mesaj sesi** (açık DM thread'ine gelen mesajda anlık chime; aktif thread'de push susturularak çift-ding önlenir)
 - **İlk-izlenim & onboarding** — logged-out **landing** (value-prop + tek CTA) · gerçek **PNG paylaşım kartı** (1200×630, og/twitter) · **"kimi takip etmeli"** önerileri (`GET /users/suggestions`; web boş-feed + sağ rail + mobil) · avatar-eksik hesaplara **profil-tamamlama nudge'u** (web + mobil, kapatılabilir)
-- **Federation relay** — singleton instance "Application" actor (`/ap/instance`) + **admin-gated** relay aboneliği (`/admin/federation/relays` + web admin UI). Relay firehose'u: imzalayan-doğrulamalı (signer ≠ author), içerik **origin'den yeniden-fetch** (relay forge edemez), yalnız *active* relay'den ingest, host-block. Otomatik abone yok — sahibi açar. (Canlı el-sıkışma gerçek bir relay'le test edilmeli.)
+- **Federation relay** — singleton instance "Application" actor (`/ap/instance`) + **admin-gated** relay aboneliği (`/admin/federation/relays` + web admin UI). Relay firehose'u: imzalayan-doğrulamalı (signer ≠ author), içerik **origin'den yeniden-fetch** (relay forge edemez), yalnız *active* relay'den ingest, host-block. Otomatik abone yok — sahibi açar. (Canlı el-sıkışma gerçek bir relay'le test edilmeli.) **Federe içerik moderasyonu**: admin panelden tek uzak postu gizle/göster (`/admin/federation/remote_posts`)
+- **OAuth hesap-bağlama sertleştirmesi** — email-eşleşmesiyle **admin hesabına ilk-kez OAuth bağlanamaz** (tüm sağlayıcılar; adminler magic-link + 2FA ile girer) · Microsoft'ta `email_verified:false` claim'i gelirse email düşürülür
 
 🔜 **Sırada**
 - **Apple ile giriş** + iOS dağıtımı *(ücretli — Apple Developer hesabı)*

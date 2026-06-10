@@ -84,6 +84,15 @@ interface RelayRow {
   accepted_at: string | null;
 }
 
+interface RemotePostRow {
+  uri: string;
+  actor_uri: string;
+  actor_handle: string | null;
+  content_html: string;
+  published_at: string;
+  hidden: boolean;
+}
+
 const fmtBytes = (n: number) => {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -174,6 +183,22 @@ export default function Admin() {
       setFedBusy(false);
     }
   };
+
+  const [remotePosts, { refetch: refetchRemotePosts }] = createResource<RemotePostRow[]>(() =>
+    api.get<RemotePostRow[]>('/admin/federation/remote_posts').catch(() => [] as RemotePostRow[]),
+  );
+  const toggleRemoteHidden = async (p: RemotePostRow) => {
+    if (fedBusy()) return;
+    setFedBusy(true);
+    try {
+      await api.patch('/admin/federation/remote_posts', { uri: p.uri, hidden: !p.hidden });
+      await refetchRemotePosts();
+    } finally {
+      setFedBusy(false);
+    }
+  };
+  // Admin list shows a plain-text excerpt of the (server-sanitized) HTML.
+  const stripHtml = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
   return (
     <>
@@ -372,6 +397,31 @@ export default function Admin() {
                     <span style="margin-left: auto;" />
                     <button class="ghost tiny" disabled={fedBusy()} onClick={() => unsubscribeRelay(r.actor_uri)}>
                       {t('admin.relay_remove')}
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          )}
+        </Show>
+
+        <h3 style="margin-top: 22px;">{t('admin.remote_posts')}</h3>
+        <p class="muted tiny" style="margin: -4px 0 10px;">{t('admin.remote_hint')}</p>
+        <Show when={remotePosts()} fallback={<p class="muted">…</p>}>
+          {(rows) => (
+            <div style="margin-bottom: 22px;">
+              <For each={rows()} fallback={<p class="muted tiny">{t('admin.remote_none')}</p>}>
+                {(p) => (
+                  <div style="padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: baseline; font-size: 13px;">
+                    <code style="font-size: 11px; flex-shrink: 0;">{p.actor_handle ?? p.actor_uri}</code>
+                    <span style={`flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; ${p.hidden ? 'opacity: 0.45; text-decoration: line-through;' : ''}`}>
+                      {stripHtml(p.content_html).slice(0, 90)}
+                    </span>
+                    <a href={p.uri} target="_blank" rel="noopener noreferrer nofollow" class="tiny">
+                      {t('admin.open')}
+                    </a>
+                    <button class="ghost tiny" disabled={fedBusy()} onClick={() => toggleRemoteHidden(p)}>
+                      {p.hidden ? t('admin.remote_unhide') : t('admin.remote_hide')}
                     </button>
                   </div>
                 )}

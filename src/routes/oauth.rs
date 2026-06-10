@@ -288,6 +288,20 @@ async fn callback(
             let email = profile.email.as_deref().ok_or_else(|| {
                 AppError::BadRequest("provider did not return a verified email".into())
             })?;
+            // Email-matching may NOT link a first-time OAuth identity to an
+            // admin account, on any provider: a provider-side email claim is a
+            // weaker proof than our own magic-link, and admins are the prize
+            // target. Already-linked identities (the Some(uid) fast path) keep
+            // working; a fresh link to an admin requires magic-link (+2FA).
+            let admin_match: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND role = 'admin')",
+            )
+            .bind(email)
+            .fetch_one(&state.pg)
+            .await?;
+            if admin_match {
+                return Err(AppError::Forbidden);
+            }
             let uid = upsert_user(&state, email, None, &state.pg).await?;
             sqlx::query(
                 r#"
@@ -413,14 +427,21 @@ async fn fetch_profile(
             })
         }
         "microsoft" => {
-            // Microsoft's OIDC userinfo only returns directory-verified emails.
+            // Microsoft's OIDC userinfo normally returns directory-verified
+            // emails (and post-nOAuth app registrations strip unverified email
+            // claims by default) — but if an email_verified claim IS present and
+            // false, honour it and drop the email rather than trust it.
+            let unverified = j.get("email_verified").and_then(|v| v.as_bool()) == Some(false)
+                || j.get("email_verified").and_then(|v| v.as_str()) == Some("false");
             Ok(Profile {
                 provider_id: j
                     .get("sub")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string(),
-                email: j.get("email").and_then(|v| v.as_str()).map(String::from),
+                email: (!unverified)
+                    .then(|| j.get("email").and_then(|v| v.as_str()).map(String::from))
+                    .flatten(),
                 name: j.get("name").and_then(|v| v.as_str()).map(String::from),
                 avatar: None,
             })

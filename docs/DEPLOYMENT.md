@@ -80,7 +80,16 @@ proxies to it; Cloudflare fronts nginx on `:443`.
 - **Migrations** run automatically on app startup (sqlx, ordered files in
   `migrations/`). To add one, drop a new `00NN_*.sql`; never edit a shipped
   migration.
-- **Backups** — nightly `pg_dump` with 7-day rotation.
+- **Backups** — nightly `pg_dump` (03:00, `/opt/burncpu/scripts/backup.sh`) with
+  7-day rotation + monthly snapshots, written to `/opt/burncpu/backups/`.
+- **Offsite copy** — the operator's Mac pulls the backup dir daily at 10:00 via
+  a LaunchAgent (`com.burncpu.backup-pull` →
+  `~/.local/bin/burncpu-backup-pull.sh`, rsync over ssh to
+  `~/Backups/burncpu/files/`, local prune >90d). A VPS disk loss no longer
+  takes the backups with it.
+- **Restore drill** — verified 2026-06-10: latest nightly restored cleanly into
+  a throwaway `postgres:16-alpine` container; row counts matched prod modulo
+  post-backup activity. Re-run the drill after any major schema change.
 - **Restore (example)**:
 
   ```bash

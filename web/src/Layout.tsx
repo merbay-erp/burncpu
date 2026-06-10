@@ -276,6 +276,7 @@ export default function Layout(props: { children?: JSX.Element }) {
               <p class="px-3 pt-1 pb-1 text-[10px] font-mono uppercase tracking-[0.16em] text-on-surface-variant/45">{t('nav.group.explore')}</p>
               <SideLink href="/"              icon="timeline"      label={t('nav.timeline')}      active={loc.pathname === '/' || loc.pathname === '/feed'} />
               <SideLink href="/search"        icon="search"        label={t('nav.search')}        active={is('/search')} />
+              <SideLink href="/federated"     icon="hub"           label={t('nav.federated')}     active={is('/federated')} />
               <SideLink href="/notifications" icon="notifications" label={t('nav.notifications')} active={is('/notifications')} badge={unread() ?? 0} />
               <SideLink href="/docs"          icon="menu_book"     label={t('nav.docs')}          active={is('/docs')} />
               <Show when={me()}>

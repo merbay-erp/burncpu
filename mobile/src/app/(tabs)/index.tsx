@@ -16,12 +16,13 @@ import Post from '@/components/Post';
 import Brand from '@/components/Brand';
 import SuggestedAccounts from '@/components/SuggestedAccounts';
 import ProfileNudge from '@/components/ProfileNudge';
+import FederatedFeed from '@/components/FederatedFeed';
 import { api, type PostView, type Timeline } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
 
-type Tab = 'foryou' | 'global';
+type Tab = 'foryou' | 'global' | 'federated';
 
 export default function Home() {
   const { colors, toggle } = useTheme();
@@ -62,8 +63,9 @@ export default function Home() {
     [path, cursor, done, loading],
   );
 
-  // reload when the tab changes
+  // reload when the tab changes (the federated tab manages its own list)
   useEffect(() => {
+    if (tab === 'federated') return;
     setPosts([]);
     setCursor(null);
     setDone(false);
@@ -113,9 +115,17 @@ export default function Home() {
         <Pressable style={[s.tab, tab === 'global' && s.tabActive]} onPress={() => setTab('global')}>
           <Text style={[s.tabText, tab === 'global' && s.tabTextActive]}>{t('home.global')}</Text>
         </Pressable>
+        <Pressable
+          style={[s.tab, tab === 'federated' && s.tabActive]}
+          onPress={() => setTab('federated')}
+        >
+          <Text style={[s.tabText, tab === 'federated' && s.tabTextActive]}>{t('home.federated')}</Text>
+        </Pressable>
       </View>
 
-      {loading && posts.length === 0 ? (
+      {tab === 'federated' ? (
+        <FederatedFeed />
+      ) : loading && posts.length === 0 ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
       ) : (
         <FlatList

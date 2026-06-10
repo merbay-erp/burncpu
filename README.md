@@ -249,7 +249,7 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - Link önizlemeleri (SSRF-korumalı), görsel yükleme (EXIF strip)
 - Komut paleti (⌘K), avatar cropper, taslak kaydetme
 - RSS/Atom, **ActivityPub** federasyon (signatures/webfinger/nodeinfo)
-- **Federation tüketiciliği** — uzak `Create`/`Announce`/`Delete` içe alma (imza-doğrulamalı; boost'lar **origin'den yeniden-fetch** ile doğrulanır → relay/booster forge'una kapalı; ammonia-sanitize, host-block, 8k-cap) → **federe keşif akışı** (`GET /feed/federated` + web `/federated` sekmesi); 30g cache-retention + gelecek-tarihli post anti-pin
+- **Federation tüketiciliği** — uzak `Create`/`Announce`/`Delete` içe alma (imza-doğrulamalı; boost'lar **origin'den yeniden-fetch** ile doğrulanır → relay/booster forge'una kapalı; ammonia-sanitize, host-block, 8k-cap) → **federe keşif akışı** (`GET /feed/federated` + web `/federated` sekmesi + **mobil "Federe" sekmesi**); 30g cache-retention + gelecek-tarihli post anti-pin
 - Web Push (VAPID), webhook'lar, scope'lu API token'ları
 - SMTP gerçek gönderim, gece yedekleri (7 gün rotasyon)
 - **Mobil medya & ses** — in-app **video oynatıcı** (expo-video, lazy/akışlı; post + DM) + **foreground mesaj sesi** (açık DM thread'ine gelen mesajda anlık chime; aktif thread'de push susturularak çift-ding önlenir)

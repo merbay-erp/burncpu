@@ -5,6 +5,7 @@ import Compose from '../components/Compose';
 import InfiniteList from '../components/InfiniteList';
 import { PostSkeletonList } from '../components/Skeleton';
 import TimelineTabs from '../components/TimelineTabs';
+import LandingHero from '../components/LandingHero';
 import { me } from '../auth';
 import { t } from '../i18n';
 
@@ -89,7 +90,13 @@ export default function Home() {
         </div>
       </Show>
 
-      <TimelineTabs />
+      <Show when={!me()}>
+        <LandingHero />
+      </Show>
+
+      <Show when={me()}>
+        <TimelineTabs />
+      </Show>
 
       <Show when={me()}>
         <Compose persistDraft onPosted={prepend} />

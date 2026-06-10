@@ -253,7 +253,7 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 - Web Push (VAPID), webhook'lar, scope'lu API token'ları
 - SMTP gerçek gönderim, gece yedekleri (7 gün rotasyon)
 - **Mobil medya & ses** — in-app **video oynatıcı** (expo-video, lazy/akışlı; post + DM) + **foreground mesaj sesi** (açık DM thread'ine gelen mesajda anlık chime; aktif thread'de push susturularak çift-ding önlenir)
-- **İlk-izlenim & onboarding** — logged-out **landing** (value-prop + tek CTA) · gerçek **PNG paylaşım kartı** (1200×630, og/twitter) · **"kimi takip etmeli"** önerileri (`GET /users/suggestions`; web boş-feed + sağ rail + mobil) · avatar-eksik hesaplara **profil-tamamlama nudge'u**
+- **İlk-izlenim & onboarding** — logged-out **landing** (value-prop + tek CTA) · gerçek **PNG paylaşım kartı** (1200×630, og/twitter) · **"kimi takip etmeli"** önerileri (`GET /users/suggestions`; web boş-feed + sağ rail + mobil) · avatar-eksik hesaplara **profil-tamamlama nudge'u** (web + mobil, kapatılabilir)
 
 🔜 **Sırada**
 - **Federation relay** — instance-actor + relay aboneliği (takip etmeden firehose). Bilerek sonraya: relay-forward'larda imzalayan ≠ aktör olduğundan *authorized-fetch* doğrulama modeli + gerçek-relay entegrasyon testi gerekir; ayrıca modere edilmemiş firehose, ilk 50-100 kullanıcı aşamasına göre erken — bütçesiz ama kasıtlı aktive edilmeli. (Şu an: takip edilen uzak hesapların post + boost'ları zaten federe akışa düşüyor.)

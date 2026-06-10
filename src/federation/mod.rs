@@ -255,7 +255,11 @@ async fn ingest_remote_note(state: &AppState, object: &serde_json::Value, actor_
         .get("published")
         .and_then(|v| v.as_str())
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|d| d.with_timezone(&chrono::Utc));
+        .map(|d| d.with_timezone(&chrono::Utc))
+        // Reject future timestamps — the explore feed orders by published_at, so
+        // a back-/forward-dated post must not be able to pin itself to the top.
+        // A future date falls back to NOW() via the INSERT's COALESCE.
+        .filter(|d| *d <= chrono::Utc::now());
     let handle = host_of(author).map(|h| format!("@{h}"));
 
     let _ = sqlx::query(

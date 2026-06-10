@@ -84,6 +84,14 @@ async fn run_once(pg: &PgPool, media_dir: &str) {
             "invites",
             "DELETE FROM invites WHERE redeemed_at IS NULL AND expires_at < NOW() - interval '30 days'",
         ),
+        // Federated explore cache (migration 0038). It's a discovery surface for
+        // *recent* remote posts, not an archive, so evict by ingest time — keyed
+        // on ingested_at (when we stored it), never the remote-controlled
+        // published_at, so a peer can't dodge eviction by back-dating.
+        (
+            "remote_posts",
+            "DELETE FROM remote_posts WHERE ingested_at < NOW() - interval '30 days'",
+        ),
     ];
 
     let mut total_removed = 0u64;

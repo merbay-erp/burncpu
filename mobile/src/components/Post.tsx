@@ -8,6 +8,7 @@ import Avatar from './Avatar';
 import RichText from './RichText';
 import Sheet from './Sheet';
 import LinkCard from './LinkCard';
+import VideoPlayer from './VideoPlayer';
 import { api, mediaUrl, type PostView, type PostEditVersion } from '@/api';
 import { useMe } from '@/auth';
 import { fonts, radius, useTheme, type Palette } from '@/theme';
@@ -16,14 +17,20 @@ import { t, useLocale } from '@/i18n';
 
 const REACTION = '🐢';
 const IMG_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+// Media is posted as markdown `![](…)` regardless of kind; the stored filename
+// keeps its extension (mp4/webm/mov for the 64 MB video path), so we route by
+// extension into the right surface — <Image> vs <VideoPlayer>.
+const VIDEO_EXT = /\.(mp4|webm|mov)(?:[?#]|$)/i;
 
-function splitMedia(body: string): { text: string; images: string[] } {
+function splitMedia(body: string): { text: string; images: string[]; videos: string[] } {
   const images: string[] = [];
+  const videos: string[] = [];
   const text = body.replace(IMG_RE, (_full, url: string) => {
-    images.push(url);
+    if (VIDEO_EXT.test(url)) videos.push(url);
+    else images.push(url);
     return '';
   });
-  return { text: text.trim(), images };
+  return { text: text.trim(), images, videos };
 }
 
 export default function Post({ post, pinned, onPinChange, detail }: { post: PostView; pinned?: boolean; onPinChange?: () => void; detail?: boolean }) {
@@ -188,6 +195,9 @@ export default function Post({ post, pinned, onPinChange, detail }: { post: Post
                   contentFit="cover"
                   transition={120}
                 />
+              ))}
+              {media.videos.map((url, i) => (
+                <VideoPlayer key={`v${i}`} uri={mediaUrl(url) ?? url} />
               ))}
               {linkUrl ? <LinkCard url={linkUrl} onResolved={setHideLinkUrl} /> : null}
             </>

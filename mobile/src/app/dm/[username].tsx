@@ -9,19 +9,20 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
-  Linking,
   Modal,
   StyleSheet,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
 import Sheet from '@/components/Sheet';
+import VideoPlayer from '@/components/VideoPlayer';
 import { api, mediaUrl, uploadMedia } from '@/api';
 import { openEventStream } from '@/sse';
+import { playMessageChime, setActiveDmThread } from '@/sound';
 import { useMe } from '@/auth';
 import { fonts, useTheme, type Palette } from '@/theme';
 import { relTime } from '@/util';
@@ -106,6 +107,15 @@ export default function DmThread() {
     return () => clearInterval(t);
   }, [messages, load]);
 
+  // Mark this thread active while focused so the push handler stays silent for
+  // its messages (the in-app chime covers them) and re-arms on blur.
+  useFocusEffect(
+    useCallback(() => {
+      setActiveDmThread(username);
+      return () => setActiveDmThread(null);
+    }, [username]),
+  );
+
   // Live updates via SSE: typing indicator + auto-refresh when a message lands.
   useEffect(() => {
     const close = openEventStream('/notifications/stream', (e) => {
@@ -116,6 +126,10 @@ export default function DmThread() {
         if (typingClear.current) clearTimeout(typingClear.current);
         typingClear.current = setTimeout(() => setTyping(false), 3000);
       } else if (ev.kind === 'dm') {
+        // Incoming message in the thread you're reading: chime immediately. The
+        // OS push for the same message is suppressed while this thread is active
+        // (see setActiveDmThread + push handler), so there's no double sound.
+        void playMessageChime();
         load();
       }
     });
@@ -239,12 +253,11 @@ export default function DmThread() {
                   <Text style={s.videoNote}>İşlenemedi</Text>
                 </View>
               ) : (
-                <Pressable onPress={() => Linking.openURL(mediaUrl(item.media_url) ?? '')} style={[s.media, s.videoPlaceholder]}>
-                  {item.media_poster_url ? (
-                    <Image source={{ uri: mediaUrl(item.media_poster_url) }} style={s.mediaAbs} contentFit="cover" />
-                  ) : null}
-                  <Ionicons name="play-circle" size={42} color="#fff" />
-                </Pressable>
+                <VideoPlayer
+                  uri={mediaUrl(item.media_url) ?? ''}
+                  poster={mediaUrl(item.media_poster_url)}
+                  marginTop={0}
+                />
               )
             ) : null}
             {item.body ? <Text style={mine ? s.textMine : s.textOther}>{item.body}</Text> : null}

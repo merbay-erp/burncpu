@@ -70,7 +70,16 @@
           "color": "#ff8a3c"
         }
       ],
-      "./plugins/withSingleAbi.js"
+      "./plugins/withSingleAbi.js",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

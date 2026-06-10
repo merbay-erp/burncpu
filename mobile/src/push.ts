@@ -9,15 +9,38 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { api } from './api';
+import { activeDmThreadName } from './sound';
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data as { url?: string; kind?: string } | undefined;
+    // Stay silent for the DM thread the user is actively reading — the in-app
+    // chime already sounded, and a heads-up banner over the open conversation
+    // is just noise. Every other notification sounds + shows normally.
+    const active = activeDmThreadName();
+    const suppress = data?.kind === 'dm' && !!active && data.url === `/dm/${active}`;
+    return {
+      shouldShowBanner: !suppress,
+      shouldShowList: true,
+      shouldPlaySound: !suppress,
+      shouldSetBadge: true,
+    };
+  },
 });
+
+// Android needs a channel (importance + sound) for notifications to make noise,
+// foreground included. Fire-and-forget at startup; no-op off Android.
+if (Platform.OS === 'android') {
+  Notifications.setNotificationChannelAsync('default', {
+    name: 'Bildirimler',
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: 'default',
+    vibrationPattern: [0, 120, 60, 120],
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
+  }).catch(() => {
+    /* best-effort */
+  });
+}
 
 let registered = false;
 

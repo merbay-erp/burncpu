@@ -205,6 +205,7 @@ pub async fn handle_inbox(
         "Follow" => handle_follow(state, local_user_id, &activity).await,
         "Undo" => handle_undo(state, local_user_id, &activity).await,
         "Create" => handle_create(state, &activity).await,
+        "Announce" => handle_announce(state, &activity).await,
         "Delete" => handle_delete(state, &activity).await,
         _ => {
             tracing::info!(kind = %activity.typ, actor = %activity.actor, "inbox: ignored");
@@ -273,6 +274,84 @@ async fn ingest_remote_note(state: &AppState, object: &serde_json::Value, actor_
     .bind(published)
     .execute(&state.pg)
     .await;
+}
+
+/// Ingest a remote Announce (a boost). The booster is signature-verified by the
+/// inbox, but the *boosted* post lives on a third origin the booster doesn't
+/// speak for — so we never trust the embedded/forwarded copy. We re-fetch the
+/// post from its own canonical id (SSRF-safe) and ingest the origin's version,
+/// which makes it impossible for a booster (or a relay) to forge content under
+/// another instance's name.
+async fn handle_announce(state: &AppState, activity: &IncomingActivity) -> Result<()> {
+    let obj_uri = activity
+        .object
+        .as_str()
+        .or_else(|| activity.object.get("id").and_then(|v| v.as_str()));
+    let Some(obj_uri) = obj_uri else { return Ok(()) };
+    if !obj_uri.starts_with("https://") {
+        return Ok(());
+    }
+    // Skip the outbound fetch if we already hold this post (popular boosts are
+    // re-announced constantly — fetch once, not once per booster).
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM remote_posts WHERE uri = $1)")
+            .bind(obj_uri)
+            .fetch_one(&state.pg)
+            .await
+            .unwrap_or(false);
+    if exists {
+        return Ok(());
+    }
+    // Don't even fetch from a defederated origin.
+    if let Some(host) = host_of(obj_uri)
+        && is_host_blocked(state, &host).await
+    {
+        return Ok(());
+    }
+    let Ok(object) = fetch_remote_object(obj_uri).await else {
+        return Ok(());
+    };
+    // No bait-and-switch: the document the origin served must self-identify as
+    // the exact uri we asked for.
+    if object.get("id").and_then(|v| v.as_str()) != Some(obj_uri) {
+        return Ok(());
+    }
+    // The author is the original poster (attributedTo), never the booster.
+    let author = object
+        .get("attributedTo")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if author.is_empty() {
+        return Ok(());
+    }
+    if let Some(host) = host_of(author)
+        && is_host_blocked(state, &host).await
+    {
+        return Ok(());
+    }
+    ingest_remote_note(state, &object, author).await;
+    Ok(())
+}
+
+/// SSRF-safe GET of a public ActivityPub object. Same guards as `fetch_actor`:
+/// the URL is validated against private/loopback ranges, redirects are refused
+/// (so a public→internal redirect can't slip past the check), and the body is
+/// length-capped. Unsigned — public objects are world-readable.
+async fn fetch_remote_object(uri: &str) -> Result<serde_json::Value> {
+    let (http, safe_uri) = crate::net_safety::safe_client_for(
+        uri,
+        "burncpu-federation/0.1",
+        std::time::Duration::from_secs(8),
+    )
+    .await?;
+    let resp = http
+        .get(safe_uri.as_str())
+        .header(reqwest::header::ACCEPT, AP_CT)
+        .send()
+        .await?
+        .error_for_status()?;
+    let raw = crate::net_safety::read_capped_bytes(resp, 256 * 1024).await?;
+    Ok(serde_json::from_slice(&raw)?)
 }
 
 /// A remote Delete tombstones one of its own posts.

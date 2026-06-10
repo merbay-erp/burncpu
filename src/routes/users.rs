@@ -38,6 +38,7 @@ pub fn router() -> Router<AppState> {
         .route("/{username}/following", get(following))
         .route("/{username}/follow", post(follow).delete(unfollow))
         .route("/lookup", get(lookup_prefix))
+        .route("/suggestions", get(suggestions))
 }
 
 // ─── GET /users/me/trash — soft-deleted posts within 30d ───────
@@ -678,6 +679,72 @@ pub struct UserBrief {
     username: String,
     display_name: String,
     avatar_url: Option<String>,
+}
+
+// ── Who to follow (onboarding) ─────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct SuggestQuery {
+    #[serde(default = "default_suggest_limit")]
+    limit: i64,
+}
+fn default_suggest_limit() -> i64 {
+    8
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct SuggestedUser {
+    id: Uuid,
+    username: String,
+    display_name: String,
+    avatar_url: Option<String>,
+    bio: Option<String>,
+    followers_count: i64,
+}
+
+/// "Who to follow" for the signed-in viewer — the engine behind the empty-feed
+/// onboarding nudge. Heuristic, no ML: the most-followed *active* accounts the
+/// viewer doesn't already follow (and hasn't blocked/muted), suspended excluded.
+/// On a small instance this surfaces the people actually worth following first.
+async fn suggestions(
+    State(state): State<AppState>,
+    viewer: CurrentUser,
+    Query(q): Query<SuggestQuery>,
+) -> Result<Json<Vec<SuggestedUser>>, AppError> {
+    let limit = q.limit.clamp(1, 20);
+    let rows: Vec<SuggestedUser> = sqlx::query_as(
+        r#"
+        SELECT u.id, u.username, u.display_name, u.avatar_url, u.bio,
+               u.followers_count::bigint AS followers_count
+        FROM users u
+        WHERE u.id <> $1
+          AND u.role <> 'suspended'
+          -- No hard "must have posted" gate: on a young instance that empties
+          -- the pool. Activity is a *ranking* signal below, not a filter, so
+          -- posters surface first but real lurkers can still be suggested.
+          AND NOT EXISTS (
+              SELECT 1 FROM follows f
+              WHERE f.follower_id = $1 AND f.followee_id = u.id
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM user_blocks b
+              WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
+                 OR (b.blocker_id = u.id AND b.blocked_id = $1)
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM user_mutes m
+              WHERE m.muter_id = $1 AND m.muted_id = u.id
+          )
+        ORDER BY (u.followers_count * 3 + u.posts_count) DESC,
+                 u.last_seen_at DESC NULLS LAST
+        LIMIT $2
+        "#,
+    )
+    .bind(viewer.user_id)
+    .bind(limit)
+    .fetch_all(&state.pg)
+    .await?;
+    Ok(Json(rows))
 }
 
 async fn followers(

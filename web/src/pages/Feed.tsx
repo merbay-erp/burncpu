@@ -6,6 +6,7 @@ import Compose from '../components/Compose';
 import InfiniteList from '../components/InfiniteList';
 import { PostSkeletonList } from '../components/Skeleton';
 import TimelineTabs from '../components/TimelineTabs';
+import SuggestedAccounts from '../components/SuggestedAccounts';
 import { me } from '../auth';
 import { t } from '../i18n';
 
@@ -75,8 +76,11 @@ export default function Feed() {
             each={posts()}
             fallback={
               initialized() ? (
-                <div class="p-6 border border-dashed border-outline-variant rounded-xl text-on-surface-variant font-mono text-[14px] text-center">
-                  {t('feed.empty')}
+                <div class="space-y-4">
+                  <div class="p-6 border border-dashed border-outline-variant rounded-xl text-on-surface-variant font-mono text-[14px] text-center">
+                    {t('feed.empty')}
+                  </div>
+                  <SuggestedAccounts limit={6} />
                 </div>
               ) : (
                 <PostSkeletonList count={5} />

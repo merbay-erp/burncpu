@@ -6,6 +6,7 @@ import { A } from '@solidjs/router';
 import { api, type Profile } from '../api';
 import { me } from '../auth';
 import { t } from '../i18n';
+import SuggestedAccounts from './SuggestedAccounts';
 
 interface TagCount { tag: string; count: number }
 
@@ -75,6 +76,10 @@ export default function RightRail() {
             </A>
           </section>
         )}
+      </Show>
+
+      <Show when={me()}>
+        <SuggestedAccounts limit={4} />
       </Show>
 
       <section>

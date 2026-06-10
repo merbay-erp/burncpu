@@ -1070,39 +1070,32 @@ async fn react(
         return Err(AppError::NotFound);
     }
 
-    // Did the viewer already have a reaction on this post? Only a *brand-new*
-    // reaction should notify the author — toggling 🔥→🐢 (the ON CONFLICT
-    // UPDATE path) must NOT re-ping them, or a single user can spam the author
-    // with notifications by flipping their emoji on one post.
-    let had_reaction: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM reactions WHERE post_id = $1 AND user_id = $2)",
-    )
-    .bind(id)
-    .bind(user.user_id)
-    .fetch_one(&state.pg)
-    .await
-    .unwrap_or(false);
-
-    // Upsert the reaction. A brand-new row fires the reactions_count trigger
-    // (+1); an emoji change (the ON CONFLICT UPDATE path) does not, so the count
-    // tracks distinct reactors — maintained entirely by the DB trigger (0027).
-    sqlx::query(
+    // Upsert the reaction and learn — atomically — whether it was brand-new.
+    // `xmax = 0` on the RETURNING row is true only for a fresh INSERT; the
+    // ON CONFLICT UPDATE path (an emoji toggle 🔥→🐢) leaves xmax set. Doing this
+    // in one statement closes the TOCTOU race a prior SELECT-then-INSERT had —
+    // under concurrent reactions to a viral post two requests could both read
+    // "no reaction" and both notify. A brand-new row also fires the
+    // reactions_count trigger (+1); a toggle does not, so the count tracks
+    // distinct reactors (DB trigger 0027).
+    let inserted: bool = sqlx::query_scalar(
         r#"
         INSERT INTO reactions (post_id, user_id, emoji)
         VALUES ($1, $2, $3)
         ON CONFLICT (post_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji
+        RETURNING (xmax = 0)
         "#,
     )
     .bind(id)
     .bind(user.user_id)
     .bind(emoji)
-    .execute(&state.pg)
+    .fetch_one(&state.pg)
     .await?;
 
     // Notify the post author on first reaction only. `author_id` was already
     // resolved (and visibility-checked) above — no need to re-query. notify()
     // skips self-reactions and blocked/muted actors.
-    if !had_reaction {
+    if inserted {
         notify(
             &state,
             author_id,

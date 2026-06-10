@@ -143,38 +143,45 @@ pub(crate) async fn ingest_image_bytes(
         .find(|(m, _, _)| *m == mime)
         .ok_or_else(|| AppError::BadRequest(format!("unsupported type: {mime}")))?;
 
-    // Decode + re-encode → drops metadata (EXIF / XMP) and rejects fake/bombed payloads.
-    let mut reader = ImageReader::new(Cursor::new(raw));
-    reader.set_format(*fmt);
-    let mut limits = Limits::default();
-    limits.max_image_width = Some(MAX_DIMENSION);
-    limits.max_image_height = Some(MAX_DIMENSION);
-    // Allow decoding a full MAX_DIMENSION² image (≈268 MB at 4 B/px) so large phone
-    // photos make it past the decoder — we downscale them immediately below.
-    limits.max_alloc = Some((MAX_DIMENSION as u64) * (MAX_DIMENSION as u64) * 4);
-    reader.limits(limits);
-    let mut img = reader
-        .decode()
-        .map_err(|e| AppError::BadRequest(format!("decode: {e}")))?;
-    // Downscale oversized uploads. Phone cameras routinely emit 12–48 MP, but an
-    // avatar or post image never displays much above ~1024 px — storing and serving
-    // the full original wastes space/bandwidth, and the raw pixel count used to be
-    // rejected outright (the old hard 25 MP cap is what made large-photo uploads
-    // fail). `resize` preserves aspect ratio, fitting the image inside the box.
-    if img.width() > STORE_MAX_DIMENSION || img.height() > STORE_MAX_DIMENSION {
-        img = img.resize(
-            STORE_MAX_DIMENSION,
-            STORE_MAX_DIMENSION,
-            image::imageops::FilterType::Triangle,
-        );
-    }
-    let width = img.width() as i32;
-    let height = img.height() as i32;
-
-    let mut out = Cursor::new(Vec::with_capacity(raw.len()));
-    img.write_to(&mut out, *fmt)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("re-encode: {e}")))?;
-    let re_encoded = out.into_inner();
+    // Decode + downscale + re-encode (drops EXIF/XMP, rejects fake/bombed
+    // payloads). This is CPU-heavy — a 48 MP phone photo costs hundreds of ms —
+    // so it runs on the blocking pool: under concurrent uploads it must never
+    // hog the async worker threads and starve DB/SSE/federation work.
+    let raw_owned = raw.to_vec();
+    let fmt = *fmt;
+    let (re_encoded, width, height) =
+        tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, i32, i32), AppError> {
+            let mut reader = ImageReader::new(Cursor::new(&raw_owned));
+            reader.set_format(fmt);
+            let mut limits = Limits::default();
+            limits.max_image_width = Some(MAX_DIMENSION);
+            limits.max_image_height = Some(MAX_DIMENSION);
+            // Allow decoding a full MAX_DIMENSION² image (≈268 MB at 4 B/px) so
+            // large phone photos make it past the decoder — downscaled just below.
+            limits.max_alloc = Some((MAX_DIMENSION as u64) * (MAX_DIMENSION as u64) * 4);
+            reader.limits(limits);
+            let mut img = reader
+                .decode()
+                .map_err(|e| AppError::BadRequest(format!("decode: {e}")))?;
+            // Downscale oversized uploads (phone cameras emit 12–48 MP; an avatar
+            // or post image never displays much above ~1024 px). `resize` keeps
+            // aspect ratio, fitting the image inside the box.
+            if img.width() > STORE_MAX_DIMENSION || img.height() > STORE_MAX_DIMENSION {
+                img = img.resize(
+                    STORE_MAX_DIMENSION,
+                    STORE_MAX_DIMENSION,
+                    image::imageops::FilterType::Triangle,
+                );
+            }
+            let width = img.width() as i32;
+            let height = img.height() as i32;
+            let mut out = Cursor::new(Vec::with_capacity(raw_owned.len()));
+            img.write_to(&mut out, fmt)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("re-encode: {e}")))?;
+            Ok((out.into_inner(), width, height))
+        })
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("image task: {e}")))??;
     let size_bytes = re_encoded.len() as i64;
 
     // Content-addressed filename

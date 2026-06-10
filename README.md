@@ -207,6 +207,7 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 | **Users** | `GET /users/{u}` · `PATCH /users/me` · `POST\|DELETE /users/{u}/follow` · `GET /users/lookup` · `GET /users/me/export` |
 | **Feed / keşif** | `GET /feed` · `GET /search?q=` · `GET /hashtags/{tag}` · `GET /trending/{posts,hashtags}` |
 | **Sosyal** | `GET\|POST /bookmarks` · `POST /users/{u}/{block,mute}` · `POST /reports` |
+| **Moderasyon** | `POST /appeals` · `POST /appeals/account` (kimliksiz) · `GET /admin/appeals` · `PATCH /admin/posts\|users/{id}` · `GET /admin/moderation_log` |
 | **DM** | `GET /dm/threads` · `GET\|POST\|DELETE /dm/threads/{u}` · `POST /dm/threads/clear` · `POST\|DELETE /dm/messages/{id}/react` · `POST /dm/messages/delete` |
 | **Medya** | `POST /media` (resim+video) · `GET /media` · `DELETE /media/{id}` |
 | **Gerçek-zamanlı** | `GET /notifications/stream` (SSE) · `GET /notifications` |

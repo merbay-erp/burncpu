@@ -59,6 +59,10 @@ pub fn router() -> Router<AppState> {
         .route("/federation/instances", get(fed_instances))
         .route("/federation/blocks", post(fed_block))
         .route("/federation/blocks/{host}", delete(fed_unblock))
+        .route(
+            "/federation/relays",
+            get(fed_relays).post(fed_relay_subscribe).delete(fed_relay_unsubscribe),
+        )
 }
 
 // ─── Federation: instance list + defederation blocklist ─────────
@@ -151,6 +155,62 @@ async fn fed_unblock(
         .bind(host.to_lowercase())
         .execute(&state.pg)
         .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ─── Federation: relay subscriptions ────────────────────────────
+
+#[derive(Serialize, sqlx::FromRow)]
+struct RelayRow {
+    actor_uri: String,
+    inbox: String,
+    state: String,
+    subscribed_at: DateTime<Utc>,
+    accepted_at: Option<DateTime<Utc>>,
+}
+
+async fn fed_relays(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<Json<Vec<RelayRow>>, AppError> {
+    let rows: Vec<RelayRow> = sqlx::query_as(
+        "SELECT actor_uri, inbox, state, subscribed_at, accepted_at FROM federation_relays ORDER BY subscribed_at DESC",
+    )
+    .fetch_all(&state.pg)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Deserialize)]
+pub struct RelayBody {
+    actor_uri: String,
+}
+
+/// Subscribe to a relay by its actor URI — sends a signed Follow from the
+/// instance actor. Activates once the relay's Accept lands at the instance inbox.
+async fn fed_relay_subscribe(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(input): Json<RelayBody>,
+) -> Result<StatusCode, AppError> {
+    let uri = input.actor_uri.trim();
+    if !uri.starts_with("https://") {
+        return Err(AppError::BadRequest("relay actor must be an https URL".into()));
+    }
+    crate::federation::subscribe_relay(&state, uri)
+        .await
+        .map_err(AppError::Internal)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn fed_relay_unsubscribe(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(input): Json<RelayBody>,
+) -> Result<StatusCode, AppError> {
+    crate::federation::unsubscribe_relay(&state, input.actor_uri.trim())
+        .await
+        .map_err(AppError::Internal)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

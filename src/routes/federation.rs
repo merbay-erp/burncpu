@@ -8,7 +8,7 @@ use crate::{
     errors::AppError,
     federation::{
         AP_CT, IncomingActivity, PUBLIC_URI, actor_json, actor_url, ensure_actor_key, fetch_actor,
-        handle_inbox, sign,
+        handle_inbox, handle_instance_inbox, instance_actor_json, sign,
     },
     state::AppState,
 };
@@ -32,6 +32,8 @@ pub fn router() -> Router<AppState> {
         .route("/users/{username}/followers", get(followers))
         .route("/users/{username}/following", get(following))
         .route("/users/{username}/inbox", post(inbox))
+        .route("/instance", get(instance_actor))
+        .route("/instance/inbox", post(instance_inbox))
 }
 
 fn fed_off() -> Response {
@@ -366,6 +368,84 @@ fn same_origin(a: &str, b: &str) -> bool {
         }
         _ => false,
     }
+}
+
+// ─── Instance actor + relay inbox ──────────────────────────────
+
+async fn instance_actor(State(state): State<AppState>) -> Result<Response, AppError> {
+    if !state.config.federation_enabled {
+        return Ok(fed_off());
+    }
+    let body = instance_actor_json(&state)
+        .await
+        .map_err(AppError::Internal)?;
+    Ok(ap_response(body))
+}
+
+// POST /ap/instance/inbox — the relay firehose. Unlike the per-user inbox, the
+// request signer (the relay) legitimately differs from activity.actor (the
+// original author) on forwarded content, so we verify the *signer's* key and do
+// NOT require keyId/actor same-origin. handle_instance_inbox then re-fetches any
+// content from its own origin before storing.
+async fn instance_inbox(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    bytes: Bytes,
+) -> Result<Response, AppError> {
+    if !state.config.federation_enabled {
+        return Ok(fed_off());
+    }
+    let key_id = sign::signature_key_id(&headers).ok_or(AppError::Unauthorized)?;
+
+    let ip = crate::middleware::client_ip::extract(&headers, Some(&peer))
+        .map(|i| i.to_string())
+        .unwrap_or_default();
+    if !ip.is_empty() {
+        let mut redis = state.redis.clone();
+        let rkey = format!("rl:ap:inbox:{ip}");
+        let count: u32 = redis.incr(&rkey, 1u32).await.unwrap_or(0);
+        if count == 1 {
+            let _: () = redis.expire(&rkey, 60).await.unwrap_or(());
+        }
+        if count > 60 {
+            return Err(AppError::RateLimited);
+        }
+    }
+
+    let activity: IncomingActivity = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::BadRequest(format!("invalid AS2: {e}")))?;
+
+    // Defederation: reject by the signer's (relay's) host before any fetch.
+    if let Some(host) = crate::federation::host_of(&key_id)
+        && crate::federation::is_host_blocked(&state, &host).await
+    {
+        return Err(AppError::Forbidden);
+    }
+
+    // The keyId is like "https://relay/actor#main-key"; the actor lives at the
+    // URL without the fragment. Fetch the canonical actor so its uri matches our
+    // stored relay row, then confirm its advertised key id is exactly this keyId.
+    let actor_uri = key_id.split('#').next().unwrap_or(key_id.as_str());
+    let signer = fetch_actor(&state, actor_uri)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("fetch signer: {e}")))?;
+    if key_id != signer.public_key_id {
+        return Err(AppError::BadRequest("signature keyId mismatch".into()));
+    }
+    sign::verify_request(
+        "POST",
+        "/ap/instance/inbox",
+        &headers,
+        &bytes,
+        &signer.public_key_pem,
+    )
+    .map_err(|e| AppError::BadRequest(format!("signature: {e}")))?;
+
+    if let Err(e) = handle_instance_inbox(&state, &signer.uri, activity).await {
+        tracing::warn!(?e, "instance inbox dispatch failed");
+    }
+    Ok((StatusCode::ACCEPTED, "ok").into_response())
 }
 
 // ─── Webfinger ─────────────────────────────────────────────────

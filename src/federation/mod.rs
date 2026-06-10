@@ -292,6 +292,16 @@ async fn handle_announce(state: &AppState, activity: &IncomingActivity) -> Resul
         .as_str()
         .or_else(|| activity.object.get("id").and_then(|v| v.as_str()));
     let Some(obj_uri) = obj_uri else { return Ok(()) };
+    ingest_remote_uri(state, obj_uri).await
+}
+
+/// Re-fetch a remote post from its own canonical origin and ingest it. The
+/// caller was *told* about the post by a third party — a booster's Announce or a
+/// relay's forwarded Create — that doesn't speak for it, so we never trust the
+/// messenger's copy: GET the post from its own id, require the document to
+/// self-identify as that id, attribute it to the origin's attributedTo, and
+/// enforce host-blocks on both the post origin and the author.
+async fn ingest_remote_uri(state: &AppState, obj_uri: &str) -> Result<()> {
     if !obj_uri.starts_with("https://") {
         return Ok(());
     }
@@ -667,4 +677,223 @@ pub async fn fanout_post(state: &AppState, post_id: Uuid) {
             let _ = sign::deliver(&cfg, &key_clone, &actor_uri, &inbox, &create).await;
         }
     });
+}
+
+// ═══ Instance actor + relays ═══════════════════════════════════════
+//
+// A singleton "Application" actor (distinct from per-user actors) used to
+// subscribe to relays and receive their firehose. Relay-forwarded activities are
+// signed by the *relay*, not the original author (signer ≠ actor) — so the inbox
+// verifies the relay's signature, and content is re-fetched from its own origin
+// (ingest_remote_uri) before storing. Relays are admin-added only; nothing is
+// auto-subscribed, so the firehose is never enabled by surprise.
+
+pub fn instance_actor_url(site: &str) -> String {
+    format!("{}/ap/instance", site.trim_end_matches('/'))
+}
+
+/// Lazily generate + cache the singleton instance keypair (RSA-2048, encrypted at
+/// rest), mirroring `ensure_actor_key` but for the one-row `instance_actor`.
+pub async fn ensure_instance_key(state: &AppState) -> Result<ActorKey> {
+    let row: Option<(Vec<u8>, Vec<u8>, String)> = sqlx::query_as(
+        "SELECT private_key_encrypted, private_key_nonce, public_key_pem FROM instance_actor WHERE id = true",
+    )
+    .fetch_optional(&state.pg)
+    .await?;
+    if let Some((enc, nonce, pubpem)) = row {
+        let private_pem = String::from_utf8(totp::decrypt_blob(&enc, &nonce)?)?;
+        return Ok(ActorKey { public_pem: pubpem, private_pem });
+    }
+
+    let (priv_key, pub_key) =
+        tokio::task::spawn_blocking(|| -> Result<(RsaPrivateKey, RsaPublicKey)> {
+            let mut rng = rand::thread_rng();
+            let priv_key =
+                RsaPrivateKey::new(&mut rng, 2048).map_err(|e| anyhow!("rsa gen: {e}"))?;
+            let pub_key = RsaPublicKey::from(&priv_key);
+            Ok((priv_key, pub_key))
+        })
+        .await
+        .map_err(|e| anyhow!("join: {e}"))??;
+    let private_pem = priv_key
+        .to_pkcs8_pem(LineEnding::LF)
+        .map_err(|e| anyhow!("pkcs8: {e}"))?
+        .to_string();
+    let public_pem = pub_key
+        .to_pkcs1_pem(LineEnding::LF)
+        .map_err(|e| anyhow!("pkcs1: {e}"))?;
+    let (enc, nonce) = totp::encrypt_blob(private_pem.as_bytes())?;
+    sqlx::query(
+        "INSERT INTO instance_actor (id, private_key_encrypted, private_key_nonce, public_key_pem) VALUES (true, $1, $2, $3) ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(&enc)
+    .bind(&nonce)
+    .bind(&public_pem)
+    .execute(&state.pg)
+    .await?;
+    // Re-read the canonical row in case a concurrent request won the insert.
+    let (enc, nonce, pubpem): (Vec<u8>, Vec<u8>, String) = sqlx::query_as(
+        "SELECT private_key_encrypted, private_key_nonce, public_key_pem FROM instance_actor WHERE id = true",
+    )
+    .fetch_one(&state.pg)
+    .await?;
+    let private_pem = String::from_utf8(totp::decrypt_blob(&enc, &nonce)?)?;
+    Ok(ActorKey { public_pem: pubpem, private_pem })
+}
+
+/// The instance actor document (type Application).
+pub async fn instance_actor_json(state: &AppState) -> Result<ActorJson> {
+    let key = ensure_instance_key(state).await?;
+    let site = &state.config.site_origin;
+    let id = instance_actor_url(site);
+    let host = host_of(site).unwrap_or_else(|| "instance".to_string());
+    Ok(ActorJson {
+        context: [AS_CTX, SEC_CTX],
+        id: id.clone(),
+        typ: "Application",
+        preferred_username: host.clone(),
+        name: host,
+        summary: None,
+        inbox: format!("{id}/inbox"),
+        outbox: format!("{id}/outbox"),
+        followers: format!("{id}/followers"),
+        following: format!("{id}/following"),
+        url: id.clone(),
+        public_key: ActorPubKey {
+            id: format!("{id}#main-key"),
+            owner: id.clone(),
+            pem: key.public_pem,
+        },
+    })
+}
+
+/// Whether `actor_uri` is a relay we've subscribed to and that has accepted.
+async fn is_active_relay(state: &AppState, actor_uri: &str) -> bool {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM federation_relays WHERE actor_uri = $1 AND state = 'active')",
+    )
+    .bind(actor_uri)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(false)
+}
+
+async fn mark_relay_accepted(state: &AppState, signer_uri: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE federation_relays SET state = 'active', accepted_at = NOW() WHERE actor_uri = $1 AND state = 'pending'",
+    )
+    .bind(signer_uri)
+    .execute(&state.pg)
+    .await?;
+    Ok(())
+}
+
+/// Dispatch a signature-verified activity from the instance inbox (relay
+/// firehose). `signer_uri` is the actor whose key signed the request (the relay).
+pub async fn handle_instance_inbox(
+    state: &AppState,
+    signer_uri: &str,
+    activity: IncomingActivity,
+) -> Result<()> {
+    let inserted = sqlx::query(
+        "INSERT INTO federation_activities (activity_id, kind, actor_uri, direction) VALUES ($1, $2, $3, 'in') ON CONFLICT DO NOTHING",
+    )
+    .bind(&activity.id)
+    .bind(&activity.typ)
+    .bind(&activity.actor)
+    .execute(&state.pg)
+    .await?
+    .rows_affected();
+    if inserted == 0 {
+        return Ok(());
+    }
+
+    // The relay accepting our Follow activates the subscription.
+    if activity.typ == "Accept" {
+        return mark_relay_accepted(state, signer_uri).await;
+    }
+
+    // Beyond Accept, only a relay we actually subscribed to may drive ingestion.
+    // The origin re-fetch already prevents forgery, but this stops an arbitrary
+    // signed actor from POSTing Creates to make us fetch+store content at will.
+    if !is_active_relay(state, signer_uri).await {
+        return Ok(());
+    }
+
+    match activity.typ.as_str() {
+        "Create" => {
+            let uri = activity
+                .object
+                .get("id")
+                .and_then(|v| v.as_str())
+                .or_else(|| activity.object.as_str());
+            match uri {
+                Some(u) => ingest_remote_uri(state, u).await,
+                None => Ok(()),
+            }
+        }
+        "Announce" => handle_announce(state, &activity).await,
+        "Delete" => handle_delete(state, &activity).await,
+        _ => Ok(()),
+    }
+}
+
+/// Subscribe to a relay: fetch its actor (inbox + key), record it pending, and
+/// POST a Follow signed by the instance actor. Convention: Follow the public
+/// collection (`as:Public`), which modern relays interpret as "send me the feed".
+pub async fn subscribe_relay(state: &AppState, relay_actor_uri: &str) -> Result<()> {
+    let key = ensure_instance_key(state).await?;
+    let relay = fetch_actor(state, relay_actor_uri).await?;
+    let instance_uri = instance_actor_url(&state.config.site_origin);
+    let follow_id = format!("{instance_uri}#follows/{}", uuid::Uuid::new_v4());
+    let follow = serde_json::json!({
+        "@context": AS_CTX,
+        "id": follow_id,
+        "type": "Follow",
+        "actor": instance_uri,
+        "object": PUBLIC_URI,
+        "to": [relay.uri.clone()],
+    });
+    sqlx::query(
+        "INSERT INTO federation_relays (actor_uri, inbox, state, follow_id) VALUES ($1, $2, 'pending', $3) ON CONFLICT (actor_uri) DO UPDATE SET inbox = EXCLUDED.inbox, state = 'pending', follow_id = EXCLUDED.follow_id, subscribed_at = NOW(), accepted_at = NULL",
+    )
+    .bind(&relay.uri)
+    .bind(&relay.inbox)
+    .bind(&follow_id)
+    .execute(&state.pg)
+    .await?;
+    sign::deliver(&state.config, &key, &instance_uri, &relay.inbox, &follow).await?;
+    Ok(())
+}
+
+/// Unsubscribe: mark the relay disabled and best-effort POST an Undo Follow.
+pub async fn unsubscribe_relay(state: &AppState, relay_actor_uri: &str) -> Result<()> {
+    let row: Option<(String, Option<String>)> =
+        sqlx::query_as("SELECT inbox, follow_id FROM federation_relays WHERE actor_uri = $1")
+            .bind(relay_actor_uri)
+            .fetch_optional(&state.pg)
+            .await?;
+    let Some((inbox, follow_id)) = row else {
+        return Ok(());
+    };
+    sqlx::query("UPDATE federation_relays SET state = 'disabled' WHERE actor_uri = $1")
+        .bind(relay_actor_uri)
+        .execute(&state.pg)
+        .await?;
+    let key = ensure_instance_key(state).await?;
+    let instance_uri = instance_actor_url(&state.config.site_origin);
+    let undo = serde_json::json!({
+        "@context": AS_CTX,
+        "id": format!("{instance_uri}#undo/{}", uuid::Uuid::new_v4()),
+        "type": "Undo",
+        "actor": instance_uri,
+        "object": {
+            "id": follow_id,
+            "type": "Follow",
+            "actor": instance_uri,
+            "object": PUBLIC_URI,
+        },
+    });
+    let _ = sign::deliver(&state.config, &key, &instance_uri, &inbox, &undo).await;
+    Ok(())
 }

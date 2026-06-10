@@ -6,6 +6,7 @@ import InfiniteList from '../components/InfiniteList';
 import { PostSkeletonList } from '../components/Skeleton';
 import TimelineTabs from '../components/TimelineTabs';
 import LandingHero from '../components/LandingHero';
+import ProfileNudge from '../components/ProfileNudge';
 import { me } from '../auth';
 import { t } from '../i18n';
 
@@ -93,6 +94,8 @@ export default function Home() {
       <Show when={!me()}>
         <LandingHero />
       </Show>
+
+      <ProfileNudge />
 
       <Show when={me()}>
         <TimelineTabs />

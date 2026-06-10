@@ -206,7 +206,7 @@ async fn fed_relay_subscribe(
 async fn fed_relay_unsubscribe(
     State(state): State<AppState>,
     _admin: AdminUser,
-    Json(input): Json<RelayBody>,
+    Query(input): Query<RelayBody>,
 ) -> Result<StatusCode, AppError> {
     crate::federation::unsubscribe_relay(&state, input.actor_uri.trim())
         .await

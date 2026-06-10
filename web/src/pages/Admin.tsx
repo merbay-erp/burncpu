@@ -76,6 +76,14 @@ interface FedInstance {
   reason: string | null;
 }
 
+interface RelayRow {
+  actor_uri: string;
+  inbox: string;
+  state: string;
+  subscribed_at: string;
+  accepted_at: string | null;
+}
+
 const fmtBytes = (n: number) => {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -135,6 +143,33 @@ export default function Admin() {
     try {
       await api.del(`/admin/federation/blocks/${encodeURIComponent(host)}`);
       await refetchInstances();
+    } finally {
+      setFedBusy(false);
+    }
+  };
+
+  const [relays, { refetch: refetchRelays }] = createResource<RelayRow[]>(() =>
+    api.get<RelayRow[]>('/admin/federation/relays').catch(() => [] as RelayRow[]),
+  );
+  const [relayUri, setRelayUri] = createSignal('');
+  const subscribeRelay = async (uri: string) => {
+    const u = uri.trim();
+    if (!u || fedBusy()) return;
+    setFedBusy(true);
+    try {
+      await api.post('/admin/federation/relays', { actor_uri: u });
+      setRelayUri('');
+      await refetchRelays();
+    } finally {
+      setFedBusy(false);
+    }
+  };
+  const unsubscribeRelay = async (uri: string) => {
+    if (fedBusy()) return;
+    setFedBusy(true);
+    try {
+      await api.del(`/admin/federation/relays?actor_uri=${encodeURIComponent(uri)}`);
+      await refetchRelays();
     } finally {
       setFedBusy(false);
     }
@@ -289,6 +324,55 @@ export default function Admin() {
                         {t('admin.fed_unblock')}
                       </button>
                     </Show>
+                  </div>
+                )}
+              </For>
+            </div>
+          )}
+        </Show>
+
+        <h3 style="margin-top: 22px;">{t('admin.relays')}</h3>
+        <p class="muted tiny" style="margin: -4px 0 10px;">{t('admin.relay_hint')}</p>
+        <form
+          style="display: flex; gap: 8px; margin-bottom: 12px;"
+          onSubmit={(e) => {
+            e.preventDefault();
+            subscribeRelay(relayUri());
+          }}
+        >
+          <input
+            type="text"
+            placeholder="https://relay.example/actor"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck={false}
+            value={relayUri()}
+            onInput={(e) => setRelayUri(e.currentTarget.value)}
+            style="flex: 1; min-width: 0;"
+          />
+          <button type="submit" class="primary" disabled={!relayUri().trim() || fedBusy()}>
+            {t('admin.relay_add')}
+          </button>
+        </form>
+        <Show when={relays()} fallback={<p class="muted">…</p>}>
+          {(rows) => (
+            <div style="margin-bottom: 22px;">
+              <For each={rows()} fallback={<p class="muted tiny">{t('admin.relay_none')}</p>}>
+                {(r) => (
+                  <div style="padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: baseline; font-size: 13px;">
+                    <code style="font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      {r.actor_uri}
+                    </code>
+                    <span
+                      class="tiny"
+                      style={`color: ${r.state === 'active' ? 'var(--ok, #7a8b6b)' : r.state === 'disabled' ? 'var(--bad)' : 'var(--fg3)'};`}
+                    >
+                      {r.state}
+                    </span>
+                    <span style="margin-left: auto;" />
+                    <button class="ghost tiny" disabled={fedBusy()} onClick={() => unsubscribeRelay(r.actor_uri)}>
+                      {t('admin.relay_remove')}
+                    </button>
                   </div>
                 )}
               </For>

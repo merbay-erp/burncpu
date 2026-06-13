@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -62,6 +62,14 @@ export default function Home() {
     },
     [path, cursor, done, loading],
   );
+
+  // Which posts are on-screen → their videos autoplay (muted). FlatList requires
+  // the viewability callback + config to be stable refs across renders.
+  const [visibleIds, setVisibleIds] = useState<Set<string>>(new Set());
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
+  const onViewRef = useRef((info: { viewableItems: Array<{ item?: PostView }> }) => {
+    setVisibleIds(new Set(info.viewableItems.map((v) => v.item?.id).filter((x): x is string => !!x)));
+  });
 
   // reload when the tab changes (the federated tab manages its own list)
   useEffect(() => {
@@ -131,7 +139,10 @@ export default function Home() {
         <FlatList
           data={posts}
           keyExtractor={(p) => p.id}
-          renderItem={({ item }) => <Post post={item} />}
+          renderItem={({ item }) => <Post post={item} playing={visibleIds.has(item.id)} />}
+          extraData={visibleIds}
+          viewabilityConfig={viewabilityConfig}
+          onViewableItemsChanged={onViewRef.current}
           onEndReachedThreshold={0.6}
           onEndReached={() => load(false)}
           refreshControl={

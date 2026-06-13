@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,31 +6,44 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 
 import { radius, useTheme, type Palette } from '@/theme';
 
-// Inline video for posts + DMs. Lazy by design: a feed can hold many clips, so
-// we render a lightweight poster with a play affordance and only mount the
-// actual player (and start the network fetch) once the user taps — no dozens of
-// simultaneous video surfaces, no autoplay burning mobile data. The backend
-// range-serves the file, so seeking streams rather than downloading the whole.
-
+// Inline video for posts + DMs. Two modes:
+//   • Feed (autoplay-on-view): pass `playing` — the player mounts and plays
+//     MUTED only while the post is on-screen (the home screen drives `playing`
+//     from FlatList viewability), pausing as it scrolls away. Native controls let
+//     the viewer unmute / scrub.
+//   • DM (lazy tap-to-play): omit `playing` — a lightweight poster + play badge,
+//     and the player (with sound) only mounts on tap. No autoplay, no data burn.
 export default function VideoPlayer({
   uri,
   poster,
   marginTop = 8,
+  playing,
 }: {
   uri: string;
   poster?: string | null;
   marginTop?: number;
+  playing?: boolean;
 }) {
   const { colors } = useTheme();
   const s = styles(colors);
-  const [active, setActive] = useState(false);
+  const [tapped, setTapped] = useState(false);
+  const autoMode = playing !== undefined;
 
-  if (active) return <Player uri={uri} marginTop={marginTop} />;
+  if (autoMode || tapped) {
+    return (
+      <Player
+        uri={uri}
+        marginTop={marginTop}
+        playing={autoMode ? !!playing : true}
+        unmuted={tapped}
+      />
+    );
+  }
 
   return (
     <Pressable
       style={[s.poster, { marginTop }]}
-      onPress={() => setActive(true)}
+      onPress={() => setTapped(true)}
       accessibilityRole="button"
       accessibilityLabel="Videoyu oynat"
     >
@@ -42,22 +55,34 @@ export default function VideoPlayer({
   );
 }
 
-function Player({ uri, marginTop }: { uri: string; marginTop: number }) {
+function Player({
+  uri,
+  marginTop,
+  playing,
+  unmuted,
+}: {
+  uri: string;
+  marginTop: number;
+  playing: boolean;
+  unmuted: boolean;
+}) {
   const { colors } = useTheme();
   const s = styles(colors);
-  // Hook runs only once this subcomponent mounts (i.e. after the tap).
   const player = useVideoPlayer(uri, (p) => {
-    p.loop = false;
-    p.play();
+    p.loop = true;
+    p.muted = !unmuted;
+    if (playing) p.play();
   });
 
+  // React to scroll (playing) + a manual unmute tap.
+  useEffect(() => {
+    player.muted = !unmuted;
+    if (playing) player.play();
+    else player.pause();
+  }, [player, playing, unmuted]);
+
   return (
-    <VideoView
-      style={[s.video, { marginTop }]}
-      player={player}
-      nativeControls
-      contentFit="contain"
-    />
+    <VideoView style={[s.video, { marginTop }]} player={player} nativeControls contentFit="contain" />
   );
 }
 

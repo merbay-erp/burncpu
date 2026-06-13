@@ -33,7 +33,7 @@ function splitMedia(body: string): { text: string; images: string[]; videos: str
   return { text: text.trim(), images, videos };
 }
 
-export default function Post({ post, pinned, onPinChange, detail }: { post: PostView; pinned?: boolean; onPinChange?: () => void; detail?: boolean }) {
+export default function Post({ post, pinned, onPinChange, detail, playing }: { post: PostView; pinned?: boolean; onPinChange?: () => void; detail?: boolean; playing?: boolean }) {
   const { colors } = useTheme();
   const router = useRouter();
   const me = useMe();
@@ -197,7 +197,7 @@ export default function Post({ post, pinned, onPinChange, detail }: { post: Post
                 />
               ))}
               {media.videos.map((url, i) => (
-                <VideoPlayer key={`v${i}`} uri={mediaUrl(url) ?? url} />
+                <VideoPlayer key={`v${i}`} uri={mediaUrl(url) ?? url} playing={playing} />
               ))}
               {linkUrl ? <LinkCard url={linkUrl} onResolved={setHideLinkUrl} /> : null}
             </>

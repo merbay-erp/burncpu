@@ -4,7 +4,7 @@
 // Whitelist is conservative: links, basic formatting, lists, code,
 // blockquote. No images embedded inline (use post_media), no raw HTML.
 
-use pulldown_cmark::{Options, Parser, html};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 use std::borrow::Cow;
 use std::sync::OnceLock;
 
@@ -17,13 +17,47 @@ pub fn render_markdown(src: &str) -> String {
     opts.insert(Options::ENABLE_TASKLISTS);
     opts.insert(Options::ENABLE_SMART_PUNCTUATION);
 
+    // Rewrite a `![](…/media/x.mp4)` image into a <video>. Uploaded clips post as
+    // markdown images (same as photos), so without this they'd render as a broken
+    // <img>. Done at the event level (not a regex over encoded HTML): when an
+    // Image points at a local video, emit a <video> and swallow the image's
+    // alt-text events until it closes. The client plays it muted while on-screen;
+    // no autoplay attribute here. src stays /media/-only (sanitizer re-checks).
     let parser = Parser::new_ext(&pre, opts);
+    let mut in_video = false;
+    let events = parser.filter_map(move |ev| match ev {
+        Event::Start(Tag::Image { ref dest_url, .. }) if is_video_media(dest_url) => {
+            in_video = true;
+            Some(Event::Html(
+                format!(
+                    "<video src=\"{dest_url}\" controls muted loop playsinline preload=\"metadata\"></video>"
+                )
+                .into(),
+            ))
+        }
+        Event::End(TagEnd::Image) if in_video => {
+            in_video = false;
+            None
+        }
+        _ if in_video => None,
+        other => Some(other),
+    });
     let mut html_out = String::with_capacity(pre.len() + 64);
-    html::push_html(&mut html_out, parser);
+    html::push_html(&mut html_out, events);
 
     // Image src is constrained inside the sanitizer via an attribute filter
     // (see `sanitizer()`), so no fragile post-pass over already-encoded HTML.
     sanitizer().clean(&html_out).to_string()
+}
+
+/// A local /media/ path whose filename is a video (mp4/webm/mov). Used to route
+/// a posted clip to <video> instead of <img>.
+fn is_video_media(v: &str) -> bool {
+    if !is_local_media_src(v) {
+        return false;
+    }
+    let lower = v.to_ascii_lowercase();
+    lower.ends_with(".mp4") || lower.ends_with(".webm") || lower.ends_with(".mov")
 }
 
 /// True only for a flat local media path: `/media/<name>` where `<name>` is a
@@ -267,16 +301,30 @@ fn sanitizer() -> &'static ammonia::Builder<'static> {
         // readers to third-party tracking pixels.
         let mut tags = b.clone_tags();
         tags.insert("img");
+        // <video> for posted clips (render_markdown rewrites a /media/*.mp4|webm|mov
+        // image into one). No autoplay attribute — the client plays it muted only
+        // while on-screen. No <source>/<iframe>/<script>: a single src is enough.
+        tags.insert("video");
         b.tags(tags);
         let mut tag_attrs = b.clone_tag_attributes();
         tag_attrs.insert("img", ["src", "alt", "title"].iter().copied().collect());
+        tag_attrs.insert(
+            "video",
+            ["src", "controls", "muted", "loop", "playsinline", "preload", "poster"]
+                .iter()
+                .copied()
+                .collect(),
+        );
         b.tag_attributes(tag_attrs);
-        // Constrain <img src> to local /media/ during sanitization. ammonia's
-        // url_schemes would otherwise happily keep remote https images (a
-        // tracking-pixel + path-traversal surface). Invalid sources collapse
-        // to an empty src rather than dropping the tag.
+        // Constrain <img>/<video> src (and video poster) to local /media/ during
+        // sanitization. ammonia's url_schemes would otherwise happily keep remote
+        // URLs (a tracking-pixel + path-traversal + SSRF surface). Invalid sources
+        // collapse to an empty src rather than dropping the tag.
         b.attribute_filter(|element, attribute, value| {
-            if element == "img" && attribute == "src" && !is_local_media_src(value) {
+            if matches!(element, "img" | "video")
+                && matches!(attribute, "src" | "poster")
+                && !is_local_media_src(value)
+            {
                 return Some(Cow::Borrowed(""));
             }
             Some(Cow::Borrowed(value))
@@ -389,5 +437,32 @@ mod tests {
         let traversal = render_markdown("![x](/media/../../etc/passwd)");
         assert!(!traversal.contains(".."));
         assert!(traversal.contains("src=\"\""));
+    }
+
+    #[test]
+    fn local_video_renders_as_video_tag() {
+        let v = render_markdown("![clip](/media/abc123.mp4)");
+        assert!(v.contains("<video"), "expected <video>, got: {v}");
+        assert!(v.contains("src=\"/media/abc123.mp4\""));
+        assert!(v.contains("muted"));
+        assert!(!v.contains("<img"), "video must not stay an <img>: {v}");
+        // webm + mov too
+        assert!(render_markdown("![c](/media/x.webm)").contains("<video"));
+        assert!(render_markdown("![c](/media/x.mov)").contains("<video"));
+    }
+
+    #[test]
+    fn image_still_renders_as_img() {
+        let img = render_markdown("![pic](/media/photo.jpg)");
+        assert!(img.contains("<img"));
+        assert!(!img.contains("<video"));
+    }
+
+    #[test]
+    fn remote_video_src_collapses() {
+        // A non-local video URL is not rewritten to <video> (fails is_video_media),
+        // and even as an <img> its src is emptied by the sanitizer.
+        let r = render_markdown("![x](https://evil.example/x.mp4)");
+        assert!(!r.contains("evil.example"));
     }
 }

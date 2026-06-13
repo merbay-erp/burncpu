@@ -128,3 +128,33 @@ export function visibleLength(s: string): number {
   }
   return Array.from(s).length;
 }
+
+// Autoplay any <video> inside `root` only while it's on-screen, always muted.
+// Posts render clips as <video> (no autoplay attribute); this is the "plays as
+// you scroll past, stops when it leaves" behaviour. Returns a disconnect fn.
+// Re-run safe: call again after the body HTML changes, disconnecting the old one.
+export function autoplayOnView(root: HTMLElement): () => void {
+  const vids = Array.from(root.querySelectorAll('video'));
+  if (vids.length === 0) return () => {};
+  for (const v of vids) {
+    v.muted = true;
+    v.setAttribute('playsinline', '');
+    v.preload = 'metadata';
+  }
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        const v = e.target as HTMLVideoElement;
+        if (e.isIntersecting && e.intersectionRatio >= 0.6) {
+          v.muted = true;
+          void v.play().catch(() => {});
+        } else {
+          v.pause();
+        }
+      }
+    },
+    { threshold: [0, 0.6, 1] },
+  );
+  for (const v of vids) io.observe(v);
+  return () => io.disconnect();
+}

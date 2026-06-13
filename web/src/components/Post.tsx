@@ -7,7 +7,7 @@ import { pushToast } from './Toast';
 import Compose from './Compose';
 import LinkCard from './LinkCard';
 import Avatar from './Avatar';
-import { relTime, visibleLength, firstUrl, stripUrl } from '../util';
+import { relTime, visibleLength, firstUrl, stripUrl, autoplayOnView } from '../util';
 import { t } from '../i18n';
 
 // "Yaşlı mühendis kulübü" pact: single-emoji react (the brand turtle).
@@ -64,6 +64,19 @@ export default function Post(props: {
     burstT = setTimeout(() => setBurst(false), 700);
   };
   onCleanup(() => { if (popT) clearTimeout(popT); if (burstT) clearTimeout(burstT); });
+
+  // Autoplay videos in the rendered body while they're on-screen (muted). Re-runs
+  // whenever the body HTML changes; queueMicrotask waits for innerHTML to apply,
+  // and onCleanup tears down the previous observer on re-run/unmount.
+  let bodyRef: HTMLDivElement | undefined;
+  createEffect(() => {
+    displayHtml(); // track: re-run when the rendered body changes
+    let disconnect: (() => void) | null = null;
+    queueMicrotask(() => {
+      if (bodyRef) disconnect = autoplayOnView(bodyRef);
+    });
+    onCleanup(() => disconnect?.());
+  });
 
   createEffect(() => {
     if (typeof props.post.viewer_reacted === 'boolean') setReacted(props.post.viewer_reacted);
@@ -311,7 +324,7 @@ export default function Post(props: {
                 when={props.post.content_warning && !cwOpen()}
                 fallback={
                   <>
-                    <div class="post-body mt-2 text-on-surface text-body-md" innerHTML={displayHtml()} />
+                    <div ref={bodyRef} class="post-body mt-2 text-on-surface text-body-md" innerHTML={displayHtml()} />
                     <Show when={previewUrl()}>
                       {(u) => <LinkCard url={u()} eager={props.eager} preview={body() === props.post.body ? props.post.link_preview : undefined} onResolved={(has) => setNoPreview(!has)} />}
                     </Show>

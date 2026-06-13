@@ -8,7 +8,7 @@ use crate::{
     errors::AppError,
     federation::{
         AP_CT, IncomingActivity, PUBLIC_URI, actor_json, actor_url, ensure_actor_key, fetch_actor,
-        handle_inbox, handle_instance_inbox, instance_actor_json, sign,
+        handle_inbox, handle_instance_inbox, instance_actor_json, instance_actor_url, sign,
     },
     state::AppState,
 };
@@ -33,6 +33,9 @@ pub fn router() -> Router<AppState> {
         .route("/users/{username}/inbox", post(inbox))
         .route("/instance", get(instance_actor))
         .route("/instance/inbox", post(instance_inbox))
+        .route("/instance/outbox", get(instance_outbox))
+        .route("/instance/followers", get(instance_followers))
+        .route("/instance/following", get(instance_following))
 }
 
 fn fed_off() -> Response {
@@ -376,6 +379,42 @@ async fn instance_actor(State(state): State<AppState>) -> Result<Response, AppEr
         .await
         .map_err(AppError::Internal)?;
     Ok(ap_response(body))
+}
+
+// The instance "Application" actor exists only for relay subscriptions — it
+// doesn't post or keep a social graph. But its actor JSON advertises outbox /
+// followers / following, so peers (relays, Mastodon) fetch them during the
+// handshake; serve valid *empty* collections rather than 404s.
+async fn instance_outbox(State(state): State<AppState>) -> Result<Response, AppError> {
+    if !state.config.federation_enabled {
+        return Ok(fed_off());
+    }
+    Ok(empty_instance_collection(&state, "outbox"))
+}
+
+async fn instance_followers(State(state): State<AppState>) -> Result<Response, AppError> {
+    if !state.config.federation_enabled {
+        return Ok(fed_off());
+    }
+    Ok(empty_instance_collection(&state, "followers"))
+}
+
+async fn instance_following(State(state): State<AppState>) -> Result<Response, AppError> {
+    if !state.config.federation_enabled {
+        return Ok(fed_off());
+    }
+    Ok(empty_instance_collection(&state, "following"))
+}
+
+fn empty_instance_collection(state: &AppState, suffix: &str) -> Response {
+    let id = format!("{}/{suffix}", instance_actor_url(&state.config.site_origin));
+    ap_response(serde_json::json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": id,
+        "type": "OrderedCollection",
+        "totalItems": 0,
+        "orderedItems": [],
+    }))
 }
 
 // POST /ap/instance/inbox — the relay firehose. Unlike the per-user inbox, the

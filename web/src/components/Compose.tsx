@@ -121,6 +121,16 @@ export default function Compose(props: {
   const upload = async (e: Event) => {
     const f = (e.currentTarget as HTMLInputElement).files?.[0];
     if (!f) return;
+    // Client-side size guard so we don't push a too-big file over the wire only
+    // for the server to reject it. Mirrors the backend caps (12 MB image / 64 MB
+    // video); the backend re-checks regardless.
+    const isVideo = f.type.startsWith('video/');
+    const limitMb = isVideo ? 64 : 12;
+    if (f.size > limitMb * 1024 * 1024) {
+      setErr(`Dosya çok büyük — en fazla ${limitMb} MB (${isVideo ? 'video' : 'görsel'})`);
+      if (fileInput) fileInput.value = '';
+      return;
+    }
     setUploading(true); setErr(null);
     try {
       const fd = new FormData(); fd.append('file', f);
@@ -284,7 +294,7 @@ export default function Compose(props: {
           <input
             ref={fileInput}
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
             class="hidden"
             onChange={upload}
           />

@@ -80,12 +80,21 @@ export default function Compose() {
   };
 
   const pick = async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.9 });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.9 });
     if (res.canceled || !res.assets?.length) return;
     setUploading(true);
     try {
       for (const asset of res.assets) {
-        const m = await uploadMedia(asset.uri, asset.fileName ?? 'image.jpg', asset.mimeType ?? 'image/jpeg');
+        const isVideo = asset.type === 'video';
+        // Match the backend caps (12 MB image / 64 MB video) before uploading.
+        const limit = (isVideo ? 64 : 12) * 1024 * 1024;
+        if (asset.fileSize && asset.fileSize > limit) {
+          Alert.alert('burncpu', `Dosya çok büyük — en fazla ${isVideo ? 64 : 12} MB`);
+          continue;
+        }
+        const name = asset.fileName ?? (isVideo ? 'video.mp4' : 'image.jpg');
+        const mime = asset.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg');
+        const m = await uploadMedia(asset.uri, name, mime);
         setAttachments((a) => [...a, m.url]);
       }
     } catch (e) {
@@ -173,7 +182,13 @@ export default function Compose() {
           <View style={s.thumbs}>
             {attachments.map((u, i) => (
               <View key={i} style={s.thumbWrap}>
-                <Image source={{ uri: mediaUrl(u) }} style={s.thumb} contentFit="cover" />
+                {/\.(mp4|webm|mov)(\?|#|$)/i.test(u) ? (
+                  <View style={[s.thumb, { backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }]}>
+                    <Ionicons name="videocam" size={22} color="#fff" />
+                  </View>
+                ) : (
+                  <Image source={{ uri: mediaUrl(u) }} style={s.thumb} contentFit="cover" />
+                )}
                 <Pressable style={s.thumbX} onPress={() => setAttachments((a) => a.filter((_, j) => j !== i))} hitSlop={6}>
                   <Ionicons name="close" size={14} color="#fff" />
                 </Pressable>

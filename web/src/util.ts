@@ -158,3 +158,21 @@ export function autoplayOnView(root: HTMLElement): () => void {
   for (const v of vids) io.observe(v);
   return () => io.disconnect();
 }
+
+// Read a video file's duration (seconds) client-side, so an over-long clip is
+// rejected before upload. Resolves 0 if the browser can't read metadata (then
+// the size cap + backend still apply).
+export function videoDurationSeconds(file: File): Promise<number> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    const done = (d: number) => {
+      URL.revokeObjectURL(url);
+      resolve(Number.isFinite(d) ? d : 0);
+    };
+    v.onloadedmetadata = () => done(v.duration);
+    v.onerror = () => done(0);
+    v.src = url;
+  });
+}

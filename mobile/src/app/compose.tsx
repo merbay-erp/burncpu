@@ -92,6 +92,10 @@ export default function Compose() {
           Alert.alert('burncpu', `Dosya çok büyük — en fazla ${isVideo ? 64 : 12} MB`);
           continue;
         }
+        if (isVideo && asset.duration && asset.duration > 120_000) {
+          Alert.alert('burncpu', 'Video çok uzun — en fazla 2 dakika');
+          continue;
+        }
         const name = asset.fileName ?? (isVideo ? 'video.mp4' : 'image.jpg');
         const mime = asset.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg');
         const m = await uploadMedia(asset.uri, name, mime);

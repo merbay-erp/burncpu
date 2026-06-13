@@ -1,6 +1,6 @@
 import { createSignal, createMemo, createEffect, Show, For, onMount } from 'solid-js';
 import { api, type PostView, type CreateResponse } from '../api';
-import { visibleLength, firstUrl } from '../util';
+import { visibleLength, firstUrl, videoDurationSeconds } from '../util';
 import { t } from '../i18n';
 import EmojiPicker from './EmojiPicker';
 import LinkCard from './LinkCard';
@@ -9,6 +9,7 @@ import { pushToast } from './Toast';
 import { me } from '../auth';
 
 const MAX = 5000;
+const MAX_VIDEO_SECONDS = 120; // 2 min cap on posted clips
 const DRAFT_KEY = 'burncpu.draft';
 
 interface MediaResp { id: string; url: string; width?: number; height?: number; }
@@ -130,6 +131,14 @@ export default function Compose(props: {
       setErr(`Dosya çok büyük — en fazla ${limitMb} MB (${isVideo ? 'video' : 'görsel'})`);
       if (fileInput) fileInput.value = '';
       return;
+    }
+    if (isVideo) {
+      const dur = await videoDurationSeconds(f);
+      if (dur > MAX_VIDEO_SECONDS) {
+        setErr(`Video çok uzun — en fazla ${MAX_VIDEO_SECONDS / 60} dakika`);
+        if (fileInput) fileInput.value = '';
+        return;
+      }
     }
     setUploading(true); setErr(null);
     try {

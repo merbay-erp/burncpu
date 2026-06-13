@@ -15,6 +15,8 @@ const DRAFT_KEY = 'burncpu.draft';
 interface MediaResp { id: string; url: string; width?: number; height?: number; }
 interface UserBrief { id: string; username: string; display_name: string; avatar_url: string | null; }
 
+const isVideoUrl = (u: string) => /\.(mp4|webm|mov)(\?|#|$)/i.test(u);
+
 export default function Compose(props: {
   replyToId?: string;
   placeholder?: string;
@@ -27,22 +29,25 @@ export default function Compose(props: {
   // account) — no PostView to prepend; the composer shows a "pending" toast.
   onPending?: () => void;
 }) {
-  const readDraft = (): { body: string; cw: string } => {
-    if (!props.persistDraft) return { body: '', cw: '' };
+  const readDraft = (): { body: string; cw: string; attachments: string[] } => {
+    if (!props.persistDraft) return { body: '', cw: '', attachments: [] };
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
-      if (!raw) return { body: '', cw: '' };
+      if (!raw) return { body: '', cw: '', attachments: [] };
       // Backward-compat: older drafts were a plain body string.
       if (raw[0] === '{') {
-        const d = JSON.parse(raw) as { body?: unknown; cw?: unknown };
+        const d = JSON.parse(raw) as { body?: unknown; cw?: unknown; attachments?: unknown };
         return {
           body: typeof d.body === 'string' ? d.body : '',
           cw: typeof d.cw === 'string' ? d.cw : '',
+          attachments: Array.isArray(d.attachments)
+            ? d.attachments.filter((x): x is string => typeof x === 'string')
+            : [],
         };
       }
-      return { body: raw, cw: '' };
+      return { body: raw, cw: '', attachments: [] };
     } catch {
-      return { body: '', cw: '' };
+      return { body: '', cw: '', attachments: [] };
     }
   };
   // Initialize from the saved draft so the save-effect's first run never wipes
@@ -50,6 +55,10 @@ export default function Compose(props: {
   const initialDraft = readDraft();
   const [body, setBody] = createSignal(initialDraft.body);
   const [cw, setCw] = createSignal(initialDraft.cw);
+  // Uploaded media is tracked separately and shown as thumbnails — the markdown
+  // `![](url)` is only assembled at submit time, so the textarea never fills up
+  // with raw image/video links.
+  const [attachments, setAttachments] = createSignal<string[]>(initialDraft.attachments);
   const [busy, setBusy] = createSignal(false);
   const [uploading, setUploading] = createSignal(false);
   const [err, setErr] = createSignal<string | null>(null);
@@ -88,24 +97,30 @@ export default function Compose(props: {
   createEffect(() => {
     const b = body();
     const c = cw();
+    const a = attachments();
     if (!isMainComposer()) return;
     try {
-      if (b.trim() || c.trim()) localStorage.setItem(DRAFT_KEY, JSON.stringify({ body: b, cw: c }));
+      if (b.trim() || c.trim() || a.length)
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ body: b, cw: c, attachments: a }));
       else localStorage.removeItem(DRAFT_KEY);
     } catch { /* ignore */ }
   });
 
   const submit = async () => {
     const text = body().trim();
-    if (!text) return;
+    const atts = attachments();
+    if (!text && atts.length === 0) return;
+    // Assemble the markdown body: the typed text followed by one image/video
+    // embed per attachment.
+    const finalBody = [text, ...atts.map((u) => `![](${u})`)].filter(Boolean).join('\n\n');
     setBusy(true); setErr(null);
     try {
       const r = await api.post<CreateResponse>('/posts', {
-        body: text,
+        body: finalBody,
         reply_to_id: props.replyToId ?? null,
         content_warning: cw().trim() || null,
       });
-      setBody(''); setCw(''); setMentions([]);
+      setBody(''); setCw(''); setAttachments([]); setMentions([]);
       setPreviewUrl(null); setDismissedUrl(null);
       if (r.quarantined) {
         pushToast(t('compose.pending_review'), 'ok');
@@ -152,7 +167,7 @@ export default function Compose(props: {
         throw new Error(j.message ?? `HTTP ${r.status}`);
       }
       const m = (await r.json()) as MediaResp;
-      setBody((cur) => cur + `\n\n![](${m.url})`);
+      setAttachments((a) => [...a, m.url]);
     } catch (e) { setErr((e as Error).message); }
     finally {
       setUploading(false);
@@ -312,6 +327,34 @@ export default function Compose(props: {
             <div class="error">{err()}</div>
           </Show>
 
+          {/* Attached media — thumbnails, removable; markdown is added on submit */}
+          <Show when={attachments().length > 0}>
+            <div class="flex flex-wrap gap-2 mt-3">
+              <For each={attachments()}>
+                {(u, i) => (
+                  <div class="relative">
+                    <Show
+                      when={isVideoUrl(u)}
+                      fallback={<img src={u} alt="" class="w-20 h-20 rounded-lg object-cover border border-outline-variant" />}
+                    >
+                      <div class="w-20 h-20 rounded-lg bg-black grid place-items-center border border-outline-variant">
+                        <span class="material-symbols-outlined text-on-surface-variant">movie</span>
+                      </div>
+                    </Show>
+                    <button
+                      type="button"
+                      onClick={() => setAttachments((a) => a.filter((_, j) => j !== i()))}
+                      class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-black/70 text-white grid place-items-center text-[13px] leading-none hover:bg-black"
+                      aria-label="remove"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+
           {/* Live preview of the first link in the draft */}
           <Show when={livePreview()}>
             {(u) => (
@@ -377,7 +420,7 @@ export default function Compose(props: {
               </span>
               <button
                 onClick={submit}
-                disabled={busy() || !body().trim() || visibleLength(body()) > MAX}
+                disabled={busy() || (!body().trim() && attachments().length === 0) || visibleLength(body()) > MAX}
                 class="px-6 py-2 bg-primary text-on-primary font-bold rounded-lg font-mono text-[14px] active:scale-95 transition-all hover:opacity-90 disabled:opacity-50"
               >
                 {busy() ? t('compose.sending') : (props.replyToId ? t('compose.reply') : t('compose.send'))}

@@ -44,6 +44,10 @@ export default function TabsLayout() {
         options={{ title: t('nav.search'), tabBarIcon: tabIcon('search', 'search-outline') }}
       />
       <Tabs.Screen
+        name="videos"
+        options={{ title: t('nav.videos'), tabBarIcon: tabIcon('film', 'film-outline') }}
+      />
+      <Tabs.Screen
         name="notifications"
         options={{
           title: t('nav.notifications'),

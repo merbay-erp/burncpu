@@ -68,6 +68,7 @@ function Player({
 }) {
   const { colors } = useTheme();
   const s = styles(colors);
+  const [aspect, setAspect] = useState(16 / 10);
   const player = useVideoPlayer(uri, (p) => {
     p.loop = true;
     p.muted = !unmuted;
@@ -81,8 +82,27 @@ function Player({
     else player.pause();
   }, [player, playing, unmuted]);
 
+  // Adopt the clip's real aspect ratio once the track loads — otherwise a
+  // portrait clip gets letterboxed into a fixed 16:10 landscape box and looks
+  // tiny. Clamp so an extreme clip can't make the card absurdly tall/wide.
+  useEffect(() => {
+    const apply = (size?: { width: number; height: number } | null) => {
+      if (size && size.width > 0 && size.height > 0) {
+        setAspect(Math.min(Math.max(size.width / size.height, 0.5), 1.91));
+      }
+    };
+    apply(player.videoTrack?.size);
+    const sub = player.addListener('videoTrackChange', ({ videoTrack }) => apply(videoTrack?.size));
+    return () => sub.remove();
+  }, [player]);
+
   return (
-    <VideoView style={[s.video, { marginTop }]} player={player} nativeControls contentFit="contain" />
+    <VideoView
+      style={[s.video, { marginTop, aspectRatio: aspect }]}
+      player={player}
+      nativeControls
+      contentFit="contain"
+    />
   );
 }
 
@@ -110,7 +130,6 @@ const styles = (_c: Palette) =>
     },
     video: {
       width: '100%',
-      aspectRatio: 16 / 10,
       borderRadius: radius,
       backgroundColor: '#000',
       overflow: 'hidden',

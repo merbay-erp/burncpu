@@ -43,6 +43,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const Bookmarks = lazy(() => import('./pages/Bookmarks'));
 const Trending = lazy(() => import('./pages/Trending'));
 const Federated = lazy(() => import('./pages/Federated'));
+const Videos = lazy(() => import('./pages/Videos'));
 const DMs = lazy(() => import('./pages/DMs'));
 const DMThread = lazy(() => import('./pages/DMThread'));
 const Admin = lazy(() => import('./pages/Admin'));
@@ -93,6 +94,7 @@ render(
       <Route path="/settings" component={Settings} />
       <Route path="/trending" component={Trending} />
       <Route path="/federated" component={Federated} />
+      <Route path="/videos" component={Videos} />
       <Route path="/activity" component={Activity} />
       <Route path="/docs" component={Docs} />
       <Route path="/search" component={Search} />

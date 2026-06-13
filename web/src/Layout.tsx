@@ -277,6 +277,7 @@ export default function Layout(props: { children?: JSX.Element }) {
               <SideLink href="/"              icon="timeline"      label={t('nav.timeline')}      active={loc.pathname === '/' || loc.pathname === '/feed'} />
               <SideLink href="/search"        icon="search"        label={t('nav.search')}        active={is('/search')} />
               <SideLink href="/federated"     icon="hub"           label={t('nav.federated')}     active={is('/federated')} />
+              <SideLink href="/videos"        icon="movie"         label={t('nav.videos')}        active={is('/videos')} />
               <SideLink href="/notifications" icon="notifications" label={t('nav.notifications')} active={is('/notifications')} badge={unread() ?? 0} />
               <SideLink href="/docs"          icon="menu_book"     label={t('nav.docs')}          active={is('/docs')} />
               <Show when={me()}>
@@ -343,6 +344,7 @@ export default function Layout(props: { children?: JSX.Element }) {
       <footer class="lg:hidden fixed bottom-0 inset-x-0 bg-background/90 backdrop-blur-md border-t border-outline-variant z-50">
         <div class="flex justify-around items-center h-16">
           <BottomLink href="/"              icon="home"          active={loc.pathname === '/' || loc.pathname === '/feed'} />
+          <BottomLink href="/videos"        icon="movie"         active={is('/videos')} />
           <button onClick={openPalette} aria-label={t('cmd.open')} class="p-2 text-on-surface-variant">
             <span class="material-symbols-outlined">search</span>
           </button>

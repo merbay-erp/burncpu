@@ -307,6 +307,16 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   cursor: zoom-in;
   display: block;
 }
+.post-body video {
+  max-width: 100%;
+  max-height: 520px;
+  width: auto;
+  height: auto;
+  border-radius: 8px;
+  margin: 8px 0;
+  background: #000;
+  display: block;
+}
 .post-body a { color: var(--accent); text-decoration: underline; }
 /* Hashtag + mention links read as tags, not prose links: accent colour,
    no underline at rest (underline on hover), slight weight. */

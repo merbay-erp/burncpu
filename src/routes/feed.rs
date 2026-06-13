@@ -31,6 +31,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(home))
         .route("/federated", get(federated))
+        .route("/videos", get(videos))
 }
 
 #[derive(Deserialize)]
@@ -187,4 +188,79 @@ async fn federated(
 
     let next_before = posts.last().map(|p| p.published_at);
     Ok(Json(FederatedResponse { posts, next_before }))
+}
+
+// --- Video feed (the "Reels" tab) ------------------------------------------
+//
+// Public, viewer-aware discovery of posts that carry a clip — the data behind
+// the vertical full-screen video tab. Same PostView wire shape as the timeline,
+// so the client renders the author/reactions identically; the client picks the
+// first /media video out of the body to play full-screen. Anonymous-readable
+// (no auth required); block/mute filtering only applies when signed in.
+//
+// Scale note: the body-regex match is a sequential scan — fine while clips are a
+// small slice of posts; add a `has_video` boolean column + partial index if the
+// video tab becomes hot.
+
+#[derive(Deserialize)]
+pub struct VideoQuery {
+    #[serde(default = "default_limit")]
+    limit: i64,
+    before: Option<DateTime<Utc>>,
+    before_id: Option<Uuid>,
+}
+
+async fn videos(
+    State(state): State<AppState>,
+    viewer: Option<CurrentUser>,
+    Query(q): Query<VideoQuery>,
+) -> Result<Json<FeedResponse>, AppError> {
+    let limit = q.limit.clamp(1, 50);
+    let before = q.before.unwrap_or_else(Utc::now);
+    let before_id = q.before_id.unwrap_or_else(Uuid::nil);
+    let viewer_id = viewer.as_ref().map(|u| u.user_id);
+
+    let rows: Vec<PostRow> = sqlx::query_as(
+        r#"
+        SELECT
+            p.id, p.author_id, u.username, u.display_name, u.avatar_url,
+            p.body, p.body_html, p.visibility, p.reply_to_id, p.content_warning,
+            p.reactions_count, p.replies_count, p.created_at, p.edited_at
+        FROM posts p
+        JOIN users u ON u.id = p.author_id
+        WHERE p.deleted_at IS NULL
+          AND p.moderation_state = 'live'
+          AND p.visibility = 'public'
+          AND u.role <> 'suspended'
+          AND p.body ~* '/media/[a-z0-9._-]+\.(mp4|webm|mov)'
+          AND ((p.created_at < $1) OR (p.created_at = $1 AND p.id < $4))
+          AND (
+              $2::uuid IS NULL
+              OR p.author_id NOT IN (
+                  SELECT blocked_id FROM user_blocks WHERE blocker_id = $2
+                  UNION SELECT blocker_id FROM user_blocks WHERE blocked_id = $2
+                  UNION SELECT muted_id FROM user_mutes WHERE muter_id = $2
+              )
+          )
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT $3
+        "#,
+    )
+    .bind(before)
+    .bind(viewer_id)
+    .bind(limit)
+    .bind(before_id)
+    .fetch_all(&state.pg)
+    .await?;
+
+    let next = rows.last().map(|r| r.cursor());
+    let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
+    enrich_cached_previews(&state, &mut posts).await;
+    overlay_viewer_state(&state, &mut posts, viewer_id).await;
+
+    Ok(Json(FeedResponse {
+        posts,
+        next_before: next.map(|(t, _)| t),
+        next_before_id: next.map(|(_, id)| id),
+    }))
 }

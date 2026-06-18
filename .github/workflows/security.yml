@@ -27,10 +27,13 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Run cargo-deny directly rather than EmbarkStudios/cargo-deny-action@v2,
-      # whose Docker image pull intermittently times out against Docker Hub and
-      # red-flags green builds. Same checks, native runner — no Docker.
-      - run: cargo install cargo-deny --locked
+      # Install cargo-deny from a prebuilt binary (taiki-e/install-action) instead
+      # of compiling via `cargo install` (crates.io download intermittently drops the
+      # TLS connection: "unexpected eof while reading") or the EmbarkStudios Docker
+      # action (Docker Hub pull timeouts). Prebuilt = no Docker, no compile, no flake.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
       - run: cargo deny check advisories licenses bans sources
 
   build-check:

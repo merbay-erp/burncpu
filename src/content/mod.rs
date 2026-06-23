@@ -60,6 +60,17 @@ fn is_video_media(v: &str) -> bool {
     lower.ends_with(".mp4") || lower.ends_with(".webm") || lower.ends_with(".mov")
 }
 
+/// True when a raw post body contains at least one local video media reference.
+/// This powers the indexed video feed flag; rendering still uses the structured
+/// markdown event pass above, but writes need a cheap, deterministic predicate.
+pub fn contains_video_media(src: &str) -> bool {
+    src.split(|c: char| {
+        c.is_whitespace() || matches!(c, '(' | ')' | '[' | ']' | '<' | '>' | '"' | '\'' | '`')
+    })
+    .map(|s| s.trim_matches(|c: char| matches!(c, ',' | '.' | '!' | '?' | ';' | ':')))
+    .any(is_video_media)
+}
+
 /// True only for a flat local media path: `/media/<name>` where `<name>` is a
 /// content-addressed filename (alphanumeric + `.`/`_`/`-`, no `/`, no `..`).
 /// Everything else — remote URLs, protocol-relative `//host`, `/media/../x`
@@ -310,10 +321,18 @@ fn sanitizer() -> &'static ammonia::Builder<'static> {
         tag_attrs.insert("img", ["src", "alt", "title"].iter().copied().collect());
         tag_attrs.insert(
             "video",
-            ["src", "controls", "muted", "loop", "playsinline", "preload", "poster"]
-                .iter()
-                .copied()
-                .collect(),
+            [
+                "src",
+                "controls",
+                "muted",
+                "loop",
+                "playsinline",
+                "preload",
+                "poster",
+            ]
+            .iter()
+            .copied()
+            .collect(),
         );
         b.tag_attributes(tag_attrs);
         // Constrain <img>/<video> src (and video poster) to local /media/ during
@@ -449,6 +468,17 @@ mod tests {
         // webm + mov too
         assert!(render_markdown("![c](/media/x.webm)").contains("<video"));
         assert!(render_markdown("![c](/media/x.mov)").contains("<video"));
+    }
+
+    #[test]
+    fn video_media_detection_is_local_only() {
+        assert!(contains_video_media("![](/media/abc123.mov)"));
+        assert!(contains_video_media(
+            "<video src=\"/media/abc123.h264.mp4\"></video>"
+        ));
+        assert!(!contains_video_media("https://cdn.example/x.mov"));
+        assert!(!contains_video_media("/media/../x.mov"));
+        assert!(!contains_video_media("/media/photo.jpg"));
     }
 
     #[test]

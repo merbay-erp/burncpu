@@ -42,6 +42,9 @@ is false.
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
 | `MEDIA_DIR` | | `/data/media` | Writable directory for uploaded images and videos. |
+| `MEDIA_USER_QUOTA_BYTES` | | `2147483648` | Per-user stored-media quota (raw incoming size is counted conservatively). |
+| `VIDEO_TRANSCODE_ENABLED` | | `true` | Queue uploaded videos for H.264/AAC MP4 normalization and poster extraction. |
+| `TRANSCODE_MAX_DURATION_SECS` | | `120` | Reject source videos longer than this before/while transcoding. |
 
 ## Spam & moderation
 

@@ -102,10 +102,12 @@ export default function Docs() {
     ['GET', '/posts/{id}/replies', 'read', tx('Doğrudan yanıtlar', 'Direct replies')],
     ['GET', '/posts/{id}/thread', 'read', tx('Tüm konu ağacı', 'Full conversation tree')],
     ['GET', '/feed', 'read:feed', tx('Kişisel akış', 'Your home feed')],
+    ['GET', '/feed/federated', 'read', tx('Federasyon keşif akışı', 'Federated explore feed')],
+    ['GET', '/feed/videos', 'read', tx('Video akışı', 'Video feed')],
     ['GET', '/search?q=&tag=', 'read:search', tx('Metin + hashtag arama', 'Text + hashtag search')],
     ['GET', '/users/{username}', 'read:profile', tx('Profil', 'A profile')],
     ['GET', '/notifications', 'read:notifications', tx('Bildirim kutusu', 'Notification inbox')],
-    ['POST', '/media', 'write:media', tx('Görsel yükle (≤5 MiB)', 'Upload an image (≤5 MiB)')],
+    ['POST', '/media', 'write:media', tx('Görsel/video yükle', 'Upload image/video')],
     ['GET', '/bookmarks', 'read:bookmarks', tx('Yer imlerin', 'Your bookmarks')],
     ['GET', '/link_preview?url=', 'read', tx('Link önizleme (Open Graph)', 'Link preview (Open Graph)')],
   ];
@@ -387,7 +389,7 @@ curl "${BASE}/search?q=rust&tag=devops"`}
         <ul class="list-disc pl-5 space-y-1 text-on-surface-variant">
           <li>{tx('Gönderi: hesap başına 10 / 10 dk, IP başına 50 / 10 dk.', 'Posts: 10 / 10 min per account, 50 / 10 min per IP.')}</li>
           <li>{tx('Tekrar koruması: birebir aynı içerik 24 saat içinde tekrar gönderilemez.', 'Duplicate guard: identical content can’t be re-posted within 24h.')}</li>
-          <li>{tx('Görsel: ≤ 5 MiB, JPEG/PNG/WebP/GIF.', 'Images: ≤ 5 MiB, JPEG/PNG/WebP/GIF.')}</li>
+          <li>{tx('Görsel: ≤ 12 MiB, JPEG/PNG/WebP/GIF. Video: ≤ 64 MiB, MP4/WebM/MOV.', 'Images: ≤ 12 MiB, JPEG/PNG/WebP/GIF. Videos: ≤ 64 MiB, MP4/WebM/MOV.')}</li>
         </ul>
         <p class="mt-3">{tx('Hatalar şu biçimde döner:', 'Errors come back in this shape:')}</p>
         <CodeBlock lang="json" code={`{ "error": "rate_limited", "message": "rate limited" }`} />

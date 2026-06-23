@@ -1,12 +1,13 @@
-// /api/v1/media — image upload.
+// /api/v1/media — image / video upload.
 //
 //   POST /media   multipart/form-data field "file"  → 201 { id, url, width, height, mime_type }
 //   GET  /media   ?limit=                            → list of viewer's uploads
 //   DELETE /media/{id}                               → 204 (owner only)
 //
-// Pipeline:
-//   1. Read bytes (cap 5 MiB).
-//   2. Sniff mime via `infer` — accept image/{jpeg,png,webp,gif} only.
+// Image pipeline:
+//   1. Read bytes (cap 12 MiB; videos cap at 64 MiB).
+//   2. Sniff mime via `infer` — accept image/{jpeg,png,webp,gif}
+//      and video/{mp4,webm,quicktime}.
 //   3. Decode with `image` crate (rejects malformed / disguised payloads),
 //      then re-encode to the original format. The re-encode strips EXIF
 //      and Adobe XMP metadata, eliminating one privacy footgun and one
@@ -30,7 +31,8 @@ use image::{ImageFormat, ImageReader, Limits};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::types::chrono::{DateTime, Utc};
-use std::io::Cursor;
+use std::{io::Cursor, sync::LazyLock};
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
@@ -53,6 +55,9 @@ const ALLOWED: &[(&str, ImageFormat, &str)] = &[
     ("image/gif", ImageFormat::Gif, "gif"),
 ];
 const MAX_VIDEO_BYTES: usize = 64 * 1024 * 1024; // 64 MiB — short clips
+const MAX_CONCURRENT_UPLOAD_READS: usize = 4;
+static UPLOAD_READS: LazyLock<Semaphore> =
+    LazyLock::new(|| Semaphore::new(MAX_CONCURRENT_UPLOAD_READS));
 /// Per-user stored-media ceiling. Without this one account could fill the disk
 /// (videos are 64 MiB each). Override via MEDIA_USER_QUOTA_BYTES; default 2 GiB.
 fn user_media_quota() -> i64 {
@@ -66,7 +71,11 @@ fn user_media_quota() -> i64 {
 /// conservative: counts the raw incoming size (the stored, re-encoded image is
 /// usually smaller) and doesn't discount a possible content-hash dedupe — both
 /// err toward protecting the disk.
-async fn enforce_media_quota(state: &AppState, owner_id: Uuid, incoming: i64) -> Result<(), AppError> {
+async fn enforce_media_quota(
+    state: &AppState,
+    owner_id: Uuid,
+    incoming: i64,
+) -> Result<(), AppError> {
     let used: i64 =
         sqlx::query_scalar("SELECT COALESCE(SUM(size_bytes), 0) FROM media WHERE owner_id = $1")
             .bind(owner_id)
@@ -106,6 +115,10 @@ async fn upload(
     user: CurrentUser,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<MediaResponse>), AppError> {
+    let _upload_read_permit = UPLOAD_READS
+        .acquire()
+        .await
+        .map_err(|_| AppError::Internal(anyhow::anyhow!("upload limiter closed")))?;
     // Pull the first field named "file"
     let mut bytes: Option<Vec<u8>> = None;
     while let Some(field) = multipart
@@ -161,8 +174,7 @@ pub(crate) async fn ingest_image_bytes(
     enforce_media_quota(state, owner_id, raw.len() as i64).await?;
 
     // Sniff MIME from the bytes (not from any client claim).
-    let kind =
-        infer::get(raw).ok_or_else(|| AppError::BadRequest("unrecognized format".into()))?;
+    let kind = infer::get(raw).ok_or_else(|| AppError::BadRequest("unrecognized format".into()))?;
     let mime = kind.mime_type();
     let (mime_str, fmt, ext) = ALLOWED
         .iter()
@@ -219,13 +231,12 @@ pub(crate) async fn ingest_image_bytes(
     // Reject content an admin has blocklisted (P5). The hash is over the re-encoded
     // (EXIF-stripped, normalized) bytes, so a re-upload of a blocked image is caught
     // even if its metadata or container changed. Checked before any disk/DB write.
-    let blocked: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM blocked_media_hashes WHERE sha256 = $1)",
-    )
-    .bind(&digest_vec)
-    .fetch_one(&state.pg)
-    .await
-    .unwrap_or(false);
+    let blocked: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM blocked_media_hashes WHERE sha256 = $1)")
+            .bind(&digest_vec)
+            .fetch_one(&state.pg)
+            .await
+            .unwrap_or(false);
     if blocked {
         return Err(AppError::BadRequest("this image is not allowed".into()));
     }
@@ -345,10 +356,7 @@ async fn ingest_video_bytes(
     if proc_state == "pending"
         && state
             .transcode_tx
-            .try_send(crate::transcode::TranscodeJob {
-                media_id: id,
-                src_filename: filename.clone(),
-            })
+            .try_send(crate::transcode::TranscodeJob { media_id: id })
             .is_err()
     {
         tracing::warn!(media_id = %id, "transcode queue full; left pending for boot requeue");

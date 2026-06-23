@@ -143,7 +143,8 @@ async fn main() -> Result<()> {
         .nest("/ap", routes::federation::router())
         .nest("/rss", routes::rss::router())
         .nest("/api/v1", routes::api::router(state.clone()))
-        // 6 MiB request body cap (5 MiB media + multipart overhead)
+        // Small default body cap for JSON/non-media routes; /api/v1/media
+        // overrides this with its own image/video upload limit.
         .layer(axum::extract::DefaultBodyLimit::max(6 * 1024 * 1024))
         // Order on the request: audit (outer, sees user_id) → session
         // (loads CurrentUser) → csrf (rejects cookied cross-origin

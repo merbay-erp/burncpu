@@ -15,7 +15,9 @@
 use crate::{
     errors::AppError,
     middleware::session::CurrentUser,
-    routes::posts::{PostRow, PostView, enrich_cached_previews, overlay_viewer_state},
+    routes::posts::{
+        PostRow, PostView, enrich_cached_previews, overlay_viewer_state, resolve_ready_media_refs,
+    },
     state::AppState,
 };
 use axum::{
@@ -116,6 +118,7 @@ async fn home(
 
     let next = rows.last().map(|r| r.cursor());
     let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
+    resolve_ready_media_refs(&state, &mut posts).await;
     enrich_cached_previews(&state, &mut posts).await;
     overlay_viewer_state(&state, &mut posts, Some(user.user_id)).await;
 
@@ -198,9 +201,8 @@ async fn federated(
 // first /media video out of the body to play full-screen. Anonymous-readable
 // (no auth required); block/mute filtering only applies when signed in.
 //
-// Scale note: the body-regex match is a sequential scan — fine while clips are a
-// small slice of posts; add a `has_video` boolean column + partial index if the
-// video tab becomes hot.
+// The write path maintains posts.has_video, so this hot discovery query stays on
+// a partial index instead of regex-scanning every public post body.
 
 #[derive(Deserialize)]
 pub struct VideoQuery {
@@ -232,7 +234,7 @@ async fn videos(
           AND p.moderation_state = 'live'
           AND p.visibility = 'public'
           AND u.role <> 'suspended'
-          AND p.body ~* '/media/[a-z0-9._-]+\.(mp4|webm|mov)'
+          AND p.has_video
           AND ((p.created_at < $1) OR (p.created_at = $1 AND p.id < $4))
           AND (
               $2::uuid IS NULL
@@ -255,6 +257,7 @@ async fn videos(
 
     let next = rows.last().map(|r| r.cursor());
     let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
+    resolve_ready_media_refs(&state, &mut posts).await;
     enrich_cached_previews(&state, &mut posts).await;
     overlay_viewer_state(&state, &mut posts, viewer_id).await;
 

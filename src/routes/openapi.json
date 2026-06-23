@@ -18,7 +18,7 @@
     { "name": "Users", "description": "Profiles, follows, account" },
     { "name": "Relations", "description": "Block + mute" },
     { "name": "Notifications", "description": "Inbox + live stream" },
-    { "name": "Media", "description": "Image uploads" },
+    { "name": "Media", "description": "Image and video uploads" },
     { "name": "Bookmarks", "description": "Saved posts" },
     { "name": "Direct Messages", "description": "1:1 DMs (mutual-follow gated)" },
     { "name": "Search", "description": "Full-text + hashtag search and follow" },
@@ -124,7 +124,13 @@
     },
 
     "/feed": {
-      "get": { "tags": ["Feed"], "summary": "Personal home timeline", "parameters": [ { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ], "responses": { "200": { "description": "Followed authors + followed hashtags", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+      "get": { "tags": ["Feed"], "summary": "Personal home timeline", "parameters": [ { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" }, { "$ref": "#/components/parameters/BeforeId" } ], "responses": { "200": { "description": "Followed authors + followed hashtags", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Timeline" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/feed/videos": {
+      "get": { "tags": ["Feed"], "summary": "Public video timeline", "description": "Public posts carrying local video media, with viewer reaction/bookmark state when authenticated.", "security": [], "parameters": [ { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" }, { "$ref": "#/components/parameters/BeforeId" } ], "responses": { "200": { "description": "Video posts", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Timeline" } } } } } }
+    },
+    "/feed/federated": {
+      "get": { "tags": ["Feed"], "summary": "Federated explore timeline", "security": [], "parameters": [ { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ], "responses": { "200": { "description": "Remote posts ingested from ActivityPub", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FederatedTimeline" } } } } } }
     },
     "/link_preview": {
       "get": { "tags": ["Posts"], "summary": "Open Graph link preview (cached)", "parameters": [ { "name": "url", "in": "query", "required": true, "schema": { "type": "string", "format": "uri" } } ], "responses": { "200": { "description": "OG metadata", "content": { "application/json": { "schema": { "type": "object", "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "image": { "type": "string" }, "site_name": { "type": "string" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
@@ -213,7 +219,7 @@
 
     "/media": {
       "get": { "tags": ["Media"], "summary": "List your uploads", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Uploads", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Media" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
-      "post": { "tags": ["Media"], "summary": "Upload an image", "description": "multipart/form-data; max 5 MiB. EXIF-stripped + re-encoded.", "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "properties": { "file": { "type": "string", "format": "binary" } } } } } }, "responses": { "201": { "description": "Stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Media" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "413": { "description": "Payload too large" } } }
+      "post": { "tags": ["Media"], "summary": "Upload image or video", "description": "multipart/form-data. Images: JPEG/PNG/WebP/GIF, EXIF-stripped, re-encoded, downscaled to <=2048 px, <=12 MiB. Videos: MP4/WebM/QuickTime, <=64 MiB, queued for optional H.264/AAC transcode.", "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "properties": { "file": { "type": "string", "format": "binary" } } } } } }, "responses": { "201": { "description": "Stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Media" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "413": { "description": "Payload too large" } } }
     },
     "/media/{id}": {
       "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
@@ -429,7 +435,8 @@
       "TagPath": { "name": "tag", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-z0-9_]{2,32}$" } },
       "TokenPath": { "name": "token", "in": "path", "required": true, "schema": { "type": "string" } },
       "Limit": { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
-      "Before": { "name": "before", "in": "query", "required": false, "description": "Pagination cursor — return items older than this.", "schema": { "type": "string" } }
+      "Before": { "name": "before", "in": "query", "required": false, "description": "Pagination cursor — return items older than this.", "schema": { "type": "string" } },
+      "BeforeId": { "name": "before_id", "in": "query", "required": false, "description": "Tie-breaker cursor for rows sharing the same timestamp.", "schema": { "type": "string", "format": "uuid" } }
     },
     "requestBodies": {
       "TotpCode": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["code"], "properties": { "code": { "type": "string", "description": "6-digit TOTP or a recovery code" } } } } } }
@@ -487,6 +494,34 @@
           "viewer_reacted": { "type": "boolean", "description": "Present only for authenticated viewers." },
           "viewer_bookmarked": { "type": "boolean", "description": "Present only for authenticated viewers." },
           "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Timeline": {
+        "type": "object", "required": ["posts"],
+        "properties": {
+          "posts": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } },
+          "next_before": { "type": ["string", "null"], "format": "date-time" },
+          "next_before_id": { "type": ["string", "null"], "format": "uuid" }
+        }
+      },
+      "RemotePost": {
+        "type": "object", "required": ["uri", "actor_uri", "content_html", "published_at"],
+        "properties": {
+          "uri": { "type": "string", "format": "uri" },
+          "actor_uri": { "type": "string", "format": "uri" },
+          "actor_handle": { "type": ["string", "null"], "description": "Best-effort @user@host handle." },
+          "actor_name": { "type": ["string", "null"] },
+          "actor_avatar": { "type": ["string", "null"], "format": "uri" },
+          "content_html": { "type": "string", "description": "Sanitized remote HTML." },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "published_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "FederatedTimeline": {
+        "type": "object", "required": ["posts"],
+        "properties": {
+          "posts": { "type": "array", "items": { "$ref": "#/components/schemas/RemotePost" } },
+          "next_before": { "type": ["string", "null"], "format": "date-time" }
         }
       },
       "CreatePost": {
@@ -557,9 +592,13 @@
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "url": { "type": "string", "description": "Content-addressed /media path." },
-          "width": { "type": "integer" },
-          "height": { "type": "integer" },
-          "bytes": { "type": "integer" },
+          "width": { "type": ["integer", "null"] },
+          "height": { "type": ["integer", "null"] },
+          "mime_type": { "type": "string" },
+          "size_bytes": { "type": "integer" },
+          "processing_state": { "type": "string", "enum": ["ready", "pending", "processing", "failed"] },
+          "poster_url": { "type": ["string", "null"], "description": "Poster frame for ready videos when available." },
+          "duration_ms": { "type": ["integer", "null"] },
           "created_at": { "type": "string", "format": "date-time" }
         }
       },

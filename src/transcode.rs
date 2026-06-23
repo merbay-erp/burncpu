@@ -21,11 +21,10 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-/// A unit of work: normalise the video stored at `src_filename` for `media_id`.
+/// A wake-up signal: normalise the pending video row for `media_id`.
 #[derive(Debug, Clone)]
 pub struct TranscodeJob {
     pub media_id: Uuid,
-    pub src_filename: String,
 }
 
 const QUEUE_CAP: usize = 256;
@@ -44,6 +43,16 @@ pub fn spawn_transcoder(
     max_duration_secs: i64,
 ) -> mpsc::Sender<TranscodeJob> {
     let (tx, mut rx) = mpsc::channel::<TranscodeJob>(QUEUE_CAP);
+    let poll_pg = pg.clone();
+    let poll_tx = tx.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            interval.tick().await;
+            enqueue_pending(&poll_pg, &poll_tx).await;
+        }
+    });
     tokio::spawn(async move {
         let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT));
         while let Some(job) = rx.recv().await {
@@ -75,16 +84,23 @@ pub async fn requeue_pending(pg: &PgPool, tx: &mpsc::Sender<TranscodeJob>) {
     .execute(pg)
     .await;
 
-    let pending: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, filename FROM media WHERE processing_state = 'pending' AND kind = 'video' ORDER BY created_at",
+    enqueue_pending(pg, tx).await;
+}
+
+/// Enqueue rows that are still pending. Used both on boot and periodically: if
+/// the bounded channel was full when an upload arrived, the row remains durable
+/// in the DB and this sweep wakes it later without requiring a restart.
+async fn enqueue_pending(pg: &PgPool, tx: &mpsc::Sender<TranscodeJob>) {
+    let pending: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM media WHERE processing_state = 'pending' AND kind = 'video' ORDER BY created_at",
     )
     .fetch_all(pg)
     .await
     .unwrap_or_default();
 
     let n = pending.len();
-    for (media_id, src_filename) in pending {
-        if tx.try_send(TranscodeJob { media_id, src_filename }).is_err() {
+    for media_id in pending {
+        if tx.try_send(TranscodeJob { media_id }).is_err() {
             break; // channel full — leave the rest pending for the next boot
         }
     }
@@ -101,24 +117,35 @@ async fn process(
     max_duration_secs: i64,
     job: &TranscodeJob,
 ) -> Result<(), String> {
+    let claimed: Option<(String,)> = sqlx::query_as(
+        r#"
+        UPDATE media
+        SET processing_state = 'processing'
+        WHERE id = $1
+          AND kind = 'video'
+          AND processing_state = 'pending'
+        RETURNING filename
+        "#,
+    )
+    .bind(job.media_id)
+    .fetch_optional(pg)
+    .await
+    .map_err(|e| format!("claim: {e}"))?;
+    let Some((src_filename,)) = claimed else {
+        return Ok(());
+    };
+
     let dir = PathBuf::from(media_dir);
-    let src = dir.join(&job.src_filename);
+    let src = dir.join(&src_filename);
     if !src.exists() {
         return Err("source file missing".into());
     }
 
-    // Mark in-flight so the admin/client sees progress and a crash is recoverable.
-    let _ = sqlx::query("UPDATE media SET processing_state = 'processing' WHERE id = $1")
-        .bind(job.media_id)
-        .execute(pg)
-        .await;
-
     // Derive sibling filenames from the content-addressed stem (collision-free).
-    let stem = job
-        .src_filename
+    let stem = src_filename
         .rsplit_once('.')
         .map(|(s, _)| s)
-        .unwrap_or(&job.src_filename);
+        .unwrap_or(&src_filename);
     let out_name = format!("{stem}.h264.mp4");
     let poster_name = format!("{stem}.poster.jpg");
     let out_path = dir.join(&out_name);
@@ -132,9 +159,12 @@ async fn process(
     let probe = run(
         "ffprobe",
         &[
-            "-v", "error",
-            "-show_entries", "format=duration:stream=codec_type",
-            "-of", "json",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration:stream=codec_type",
+            "-of",
+            "json",
             path_str(&src)?,
         ],
         timeout,
@@ -143,8 +173,8 @@ async fn process(
     if !probe.status.success() {
         return Err("ffprobe failed (not a decodable video?)".into());
     }
-    let meta: Probe = serde_json::from_slice(&probe.stdout)
-        .map_err(|e| format!("probe parse: {e}"))?;
+    let meta: Probe =
+        serde_json::from_slice(&probe.stdout).map_err(|e| format!("probe parse: {e}"))?;
     if !meta.has_video() {
         return Err("no video stream".into());
     }
@@ -166,16 +196,32 @@ async fn process(
     let xcode = run(
         "ffmpeg",
         &[
-            "-y", "-nostdin",
-            "-i", path_str(&src)?,
-            "-vf", &scale,
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
-            "-max_muxing_queue_size", "1024",
+            "-y",
+            "-nostdin",
+            "-i",
+            path_str(&src)?,
+            "-vf",
+            &scale,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            "-max_muxing_queue_size",
+            "1024",
             // We write to a `.tmp` then rename; ffmpeg can't infer the container
             // from the `.tmp` extension, so name the muxer explicitly.
-            "-f", "mp4",
+            "-f",
+            "mp4",
             path_str(&tmp_out)?,
         ],
         timeout,
@@ -196,13 +242,20 @@ async fn process(
     let poster_ok = match run(
         "ffmpeg",
         &[
-            "-y", "-nostdin",
-            "-ss", "0.5",
-            "-i", path_str(&out_path)?,
-            "-frames:v", "1", "-an",
-            "-q:v", "3",
+            "-y",
+            "-nostdin",
+            "-ss",
+            "0.5",
+            "-i",
+            path_str(&out_path)?,
+            "-frames:v",
+            "1",
+            "-an",
+            "-q:v",
+            "3",
             // Same reason as the transcode: force the JPEG muxer for the `.tmp`.
-            "-f", "mjpeg",
+            "-f",
+            "mjpeg",
             path_str(&tmp_poster)?,
         ],
         Duration::from_secs(60),

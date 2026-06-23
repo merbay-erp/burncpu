@@ -14,7 +14,7 @@
 // whitelist (see content::render_markdown).
 
 use crate::{
-    content::{extract_mentions, render_markdown},
+    content::{contains_video_media, extract_mentions, render_markdown},
     errors::AppError,
     middleware::{client_ip, session::CurrentUser},
     routes::link_preview::{self, LinkPreview},
@@ -301,12 +301,13 @@ async fn spam_score(state: &AppState, user: &CurrentUser, body: &str) -> (i32, V
     // auto-quarantined or removed carries heat (current_heat decays it over time),
     // biasing its borderline posts toward review. This is what turns a string of
     // offenses into a rising auto-quarantine rate — the soft escalation tier (P2).
-    let heat: i32 =
-        sqlx::query_scalar("SELECT current_heat(heat_score, heat_updated_at) FROM users WHERE id = $1")
-            .bind(user.user_id)
-            .fetch_one(&state.pg)
-            .await
-            .unwrap_or(0);
+    let heat: i32 = sqlx::query_scalar(
+        "SELECT current_heat(heat_score, heat_updated_at) FROM users WHERE id = $1",
+    )
+    .bind(user.user_id)
+    .fetch_one(&state.pg)
+    .await
+    .unwrap_or(0);
     if heat >= 8 {
         pts += 3;
         why.push(format!("account heat {heat}"));
@@ -459,6 +460,7 @@ async fn create_post(
         .await?;
 
     let body_html = render_markdown(body);
+    let has_video = contains_video_media(body);
 
     let cw = input
         .content_warning
@@ -489,8 +491,8 @@ async fn create_post(
 
     let id: Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO posts (author_id, body, body_html, visibility, reply_to_id, content_warning, moderation_state, spam_score)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO posts (author_id, body, body_html, visibility, reply_to_id, content_warning, moderation_state, spam_score, has_video)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id
         "#,
     )
@@ -502,6 +504,7 @@ async fn create_post(
     .bind(cw)
     .bind(moderation_state)
     .bind(spam_pts as i16)
+    .bind(has_video)
     .fetch_one(&state.pg)
     .await?;
 
@@ -695,6 +698,7 @@ async fn timeline(
 
         let next = rows.last().map(|r| (r.created_at, r.id));
         let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
+        resolve_ready_media_refs(&state, &mut posts).await;
         enrich_cached_previews(&state, &mut posts).await;
         overlay_viewer_state(&state, &mut posts, viewer_id).await;
         let resp = TimelineResponse {
@@ -841,6 +845,7 @@ async fn edit_post(
         return Err(AppError::Forbidden);
     }
     let body_html = render_markdown(body);
+    let has_video = contains_video_media(body);
     // Snapshot the version we're about to replace into post_edits, then update —
     // atomically in one statement. The data-modifying CTE reads `posts` as of the
     // start of the statement, so it captures the OLD body even though the main
@@ -851,13 +856,14 @@ async fn edit_post(
             INSERT INTO post_edits (post_id, body, body_html)
             SELECT id, body, body_html FROM posts WHERE id = $3
         )
-        UPDATE posts SET body = $1, body_html = $2, edited_at = NOW(), updated_at = NOW()
+        UPDATE posts SET body = $1, body_html = $2, has_video = $4, edited_at = NOW(), updated_at = NOW()
         WHERE id = $3
         "#,
     )
     .bind(body)
     .bind(&body_html)
     .bind(id)
+    .bind(has_video)
     .execute(&state.pg)
     .await?;
 
@@ -975,11 +981,12 @@ async fn repost(
         body_raw.to_string()
     };
     let body_html = render_markdown(&body);
+    let has_video = contains_video_media(&body);
 
     let new_id: Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO posts (author_id, body, body_html, visibility, repost_of_id)
-        VALUES ($1, $2, $3, 'public', $4)
+        INSERT INTO posts (author_id, body, body_html, visibility, repost_of_id, has_video)
+        VALUES ($1, $2, $3, 'public', $4, $5)
         RETURNING id
         "#,
     )
@@ -987,6 +994,7 @@ async fn repost(
     .bind(&body)
     .bind(&body_html)
     .bind(target_id)
+    .bind(has_video)
     .fetch_one(&state.pg)
     .await?;
 
@@ -1240,6 +1248,76 @@ pub async fn enrich_cached_previews(state: &AppState, posts: &mut [PostView]) {
     }
 }
 
+/// Replace local video references in rendered posts with their ready transcode.
+/// Upload responses intentionally return the raw content-addressed path so old
+/// clients can attach immediately while the worker runs. Once a read happens and
+/// the media row has `transcoded_filename`, the API upgrades both raw markdown
+/// and cached HTML to the streamable MP4 path.
+pub async fn resolve_ready_media_refs(state: &AppState, posts: &mut [PostView]) {
+    if posts.is_empty() {
+        return;
+    }
+    let mut filenames = std::collections::HashSet::<String>::new();
+    for post in posts.iter() {
+        collect_media_filenames(&post.body, &mut filenames);
+        collect_media_filenames(&post.body_html, &mut filenames);
+    }
+    if filenames.is_empty() {
+        return;
+    }
+    let names: Vec<String> = filenames.into_iter().collect();
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT filename, transcoded_filename
+        FROM media
+        WHERE kind = 'video'
+          AND processing_state = 'ready'
+          AND transcoded_filename IS NOT NULL
+          AND filename = ANY($1)
+        "#,
+    )
+    .bind(&names)
+    .fetch_all(&state.pg)
+    .await
+    .unwrap_or_default();
+    if rows.is_empty() {
+        return;
+    }
+    let replacements: std::collections::HashMap<String, String> = rows
+        .into_iter()
+        .filter_map(|(raw, ready)| ready.map(|r| (raw, r)))
+        .collect();
+    for post in posts.iter_mut() {
+        post.body = rewrite_media_refs(&post.body, &replacements);
+        post.body_html = rewrite_media_refs(&post.body_html, &replacements);
+    }
+}
+
+fn collect_media_filenames(text: &str, out: &mut std::collections::HashSet<String>) {
+    static MEDIA_REF_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"/media/([A-Za-z0-9._-]+\.(?i:mp4|webm|mov))").unwrap()
+    });
+    for cap in MEDIA_REF_RE.captures_iter(text) {
+        if let Some(name) = cap.get(1) {
+            out.insert(name.as_str().to_string());
+        }
+    }
+}
+
+fn rewrite_media_refs(
+    text: &str,
+    replacements: &std::collections::HashMap<String, String>,
+) -> String {
+    if replacements.is_empty() {
+        return text.to_string();
+    }
+    let mut out = text.to_string();
+    for (raw, ready) in replacements {
+        out = out.replace(&format!("/media/{raw}"), &format!("/media/{ready}"));
+    }
+    out
+}
+
 /// Fill `viewer_reacted` / `viewer_bookmarked` on a page of posts with two indexed
 /// batch lookups, instead of the per-row correlated `EXISTS` subqueries the
 /// timeline/feed SQL used to carry (2×N — the dominant cost of those hot queries
@@ -1254,24 +1332,26 @@ pub async fn overlay_viewer_state(state: &AppState, posts: &mut [PostView], view
         return;
     }
     let ids: Vec<Uuid> = posts.iter().map(|p| p.id).collect();
-    let reacted: std::collections::HashSet<Uuid> =
-        sqlx::query_scalar("SELECT post_id FROM reactions WHERE user_id = $1 AND post_id = ANY($2)")
-            .bind(viewer)
-            .bind(&ids)
-            .fetch_all(&state.pg)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-    let bookmarked: std::collections::HashSet<Uuid> =
-        sqlx::query_scalar("SELECT post_id FROM bookmarks WHERE user_id = $1 AND post_id = ANY($2)")
-            .bind(viewer)
-            .bind(&ids)
-            .fetch_all(&state.pg)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+    let reacted: std::collections::HashSet<Uuid> = sqlx::query_scalar(
+        "SELECT post_id FROM reactions WHERE user_id = $1 AND post_id = ANY($2)",
+    )
+    .bind(viewer)
+    .bind(&ids)
+    .fetch_all(&state.pg)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .collect();
+    let bookmarked: std::collections::HashSet<Uuid> = sqlx::query_scalar(
+        "SELECT post_id FROM bookmarks WHERE user_id = $1 AND post_id = ANY($2)",
+    )
+    .bind(viewer)
+    .bind(&ids)
+    .fetch_all(&state.pg)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .collect();
     for p in posts.iter_mut() {
         p.viewer_reacted = Some(reacted.contains(&p.id));
         p.viewer_bookmarked = Some(bookmarked.contains(&p.id));
@@ -1513,6 +1593,7 @@ async fn fetch_post(
     .await?;
 
     let mut view = row.map(PostRow::into_view).ok_or(AppError::NotFound)?;
+    resolve_ready_media_refs(state, std::slice::from_mut(&mut view)).await;
     attach_parent(state, &mut view, viewer).await;
     Ok(view)
 }
@@ -1584,7 +1665,8 @@ async fn replies(
     .await?;
 
     let next = rows.last().map(|r| (r.created_at, r.id));
-    let posts = rows.into_iter().map(PostRow::into_view).collect();
+    let mut posts: Vec<PostView> = rows.into_iter().map(PostRow::into_view).collect();
+    resolve_ready_media_refs(&state, &mut posts).await;
     Ok(Json(TimelineResponse {
         posts,
         next_before: next.map(|(t, _)| t),
@@ -1698,10 +1780,11 @@ async fn thread(
     .fetch_all(&state.pg)
     .await?;
 
-    let descendants = descendants_rows
+    let mut descendants: Vec<PostView> = descendants_rows
         .into_iter()
         .map(PostRow::into_view)
         .collect();
+    resolve_ready_media_refs(&state, &mut descendants).await;
     Ok(Json(ThreadResponse { root, descendants }))
 }
 
@@ -1720,5 +1803,18 @@ mod tests {
         assert!(!reply_visibility_allowed("public", "followers"));
         assert!(!reply_visibility_allowed("public", "private"));
         assert!(!reply_visibility_allowed("followers", "private"));
+    }
+
+    #[test]
+    fn rewrites_ready_video_refs_without_touching_other_media() {
+        let replacements = std::collections::HashMap::from([(
+            "clip.mov".to_string(),
+            "clip.h264.mp4".to_string(),
+        )]);
+        let html = "<video src=\"/media/clip.mov\"></video><img src=\"/media/pic.jpg\">";
+        let out = rewrite_media_refs(html, &replacements);
+        assert!(out.contains("/media/clip.h264.mp4"));
+        assert!(out.contains("/media/pic.jpg"));
+        assert!(!out.contains("/media/clip.mov"));
     }
 }

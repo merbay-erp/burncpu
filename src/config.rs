@@ -52,7 +52,7 @@ pub struct Config {
     /// When false, uploaded videos are kept verbatim and marked `ready` (the
     /// pre-pipeline behaviour) — a safety valve for hosts without ffmpeg.
     pub video_transcode_enabled: bool,
-    /// Fail source videos longer than this (`TRANSCODE_MAX_DURATION_SECS`, default 300).
+    /// Fail source videos longer than this (`TRANSCODE_MAX_DURATION_SECS`, default 120).
     pub transcode_max_duration_secs: i64,
 }
 
@@ -122,7 +122,7 @@ impl Config {
             transcode_max_duration_secs: env::var("TRANSCODE_MAX_DURATION_SECS")
                 .ok()
                 .and_then(|v| v.trim().parse().ok())
-                .unwrap_or(300),
+                .unwrap_or(120),
             media_dir: env::var("MEDIA_DIR").unwrap_or_else(|_| "/data/media".into()),
             federation_enabled: env::var("FEDERATION_ENABLED")
                 .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
@@ -150,7 +150,10 @@ impl Config {
                         if !id.is_empty() && !secret.is_empty() {
                             m.insert(
                                 p.to_string(),
-                                OAuthProviderCreds { client_id: id, client_secret: secret },
+                                OAuthProviderCreds {
+                                    client_id: id,
+                                    client_secret: secret,
+                                },
                             );
                         }
                     }

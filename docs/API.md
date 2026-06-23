@@ -98,6 +98,8 @@ matched or created by **verified email** (`oauth_identities`).
 | Method | Path | | Description |
 |--------|------|--|-------------|
 | `GET` | `/feed` | 🔒 | Personal home (you + followees). |
+| `GET` | `/feed/federated` | 🔓 | Federated explore timeline (remote ActivityPub posts this instance ingested). |
+| `GET` | `/feed/videos` | 🔓 | Public posts carrying local video media. |
 | `GET` | `/search?q=&tag=` | 🔓 | Meilisearch query (live + public only). |
 | `GET` | `/hashtags/{tag}` | 🔓 | Posts for a hashtag. |
 | `GET` | `/hashtags/{tag}/follow` | 🔓 | Whether the viewer follows the tag (`{following}`). |

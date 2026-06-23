@@ -263,8 +263,18 @@ async fn ingest_remote_note(state: &AppState, object: &serde_json::Value, actor_
         .get("attributedTo")
         .and_then(|v| v.as_str())
         .unwrap_or(actor_uri);
-    let url = object.get("url").and_then(|v| v.as_str());
-    let in_reply_to = object.get("inReplyTo").and_then(|v| v.as_str());
+    if !author.starts_with("https://") {
+        return;
+    }
+    let url = object
+        .get("url")
+        .and_then(|v| v.as_str())
+        .and_then(crate::net_safety::canonical_http_url)
+        .or_else(|| Some(uri.to_string()));
+    let in_reply_to = object
+        .get("inReplyTo")
+        .and_then(|v| v.as_str())
+        .and_then(crate::net_safety::canonical_http_url);
     let published = object
         .get("published")
         .and_then(|v| v.as_str())
@@ -274,18 +284,26 @@ async fn ingest_remote_note(state: &AppState, object: &serde_json::Value, actor_
         // a back-/forward-dated post must not be able to pin itself to the top.
         // A future date falls back to NOW() via the INSERT's COALESCE.
         .filter(|d| *d <= chrono::Utc::now());
-    let handle = host_of(author).map(|h| format!("@{h}"));
+    let actor = fetch_actor(state, author).await.ok();
+    let handle = actor
+        .as_ref()
+        .and_then(remote_actor_handle)
+        .or_else(|| host_of(author).map(|h| format!("@{h}")));
+    let actor_name = actor.as_ref().and_then(|a| a.display_name.clone());
+    let actor_avatar = actor.as_ref().and_then(|a| a.avatar_url.clone());
 
     let _ = sqlx::query(
         r#"
-        INSERT INTO remote_posts (uri, actor_uri, actor_handle, content_html, url, in_reply_to, published_at)
-        VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()))
+        INSERT INTO remote_posts (uri, actor_uri, actor_handle, actor_name, actor_avatar, content_html, url, in_reply_to, published_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, NOW()))
         ON CONFLICT (uri) DO NOTHING
         "#,
     )
     .bind(uri)
     .bind(author)
     .bind(handle)
+    .bind(actor_name)
+    .bind(actor_avatar)
     .bind(&content_html)
     .bind(url)
     .bind(in_reply_to)
@@ -305,7 +323,9 @@ async fn handle_announce(state: &AppState, activity: &IncomingActivity) -> Resul
         .object
         .as_str()
         .or_else(|| activity.object.get("id").and_then(|v| v.as_str()));
-    let Some(obj_uri) = obj_uri else { return Ok(()) };
+    let Some(obj_uri) = obj_uri else {
+        return Ok(());
+    };
     ingest_remote_uri(state, obj_uri).await
 }
 
@@ -468,21 +488,29 @@ pub struct RemoteActor {
     pub inbox: String,
     pub public_key_id: String,
     pub public_key_pem: String,
+    pub username: String,
+    pub host: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 pub async fn fetch_actor(state: &AppState, uri: &str) -> Result<RemoteActor> {
-    let cached: Option<(String, String, String)> = sqlx::query_as(
-        "SELECT inbox, public_key_id, public_key_pem FROM federation_actors WHERE uri = $1 AND fetched_at > NOW() - interval '7 days'",
+    let cached: Option<(String, String, String, String, String, serde_json::Value)> = sqlx::query_as(
+        "SELECT inbox, public_key_id, public_key_pem, username, host, actor_json FROM federation_actors WHERE uri = $1 AND fetched_at > NOW() - interval '7 days'",
     )
     .bind(uri)
     .fetch_optional(&state.pg)
     .await?;
-    if let Some((inbox, kid, pem)) = cached {
+    if let Some((inbox, kid, pem, username, host, actor_json)) = cached {
         return Ok(RemoteActor {
             uri: uri.to_string(),
             inbox,
             public_key_id: kid,
             public_key_pem: pem,
+            username,
+            host,
+            display_name: actor_display_name(&actor_json),
+            avatar_url: actor_avatar_url(&actor_json),
         });
     }
 
@@ -551,6 +579,8 @@ pub async fn fetch_actor(state: &AppState, uri: &str) -> Result<RemoteActor> {
         ON CONFLICT (uri) DO UPDATE SET
             inbox = EXCLUDED.inbox,
             shared_inbox = EXCLUDED.shared_inbox,
+            username = EXCLUDED.username,
+            host = EXCLUDED.host,
             public_key_pem = EXCLUDED.public_key_pem,
             public_key_id = EXCLUDED.public_key_id,
             actor_json = EXCLUDED.actor_json,
@@ -573,7 +603,44 @@ pub async fn fetch_actor(state: &AppState, uri: &str) -> Result<RemoteActor> {
         inbox,
         public_key_id: pk_id,
         public_key_pem: pk_pem,
+        username,
+        host,
+        display_name: actor_display_name(&body),
+        avatar_url: actor_avatar_url(&body),
     })
+}
+
+fn actor_display_name(body: &serde_json::Value) -> Option<String> {
+    body.get("name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(120).collect())
+}
+
+fn actor_avatar_url(body: &serde_json::Value) -> Option<String> {
+    fn icon_url(icon: &serde_json::Value) -> Option<&str> {
+        icon.get("url").and_then(|v| v.as_str())
+    }
+    let raw = match body.get("icon")? {
+        serde_json::Value::Array(items) => items.iter().find_map(icon_url),
+        icon => icon_url(icon),
+    }?;
+    crate::net_safety::canonical_http_url(raw).filter(|u| u.starts_with("https://"))
+}
+
+fn remote_actor_handle(actor: &RemoteActor) -> Option<String> {
+    let host = actor.host.trim();
+    if host.is_empty() {
+        return None;
+    }
+    let username = actor.username.trim();
+    if username.is_empty() {
+        Some(format!("@{host}"))
+    } else {
+        let username: String = username.chars().take(80).collect();
+        Some(format!("@{username}@{host}"))
+    }
 }
 
 // ─── Outbound: fan a local public Create to remote followers ──
@@ -748,7 +815,10 @@ pub async fn ensure_instance_key(state: &AppState) -> Result<ActorKey> {
     if let Some((enc, nonce, _pubpem)) = row {
         let private_pem = String::from_utf8(totp::decrypt_blob(&enc, &nonce)?)?;
         let public_pem = public_spki_pem(&private_pem)?;
-        return Ok(ActorKey { public_pem, private_pem });
+        return Ok(ActorKey {
+            public_pem,
+            private_pem,
+        });
     }
 
     let (priv_key, pub_key) =
@@ -785,7 +855,10 @@ pub async fn ensure_instance_key(state: &AppState) -> Result<ActorKey> {
     .await?;
     let private_pem = String::from_utf8(totp::decrypt_blob(&enc, &nonce)?)?;
     let public_pem = public_spki_pem(&private_pem)?;
-    Ok(ActorKey { public_pem, private_pem })
+    Ok(ActorKey {
+        public_pem,
+        private_pem,
+    })
 }
 
 /// The instance actor document (type Application).
@@ -946,4 +1019,43 @@ pub async fn unsubscribe_relay(state: &AppState, relay_actor_uri: &str) -> Resul
     });
     let _ = sign::deliver(&state.config, &key, &instance_uri, &inbox, &undo).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_actor_display_and_https_avatar() {
+        let actor = serde_json::json!({
+            "name": "  Ada  ",
+            "icon": { "url": "https://cdn.example/avatar.jpg" }
+        });
+        assert_eq!(actor_display_name(&actor).as_deref(), Some("Ada"));
+        assert_eq!(
+            actor_avatar_url(&actor).as_deref(),
+            Some("https://cdn.example/avatar.jpg")
+        );
+
+        let insecure = serde_json::json!({ "icon": { "url": "http://example.com/a.jpg" } });
+        assert_eq!(actor_avatar_url(&insecure), None);
+    }
+
+    #[test]
+    fn remote_actor_handle_prefers_username_at_host() {
+        let actor = RemoteActor {
+            uri: "https://social.example/users/ada".into(),
+            inbox: "https://social.example/inbox".into(),
+            public_key_id: "https://social.example/users/ada#main-key".into(),
+            public_key_pem: "pem".into(),
+            username: "ada".into(),
+            host: "social.example".into(),
+            display_name: None,
+            avatar_url: None,
+        };
+        assert_eq!(
+            remote_actor_handle(&actor).as_deref(),
+            Some("@ada@social.example")
+        );
+    }
 }

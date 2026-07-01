@@ -12,11 +12,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-# Cache deps layer — Cargo.toml + Cargo.lock copy önce
-COPY Cargo.toml ./
+# Cache deps layer — Cargo.toml + Cargo.lock copy önce.
+# Cargo.lock ŞART: onsuz build committed lockfile'ı yok sayıp her seferinde
+# "latest compatible"e çözüyordu → prod'daki bağımlılık sürümleri repo ile
+# uyuşmuyor + güvenlik yamaları (lockfile bump) deps katmanını bozmadığı için
+# cache'e takılıp prod'a inmiyordu. --locked ile birebir committed sürümler.
+COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src && \
     echo 'fn main() {}' > src/main.rs && \
-    cargo build --release && \
+    cargo build --release --locked && \
     rm -rf src target/release/burncpu target/release/burncpu.d \
            target/release/deps/burncpu* target/release/.fingerprint/burncpu*
 
@@ -27,7 +31,7 @@ COPY static ./static
 
 # SQLx compile-time validation için offline mode değil, runtime check
 ENV SQLX_OFFLINE=true
-RUN cargo build --release && \
+RUN cargo build --release --locked && \
     strip target/release/burncpu
 
 # ── Stage 2: Runtime ────────────────────────────────────────────

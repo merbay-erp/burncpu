@@ -25,7 +25,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: [self-hosted, mustafaerbay]
-    timeout-minutes: 30
+    # 60 (not 30): a Cargo.lock/dep change busts the Docker deps-cache layer,
+    # forcing a full cold `cargo build --release` on the VPS runner which can
+    # exceed 30m. Cached (source-only) deploys still finish in minutes.
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v6

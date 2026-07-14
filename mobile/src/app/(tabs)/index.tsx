@@ -25,7 +25,7 @@ import { t, useLocale } from '@/i18n';
 type Tab = 'foryou' | 'global' | 'federated';
 
 export default function Home() {
-  const { colors, toggle } = useTheme();
+  const { colors, scheme, toggle } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const me = useMe();
@@ -95,15 +95,33 @@ export default function Home() {
       <View style={s.topbar}>
         <Brand size={22} />
         <View style={s.topActions}>
-          <Pressable onPress={toggle} hitSlop={8} style={s.iconBtn}>
+          <Pressable
+            onPress={toggle}
+            hitSlop={8}
+            style={s.iconBtn}
+            accessibilityRole="button"
+            accessibilityLabel={`${t('settings.theme')}: ${scheme === 'dark' ? t('settings.light') : t('settings.dark')}`}
+          >
             <Ionicons name="contrast-outline" size={20} color={colors.onSurfaceVariant} />
           </Pressable>
           {me ? (
-            <Pressable onPress={() => router.push('/compose')} hitSlop={8} style={s.iconBtn}>
+            <Pressable
+              onPress={() => router.push('/compose')}
+              hitSlop={8}
+              style={s.iconBtn}
+              accessibilityRole="button"
+              accessibilityLabel={t('nav.compose')}
+            >
               <Ionicons name="add-circle" size={24} color={colors.primary} />
             </Pressable>
           ) : (
-            <Pressable onPress={() => router.push('/login')} hitSlop={8} style={s.iconBtn}>
+            <Pressable
+              onPress={() => router.push('/login')}
+              hitSlop={8}
+              style={s.iconBtn}
+              accessibilityRole="button"
+              accessibilityLabel={t('nav.login')}
+            >
               <Ionicons name="log-in-outline" size={22} color={colors.primary} />
             </Pressable>
           )}

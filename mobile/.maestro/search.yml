@@ -1,0 +1,17 @@
+appId: com.burncpu.app
+tags:
+  - regression
+  - search
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Global"
+    timeout: 20000
+- tapOn: "Ara"
+- tapOn: "Sinyal ara.*"
+- inputText: "cloudflare"
+- extendedWaitUntil:
+    visible: ".*@.*"
+    timeout: 15000
+- assertNotVisible: "—"

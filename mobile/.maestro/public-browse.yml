@@ -1,0 +1,16 @@
+appId: com.burncpu.app
+tags:
+  - smoke
+  - public
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Global"
+    timeout: 20000
+- assertVisible: "burncpu"
+- tapOn: "Ara"
+- assertVisible: "Sinyal ara.*"
+- tapOn: "Video"
+- tapOn: "Ana Sayfa"
+- assertVisible: "Global"

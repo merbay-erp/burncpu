@@ -1,0 +1,87 @@
+name: high-concurrency load gate
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'migrations/**'
+      - 'load/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'docker-compose.dev.yml'
+      - '.github/workflows/load.yml'
+  schedule:
+    - cron: '23 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Load profile
+        required: true
+        type: choice
+        default: pull-request
+        options:
+          - pull-request
+          - scheduled-soak
+
+concurrency:
+  group: load-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  load:
+    name: ${{ (github.event_name == 'schedule' || inputs.profile == 'scheduled-soak') && '10k SSE soak' || '1k SSE gate' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: postgres://burncpu:CHANGE_ME@127.0.0.1:5433/burncpu
+      REDIS_URL: redis://127.0.0.1:6380
+      MEILISEARCH_URL: http://127.0.0.1:7700
+      SITE_ORIGIN: http://127.0.0.1:3050
+      BIND_ADDR: 127.0.0.1:3050
+      MEDIA_DIR: /tmp/burncpu-load-media
+      VIDEO_TRANSCODE_ENABLED: 'false'
+      HTTP_CONCURRENCY: ${{ (github.event_name == 'schedule' || inputs.profile == 'scheduled-soak') && '500' || '200' }}
+      HTTP_REQUESTS: ${{ (github.event_name == 'schedule' || inputs.profile == 'scheduled-soak') && '10000' || '2000' }}
+      SSE_CONNECTIONS: ${{ (github.event_name == 'schedule' || inputs.profile == 'scheduled-soak') && '10000' || '1000' }}
+      SSE_HOLD_MS: ${{ (github.event_name == 'schedule' || inputs.profile == 'scheduled-soak') && '60000' || '5000' }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.3.0
+      - name: Start pinned dependencies
+        run: docker compose -f docker-compose.dev.yml up -d --wait
+      - name: Build production server
+        run: cargo build --release --locked
+      - name: Run concurrent HTTP + SSE gate
+        run: |
+          set -euo pipefail
+          ulimit -n 65535
+          ./target/release/burncpu >/tmp/burncpu-load.log 2>&1 &
+          app_pid=$!
+          cleanup() {
+            result=$?
+            if [ "$result" -ne 0 ]; then
+              tail -200 /tmp/burncpu-load.log || true
+              docker compose -f docker-compose.dev.yml logs --tail=100 || true
+            fi
+            kill "$app_pid" 2>/dev/null || true
+            docker compose -f docker-compose.dev.yml down --volumes || true
+            exit "$result"
+          }
+          trap cleanup EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3050/healthz >/dev/null; then
+              break
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3050/healthz >/dev/null
+          docker compose -f docker-compose.dev.yml exec -T postgres \
+            psql -v ON_ERROR_STOP=1 -U burncpu -d burncpu < load/seed.sql
+          node load/high-concurrency.mjs

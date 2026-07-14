@@ -3,15 +3,10 @@ import { render } from 'solid-js/web';
 import { Router, Route } from '@solidjs/router';
 import { lazy } from 'solid-js';
 import Layout from './Layout';
+import '@fontsource-variable/geist/wght.css';
+import '@fontsource-variable/geist-mono/wght.css';
+import '@fontsource-variable/material-symbols-outlined/fill.css';
 import './styles.css';
-
-// Promote the preloaded font stylesheets (index.html) to applied stylesheets.
-// They're preloaded so the download starts early without blocking the first
-// paint; we flip rel here — from our own 'self' bundle — because the CSP forbids
-// the inline `onload` handler the usual deferred-CSS trick relies on.
-for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="preload"][as="style"]')) {
-  link.rel = 'stylesheet';
-}
 
 // Warm the public timeline fetch the instant this entry module runs — *before*
 // the route chunk loads and the app mounts — so the data is already in flight

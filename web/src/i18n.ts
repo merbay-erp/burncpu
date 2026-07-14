@@ -305,6 +305,7 @@ const dict: Record<Locale, Record<string, string>> = {
     'settings.dev.webhook_remove_confirm': 'Webhook silinsin mi?',
     // ── post / profile / threads ──
     'post.menu.share': 'Paylaş',
+    'post.menu.more': 'Diğer seçenekler',
     'post.menu.bookmark': 'Kaydet',
     'post.menu.unbookmark': 'Kayıttan çıkar',
     'post.menu.pin': 'Profile sabitle',
@@ -795,6 +796,7 @@ const dict: Record<Locale, Record<string, string>> = {
     'settings.dev.webhook_remove_confirm': 'Delete this webhook?',
     // ── post / profile / threads ──
     'post.menu.share': 'Share',
+    'post.menu.more': 'More options',
     'post.menu.bookmark': 'Save',
     'post.menu.unbookmark': 'Unsave',
     'post.menu.pin': 'Pin to profile',

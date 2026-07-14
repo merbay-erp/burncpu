@@ -284,9 +284,11 @@ export default function Post(props: {
             <div class="relative">
               <button
                 onClick={() => setMenuOpen((v) => !v)}
+                aria-label={t('post.menu.more')}
+                aria-expanded={menuOpen()}
                 class="p-1.5 -mr-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
               >
-                <span class="material-symbols-outlined" style="font-size:20px;">more_horiz</span>
+                <span aria-hidden="true" class="material-symbols-outlined" style="font-size:20px;">more_horiz</span>
               </button>
               <Show when={menuOpen()}>
                 <div
@@ -393,8 +395,8 @@ export default function Post(props: {
             <Show
               when={props.onReply || me()}
               fallback={
-                <A href={`/posts/${props.post.id}`} class={ACTION_BTN} title={t('post.reply')}>
-                  <span class="material-symbols-outlined" style="font-size: 18px;">chat_bubble</span>
+                <A href={`/posts/${props.post.id}`} aria-label={t('post.reply')} class={ACTION_BTN} title={t('post.reply')}>
+                  <span aria-hidden="true" class="material-symbols-outlined" style="font-size: 18px;">chat_bubble</span>
                   <Show when={repliesTotal() > 0}>
                     <span class="font-mono text-[12px]">{repliesTotal()}</span>
                   </Show>
@@ -404,9 +406,10 @@ export default function Post(props: {
               <button
                 class={ACTION_BTN + (replyOpen() ? ' text-primary' : '')}
                 onClick={onReplyClick}
+                aria-label={t('compose.reply')}
                 title={t('compose.reply')}
               >
-                <span class="material-symbols-outlined" style="font-size: 18px;">reply</span>
+                <span aria-hidden="true" class="material-symbols-outlined" style="font-size: 18px;">reply</span>
                 <Show when={repliesTotal() > 0}>
                   <span class="font-mono text-[12px]">{repliesTotal()}</span>
                 </Show>
@@ -415,11 +418,13 @@ export default function Post(props: {
             <button
               class={ACTION_BTN + (reacted() ? ' text-primary' : '')}
               onClick={toggleReact}
+              aria-label={me() ? t('post.react') : t('post.react_login')}
               disabled={!me() || busy()}
               title={me() ? t('post.react') : t('post.react_login')}
             >
               <span class="relative inline-flex items-center justify-center">
                 <span
+                  aria-hidden="true"
                   class="material-symbols-outlined"
                   classList={{ 'react-pop': popping() }}
                   style={reacted() ? "font-size: 18px; font-variation-settings: 'FILL' 1;" : 'font-size: 18px;'}
@@ -438,8 +443,8 @@ export default function Post(props: {
                 </span>
               </Show>
             </button>
-            <button class={ACTION_BTN + ' ml-auto'} onClick={share} title={t('post.menu.share')}>
-              <span class="material-symbols-outlined" style="font-size: 18px;">share</span>
+            <button class={ACTION_BTN + ' ml-auto'} onClick={share} aria-label={t('post.menu.share')} title={t('post.menu.share')}>
+              <span aria-hidden="true" class="material-symbols-outlined" style="font-size: 18px;">share</span>
             </button>
           </div>
 
@@ -467,7 +472,7 @@ function MenuItem(props: { icon: string; label: string; onClick: () => void; dan
       onClick={props.onClick}
       class={`w-full flex items-center gap-2 px-3 py-2 hover:bg-surface-container-highest text-left ${props.danger ? 'text-error' : 'text-on-background'}`}
     >
-      <span class="material-symbols-outlined" style="font-size: 18px;">{props.icon}</span>
+      <span aria-hidden="true" class="material-symbols-outlined" style="font-size: 18px;">{props.icon}</span>
       <span class="font-mono text-[13px]">{props.label}</span>
     </button>
   );

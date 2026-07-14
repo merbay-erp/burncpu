@@ -227,7 +227,8 @@ async fn callback(
     let mut redis = state.redis.clone();
     let key = format!("oauth:state:{state_token}");
     let rec_json: Option<String> = redis.get(&key).await?;
-    let rec_json = rec_json.ok_or_else(|| AppError::BadRequest("invalid or expired state".into()))?;
+    let rec_json =
+        rec_json.ok_or_else(|| AppError::BadRequest("invalid or expired state".into()))?;
     let _: () = redis.del(&key).await?;
     let rec: StateRecord =
         serde_json::from_str(&rec_json).map_err(|e| AppError::Internal(e.into()))?;
@@ -350,8 +351,10 @@ async fn callback(
             format!("{}/", state.config.site_origin)
         };
         let mut resp = Redirect::to(&target).into_response();
-        resp.headers_mut()
-            .insert(header::SET_COOKIE, session_cookie(&session_raw, &state.config)?);
+        resp.headers_mut().insert(
+            header::SET_COOKIE,
+            session_cookie(&session_raw, &state.config)?,
+        );
         Ok(resp)
     }
 }
@@ -375,8 +378,14 @@ async fn exchange(
     let payload = payload.ok_or_else(|| AppError::BadRequest("invalid or expired code".into()))?;
     let _: () = redis.del(&key).await?; // single-use
     let v: Value = serde_json::from_str(&payload).map_err(|e| AppError::Internal(e.into()))?;
-    let session = v.get("session").and_then(|s| s.as_str()).unwrap_or_default();
-    let pending_2fa = v.get("pending_2fa").and_then(|b| b.as_bool()).unwrap_or(false);
+    let session = v
+        .get("session")
+        .and_then(|s| s.as_str())
+        .unwrap_or_default();
+    let pending_2fa = v
+        .get("pending_2fa")
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
     if session.is_empty() {
         return Err(AppError::BadRequest("invalid code".into()));
     }
@@ -411,7 +420,10 @@ async fn fetch_profile(
     match def.name {
         "google" => {
             // email_verified may be bool or "true"/"false" string depending on flow.
-            let verified = j.get("email_verified").and_then(|v| v.as_bool()).unwrap_or(false)
+            let verified = j
+                .get("email_verified")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
                 || j.get("email_verified").and_then(|v| v.as_str()) == Some("true");
             Ok(Profile {
                 provider_id: j
@@ -457,7 +469,10 @@ async fn fetch_profile(
                 .and_then(|v| v.as_str())
                 .or_else(|| j.get("login").and_then(|v| v.as_str()))
                 .map(String::from);
-            let avatar = j.get("avatar_url").and_then(|v| v.as_str()).map(String::from);
+            let avatar = j
+                .get("avatar_url")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             // GitHub's /user.email is null when private — fetch the verified primary.
             let email = github_primary_email(client, access_token).await;
             Ok(Profile {
@@ -488,9 +503,7 @@ async fn github_primary_email(client: &reqwest::Client, access_token: &str) -> O
     let verified = |e: &&Value| e.get("verified").and_then(|v| v.as_bool()).unwrap_or(false);
     emails
         .iter()
-        .find(|e| {
-            e.get("primary").and_then(|v| v.as_bool()).unwrap_or(false) && verified(e)
-        })
+        .find(|e| e.get("primary").and_then(|v| v.as_bool()).unwrap_or(false) && verified(e))
         .or_else(|| emails.iter().find(verified))
         .and_then(|e| e.get("email").and_then(|v| v.as_str()).map(String::from))
 }

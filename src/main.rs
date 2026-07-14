@@ -29,7 +29,7 @@ mod search;
 mod state;
 mod transcode;
 
-use state::AppState;
+use state::{AppState, NotificationHub};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -81,11 +81,10 @@ async fn main() -> Result<()> {
         tracing::info!("meilisearch index ready");
     }
 
-    // Broadcast channel for live notifications (SSE). Capacity 512 is
-    // enough to absorb a burst while subscribers catch up — slow
-    // consumers will get Lagged errors and the SSE handler will drop
-    // them, which is fine.
-    let (notif_tx, _) = tokio::sync::broadcast::channel(512);
+    // Targeted per-user SSE channels plus a separate public-post channel.
+    // This avoids sending every private event through every connection.
+    let notif_hub = NotificationHub::new(512);
+    let (notification_delivery_tx, notification_delivery_rx) = tokio::sync::mpsc::channel(1024);
 
     // Background cleanup of expired rows + orphan media files (hourly).
     cleanup::spawn(pg_pool.clone(), cfg.media_dir.clone());
@@ -108,10 +107,12 @@ async fn main() -> Result<()> {
         redis: redis_mgr,
         config: cfg.clone(),
         search,
-        notif_tx,
+        notif_hub,
+        notification_delivery_tx,
         webhook_tx,
         transcode_tx,
     };
+    routes::notifications::spawn_delivery_worker(state.clone(), notification_delivery_rx);
 
     // Make sure media dir exists on first boot (idempotent).
     let _ = tokio::fs::create_dir_all(&cfg.media_dir).await;
@@ -146,6 +147,7 @@ async fn main() -> Result<()> {
         // Small default body cap for JSON/non-media routes; /api/v1/media
         // overrides this with its own image/video upload limit.
         .layer(axum::extract::DefaultBodyLimit::max(6 * 1024 * 1024))
+        .layer(axum::middleware::from_fn(middleware::timeout::layer))
         // Order on the request: audit (outer, sees user_id) → session
         // (loads CurrentUser) → csrf (rejects cookied cross-origin
         // state-changes) → trace → compression → handler.

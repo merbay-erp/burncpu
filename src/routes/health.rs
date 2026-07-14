@@ -5,7 +5,7 @@ use crate::{errors::AppError, state::AppState};
 use axum::{
     Json,
     extract::State,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde_json::{Value, json};
@@ -32,15 +32,12 @@ pub async fn handler(State(state): State<AppState>) -> Result<Response, AppError
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };
-    let body: Value = json!({
-        "ok": ok,
-        "service": "burncpu",
-        "version": env!("CARGO_PKG_VERSION"),
-        "checks": {
-            "postgres": pg_ok,
-            "redis": redis_ok,
-        },
-        "ts": chrono::Utc::now().to_rfc3339(),
-    });
-    Ok((status, Json(body)).into_response())
+    // Keep the public probe minimal: dependency names and package versions are
+    // useful internally but unnecessary reconnaissance data on the internet.
+    let body: Value = json!({ "ok": ok, "service": "burncpu" });
+    let mut response = (status, Json(body)).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }

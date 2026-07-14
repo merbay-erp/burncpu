@@ -66,22 +66,22 @@ pub async fn layer(State(state): State<AppState>, req: Request<Body>, next: Next
         let method_str = method.to_string();
         tokio::spawn(async move {
             let _ = sqlx::query(
-            r#"
+                r#"
             INSERT INTO audit_log
                 (id, method, path, status, latency_ms, ip, user_agent, user_id, ts)
             VALUES ($1, $2, $3, $4, $5, $6::inet, $7, $8, NOW())
             "#,
-        )
-        .bind(request_id)
-        .bind(&method_str)
-        .bind(&path_clone)
-        .bind(status.as_u16() as i32)
-        .bind(latency_ms)
-        .bind(if ip.is_empty() { None } else { Some(ip) })
-        .bind(&ua)
-        .bind(user_id)
-        .execute(&pg)
-        .await;
+            )
+            .bind(request_id)
+            .bind(&method_str)
+            .bind(&path_clone)
+            .bind(status.as_u16() as i32)
+            .bind(latency_ms)
+            .bind(if ip.is_empty() { None } else { Some(ip) })
+            .bind(&ua)
+            .bind(user_id)
+            .execute(&pg)
+            .await;
         });
     }
 
@@ -130,7 +130,14 @@ fn audit_worthy(method: &axum::http::Method, status: StatusCode, path: &str) -> 
         return true;
     }
     const SENSITIVE: &[&str] = &[
-        "/admin", "/auth", "/oauth", "/2fa", "/passkeys", "/tokens", "/sessions", "/webhooks",
+        "/admin",
+        "/auth",
+        "/oauth",
+        "/2fa",
+        "/passkeys",
+        "/tokens",
+        "/sessions",
+        "/webhooks",
     ];
     SENSITIVE.iter().any(|p| path.contains(p))
 }
@@ -148,11 +155,23 @@ mod tests {
         assert!(!audit_worthy(&Method::GET, ok, "/api/v1/feed"));
         assert!(!audit_worthy(&Method::GET, ok, "/healthz"));
         // Mutations, failures, and security-relevant GETs are kept.
-        assert!(audit_worthy(&Method::POST, StatusCode::CREATED, "/api/v1/posts"));
+        assert!(audit_worthy(
+            &Method::POST,
+            StatusCode::CREATED,
+            "/api/v1/posts"
+        ));
         assert!(audit_worthy(&Method::DELETE, ok, "/api/v1/posts/x"));
-        assert!(audit_worthy(&Method::GET, StatusCode::UNAUTHORIZED, "/api/v1/feed"));
+        assert!(audit_worthy(
+            &Method::GET,
+            StatusCode::UNAUTHORIZED,
+            "/api/v1/feed"
+        ));
         assert!(audit_worthy(&Method::GET, ok, "/api/v1/admin/reports"));
-        assert!(audit_worthy(&Method::GET, ok, "/api/v1/auth/verify/[redacted]"));
+        assert!(audit_worthy(
+            &Method::GET,
+            ok,
+            "/api/v1/auth/verify/[redacted]"
+        ));
     }
 
     #[test]

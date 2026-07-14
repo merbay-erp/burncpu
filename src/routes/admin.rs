@@ -61,7 +61,9 @@ pub fn router() -> Router<AppState> {
         .route("/federation/blocks/{host}", delete(fed_unblock))
         .route(
             "/federation/relays",
-            get(fed_relays).post(fed_relay_subscribe).delete(fed_relay_unsubscribe),
+            get(fed_relays)
+                .post(fed_relay_subscribe)
+                .delete(fed_relay_unsubscribe),
         )
         .route(
             "/federation/remote_posts",
@@ -120,11 +122,16 @@ pub struct BlockBody {
 }
 
 fn normalize_host(raw: &str) -> Option<String> {
-    let h = raw.trim().trim_start_matches("https://").trim_start_matches("http://");
+    let h = raw
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
     let h = h.split('/').next().unwrap_or("").to_lowercase();
     if h.is_empty()
         || h.len() > 253
-        || !h.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+        || !h
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
     {
         return None;
     }
@@ -136,8 +143,8 @@ async fn fed_block(
     _admin: AdminUser,
     Json(input): Json<BlockBody>,
 ) -> Result<StatusCode, AppError> {
-    let host = normalize_host(&input.host)
-        .ok_or_else(|| AppError::BadRequest("invalid host".into()))?;
+    let host =
+        normalize_host(&input.host).ok_or_else(|| AppError::BadRequest("invalid host".into()))?;
     // The federation_blocks row (host, reason, created_at) is the audit record.
     sqlx::query(
         "INSERT INTO federation_blocks (host, reason) VALUES ($1, $2)
@@ -199,7 +206,9 @@ async fn fed_relay_subscribe(
 ) -> Result<StatusCode, AppError> {
     let uri = input.actor_uri.trim();
     if !uri.starts_with("https://") {
-        return Err(AppError::BadRequest("relay actor must be an https URL".into()));
+        return Err(AppError::BadRequest(
+            "relay actor must be an https URL".into(),
+        ));
     }
     crate::federation::subscribe_relay(&state, uri)
         .await

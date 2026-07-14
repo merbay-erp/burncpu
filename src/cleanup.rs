@@ -285,7 +285,10 @@ mod tests {
 
         sweep_cover_cache(base.to_str().unwrap()).await;
 
-        assert!(!stale.exists(), "a cover older than the window must be evicted");
+        assert!(
+            !stale.exists(),
+            "a cover older than the window must be evicted"
+        );
         assert!(fresh.exists(), "a fresh cover must be kept");
 
         std::fs::remove_dir_all(&base).ok();

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "vitest run",
     "preview": "vite preview --port 4173"
   },
   "dependencies": {
@@ -17,10 +18,12 @@
     "@tailwindcss/forms": "^0.5.11",
     "@types/qrcode": "^1.5.6",
     "autoprefixer": "^10.5.0",
+    "jsdom": "^27.0.1",
     "postcss": "^8.5.14",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.7.3",
-    "vite": "^6.0.7",
-    "vite-plugin-solid": "^2.11.1"
+    "vite": "^6.4.3",
+    "vite-plugin-solid": "^2.11.1",
+    "vitest": "^3.2.4"
   }
 }

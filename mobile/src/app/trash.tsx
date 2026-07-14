@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { api, type TrashedPost } from '@/api';
 import { useMe } from '@/auth';
-import { fonts, radius, useTheme, type Palette } from '@/theme';
+import { fonts, useTheme, type Palette } from '@/theme';
 import { relTime } from '@/util';
 import { t, useLocale } from '@/i18n';
 

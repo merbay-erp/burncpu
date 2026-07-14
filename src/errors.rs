@@ -44,14 +44,14 @@ impl IntoResponse for AppError {
         // logged server-side instead.
         let (status, code, message) = match &self {
             AppError::NotFound => (StatusCode::NOT_FOUND, "not_found", self.to_string()),
-            AppError::Unauthorized => {
-                (StatusCode::UNAUTHORIZED, "unauthorized", self.to_string())
-            }
+            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized", self.to_string()),
             AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden", self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request", self.to_string()),
-            AppError::RateLimited => {
-                (StatusCode::TOO_MANY_REQUESTS, "rate_limited", self.to_string())
-            }
+            AppError::RateLimited => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited",
+                self.to_string(),
+            ),
             AppError::Database(_) | AppError::Redis(_) | AppError::Internal(_) => {
                 tracing::error!(error = ?self, "internal error");
                 (

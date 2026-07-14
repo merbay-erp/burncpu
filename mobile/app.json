@@ -79,7 +79,8 @@
           "enableBackgroundPlayback": false
         }
       ],
-      "expo-video"
+      "expo-video",
+      "expo-image"
     ],
     "experiments": {
       "typedRoutes": true,

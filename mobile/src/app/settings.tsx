@@ -11,6 +11,53 @@ import { fonts, radius, useTheme, type Palette, type Scheme } from '@/theme';
 import { shareText } from '@/util';
 import { t, useLocale, setLocale, type Locale } from '@/i18n';
 
+function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: { v: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  const { colors } = useTheme();
+  const s = styles(colors);
+  return (
+    <View style={s.segmented}>
+      {options.map((o) => (
+        <Pressable key={o.v} style={[s.seg, value === o.v && s.segActive]} onPress={() => onChange(o.v)}>
+          <Text style={[s.segText, value === o.v && s.segTextActive]}>{o.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function NavRow({
+  icon,
+  label,
+  value,
+  onPress,
+  danger,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value?: string;
+  onPress: () => void;
+  danger?: boolean;
+}) {
+  const { colors } = useTheme();
+  const s = styles(colors);
+  return (
+    <Pressable style={({ pressed }) => [s.navRow, pressed && { backgroundColor: colors.surfaceLow }]} onPress={onPress}>
+      <Ionicons name={icon} size={19} color={danger ? colors.error : colors.onSurfaceVariant} />
+      <Text style={[s.navLabel, danger && { color: colors.error }]}>{label}</Text>
+      {value ? <Text style={s.navValue}>{value}</Text> : null}
+      <Ionicons name="chevron-forward" size={18} color={colors.fg3} />
+    </Pressable>
+  );
+}
+
 export default function Settings() {
   const { colors, scheme, setScheme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -98,33 +145,6 @@ export default function Settings() {
       setDelBusy(false);
     }
   };
-
-  const Segmented = <T extends string>({
-    value,
-    options,
-    onChange,
-  }: {
-    value: T;
-    options: { v: T; label: string }[];
-    onChange: (v: T) => void;
-  }) => (
-    <View style={s.segmented}>
-      {options.map((o) => (
-        <Pressable key={o.v} style={[s.seg, value === o.v && s.segActive]} onPress={() => onChange(o.v)}>
-          <Text style={[s.segText, value === o.v && s.segTextActive]}>{o.label}</Text>
-        </Pressable>
-      ))}
-    </View>
-  );
-
-  const NavRow = ({ icon, label, value, onPress, danger }: { icon: keyof typeof Ionicons.glyphMap; label: string; value?: string; onPress: () => void; danger?: boolean }) => (
-    <Pressable style={({ pressed }) => [s.navRow, pressed && { backgroundColor: colors.surfaceLow }]} onPress={onPress}>
-      <Ionicons name={icon} size={19} color={danger ? colors.error : colors.onSurfaceVariant} />
-      <Text style={[s.navLabel, danger && { color: colors.error }]}>{label}</Text>
-      {value ? <Text style={s.navValue}>{value}</Text> : null}
-      <Ionicons name="chevron-forward" size={18} color={colors.fg3} />
-    </Pressable>
-  );
 
   return (
     <View style={s.screen}>

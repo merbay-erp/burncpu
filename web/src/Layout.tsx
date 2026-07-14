@@ -46,6 +46,7 @@ function SideLink(props: {
   return (
     <A
       href={props.href}
+      aria-current={props.active ? 'page' : undefined}
       class={
         'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 ' +
         (props.active
@@ -54,6 +55,7 @@ function SideLink(props: {
       }
     >
       <span
+        aria-hidden="true"
         class="material-symbols-outlined text-[21px] shrink-0 transition-transform duration-200 group-hover:scale-110"
         style={props.active ? "font-variation-settings: 'FILL' 1;" : ''}
       >
@@ -69,10 +71,16 @@ function SideLink(props: {
   );
 }
 
-function BottomLink(props: { href: string; icon: string; active: boolean }) {
+function BottomLink(props: { href: string; icon: string; label: string; active: boolean }) {
   return (
-    <A href={props.href} class={`p-2 ${props.active ? 'text-primary' : 'text-on-surface-variant'}`}>
+    <A
+      href={props.href}
+      aria-label={props.label}
+      aria-current={props.active ? 'page' : undefined}
+      class={`p-2 ${props.active ? 'text-primary' : 'text-on-surface-variant'}`}
+    >
       <span
+        aria-hidden="true"
         class="material-symbols-outlined"
         style={props.active ? "font-variation-settings: 'FILL' 1;" : ''}
       >
@@ -156,6 +164,13 @@ export default function Layout(props: { children?: JSX.Element }) {
         window.dispatchEvent(new CustomEvent('burncpu:notification', { detail: ev }));
       } catch { /* ignore */ }
     });
+    src.addEventListener('resync', () => {
+      // A slow client fell behind a bounded server queue. Persistent data is in
+      // Postgres, so refresh counters and let active pages recover explicitly.
+      refetchUnread();
+      refetchDmUnread();
+      window.dispatchEvent(new CustomEvent('burncpu:resync'));
+    });
     // The browser auto-retries transient drops, but once the stream enters
     // CLOSED (server ended it / non-retryable status) it stays dead — and all
     // real-time toasts + DM/notification refetch silently stop. Reconnect with
@@ -212,7 +227,7 @@ export default function Layout(props: { children?: JSX.Element }) {
               aria-label={t('cmd.open')}
               class="relative w-full flex items-center gap-2.5 bg-surface-container/70 border border-outline-variant/70 pl-3.5 pr-2 py-2 rounded-full text-on-surface-variant/70 hover:border-primary/50 hover:bg-surface-container hover:text-on-surface transition-all"
             >
-              <span class="material-symbols-outlined shrink-0" style="font-size: 19px;">search</span>
+              <span aria-hidden="true" class="material-symbols-outlined shrink-0" style="font-size: 19px;">search</span>
               <span class="flex-1 text-left font-mono text-[13.5px] truncate">{t('nav.search_placeholder')}</span>
               <kbd class="hidden lg:inline-flex items-center shrink-0 px-1.5 h-5 rounded border border-outline-variant bg-surface-container-high font-mono text-[10px] leading-none">⌘K</kbd>
             </button>
@@ -221,26 +236,29 @@ export default function Layout(props: { children?: JSX.Element }) {
           <div class="flex items-center gap-2">
             <button
               onClick={toggleTheme}
+              aria-label={theme() === 'dark' ? t('theme.light') : t('theme.dark')}
               class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
               title={theme() === 'dark' ? t('theme.light') : t('theme.dark')}
             >
-              <span class="material-symbols-outlined">{theme() === 'dark' ? 'light_mode' : 'dark_mode'}</span>
+              <span aria-hidden="true" class="material-symbols-outlined">{theme() === 'dark' ? 'light_mode' : 'dark_mode'}</span>
             </button>
             <Show when={me()}>
               <button
                 onClick={() => setComposeOpen(true)}
+                aria-label={t('nav.new_post')}
                 class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
                 title={t('nav.new_post')}
               >
-                <span class="material-symbols-outlined">add_box</span>
+                <span aria-hidden="true" class="material-symbols-outlined">add_box</span>
               </button>
             </Show>
             <A
               href="/notifications"
+              aria-label={t('nav.notifications')}
               class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors relative"
               title="Bildirimler"
             >
-              <span class="material-symbols-outlined">notifications</span>
+              <span aria-hidden="true" class="material-symbols-outlined">notifications</span>
               <Show when={(unread() ?? 0) > 0}>
                 <span class="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full"></span>
               </Show>
@@ -248,8 +266,8 @@ export default function Layout(props: { children?: JSX.Element }) {
             <Show
               when={me()}
               fallback={
-                <A href="/login" class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors">
-                  <span class="material-symbols-outlined">login</span>
+                <A href="/login" aria-label={t('nav.login')} class="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors">
+                  <span aria-hidden="true" class="material-symbols-outlined">login</span>
                 </A>
               }
             >
@@ -312,10 +330,11 @@ export default function Layout(props: { children?: JSX.Element }) {
                     </A>
                     <button
                       onClick={() => logout()}
+                      aria-label={t('nav.logout')}
                       title={t('nav.logout')}
                       class="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors shrink-0"
                     >
-                      <span class="material-symbols-outlined" style="font-size:18px;">logout</span>
+                      <span aria-hidden="true" class="material-symbols-outlined" style="font-size:18px;">logout</span>
                     </button>
                   </div>
                 </div>
@@ -343,20 +362,20 @@ export default function Layout(props: { children?: JSX.Element }) {
       {/* Mobile bottom nav */}
       <footer class="lg:hidden fixed bottom-0 inset-x-0 bg-background/90 backdrop-blur-md border-t border-outline-variant z-50">
         <div class="flex justify-around items-center h-16">
-          <BottomLink href="/"              icon="home"          active={loc.pathname === '/' || loc.pathname === '/feed'} />
-          <BottomLink href="/videos"        icon="movie"         active={is('/videos')} />
+          <BottomLink href="/"              icon="home"          label={t('nav.timeline')}      active={loc.pathname === '/' || loc.pathname === '/feed'} />
+          <BottomLink href="/videos"        icon="movie"         label={t('nav.videos')}        active={is('/videos')} />
           <button onClick={openPalette} aria-label={t('cmd.open')} class="p-2 text-on-surface-variant">
-            <span class="material-symbols-outlined">search</span>
+            <span aria-hidden="true" class="material-symbols-outlined">search</span>
           </button>
-          <BottomLink href="/notifications" icon="notifications" active={is('/notifications')} />
+          <BottomLink href="/notifications" icon="notifications" label={t('nav.notifications')} active={is('/notifications')} />
           <Show when={me()}>
-            <BottomLink href="/dm" icon="mail" active={is('/dm')} />
+            <BottomLink href="/dm" icon="mail" label={t('nav.dm')} active={is('/dm')} />
           </Show>
-          <Show when={me()} fallback={<BottomLink href="/login" icon="login" active={is('/login')} />}>
-            {(u) => <BottomLink href={`/u/${u().username}`} icon="person" active={is(`/u/${u().username}`)} />}
+          <Show when={me()} fallback={<BottomLink href="/login" icon="login" label={t('nav.login')} active={is('/login')} />}>
+            {(u) => <BottomLink href={`/u/${u().username}`} icon="person" label={t('nav.profile')} active={is(`/u/${u().username}`)} />}
           </Show>
           <Show when={me()}>
-            <BottomLink href="/settings" icon="settings" active={is('/settings')} />
+            <BottomLink href="/settings" icon="settings" label={t('nav.settings')} active={is('/settings')} />
           </Show>
         </div>
       </footer>
@@ -371,7 +390,7 @@ export default function Layout(props: { children?: JSX.Element }) {
         >
           <Logo size={28} class="transition-transform duration-300 group-hover:scale-110 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]" />
           <span class="absolute -bottom-0.5 -right-0.5 w-[19px] h-[19px] rounded-full bg-background text-primary flex items-center justify-center border border-primary/30 shadow">
-            <span class="material-symbols-outlined" style="font-size: 12px;">edit</span>
+            <span aria-hidden="true" class="material-symbols-outlined" style="font-size: 12px;">edit</span>
           </span>
           <span class="pointer-events-none absolute right-[120%] px-2.5 py-1 rounded-lg bg-surface-container-high text-on-surface text-[12px] font-mono whitespace-nowrap border border-outline-variant opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all">
             {t('nav.post_signal')}
@@ -392,10 +411,10 @@ export default function Layout(props: { children?: JSX.Element }) {
               </h3>
               <button
                 onClick={() => setComposeOpen(false)}
-                aria-label="close"
+                aria-label="Kapat"
                 class="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
               >
-                <span class="material-symbols-outlined">close</span>
+                <span aria-hidden="true" class="material-symbols-outlined">close</span>
               </button>
             </div>
             <Compose autofocus onPosted={onComposed} onPending={() => setComposeOpen(false)} />

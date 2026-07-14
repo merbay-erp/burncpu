@@ -611,15 +611,17 @@ async fn create_post(
     // this out to every connected client except the author (who already sees
     // their own post prepended optimistically).
     if post.visibility == "public" && input.reply_to_id.is_none() {
-        let _ = state.notif_tx.send(crate::state::NotificationEvent {
-            user_id: post.author.id,
-            kind: "new_post".into(),
-            actor_id: Some(post.author.id),
-            actor_username: Some(post.author.username.clone()),
-            target_kind: "post".into(),
-            target_id: post.id,
-            created_at: post.created_at.to_rfc3339(),
-        });
+        state
+            .notif_hub
+            .send_public(crate::state::NotificationEvent {
+                user_id: post.author.id,
+                kind: "new_post".into(),
+                actor_id: Some(post.author.id),
+                actor_username: Some(post.author.username.clone()),
+                target_kind: "post".into(),
+                target_id: post.id,
+                created_at: post.created_at.to_rfc3339(),
+            });
     }
 
     tracing::info!(user_id = %user.user_id, post_id = %id, "post created");

@@ -35,12 +35,10 @@ pub fn router() -> Router<AppState> {
 }
 
 pub fn hashtags_router() -> Router<AppState> {
-    Router::new()
-        .route("/{tag}", get(by_hashtag))
-        .route(
-            "/{tag}/follow",
-            get(follow_state).post(follow_tag).delete(unfollow_tag),
-        )
+    Router::new().route("/{tag}", get(by_hashtag)).route(
+        "/{tag}/follow",
+        get(follow_state).post(follow_tag).delete(unfollow_tag),
+    )
 }
 
 // ─── Hashtag follow ─────────────────────────────────────────────
@@ -52,10 +50,7 @@ pub fn hashtags_router() -> Router<AppState> {
 
 fn normalize_tag(raw: &str) -> Result<String, AppError> {
     let t = raw.trim_start_matches('#').to_lowercase();
-    if t.len() < 2
-        || t.len() > 32
-        || !t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-    {
+    if t.len() < 2 || t.len() > 32 || !t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return Err(AppError::BadRequest("invalid hashtag".into()));
     }
     Ok(t)
@@ -67,11 +62,13 @@ async fn follow_tag(
     Path(tag): Path<String>,
 ) -> Result<StatusCode, AppError> {
     let tag = normalize_tag(&tag)?;
-    sqlx::query("INSERT INTO hashtag_follows (user_id, tag) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-        .bind(user.user_id)
-        .bind(&tag)
-        .execute(&state.pg)
-        .await?;
+    sqlx::query(
+        "INSERT INTO hashtag_follows (user_id, tag) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(user.user_id)
+    .bind(&tag)
+    .execute(&state.pg)
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -101,13 +98,15 @@ async fn follow_state(
 ) -> Result<Json<FollowState>, AppError> {
     let tag = normalize_tag(&tag)?;
     let following = match user {
-        Some(u) => sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM hashtag_follows WHERE user_id = $1 AND tag = $2)",
-        )
-        .bind(u.user_id)
-        .bind(&tag)
-        .fetch_one(&state.pg)
-        .await?,
+        Some(u) => {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM hashtag_follows WHERE user_id = $1 AND tag = $2)",
+            )
+            .bind(u.user_id)
+            .bind(&tag)
+            .fetch_one(&state.pg)
+            .await?
+        }
         None => false,
     };
     Ok(Json(FollowState { following }))
@@ -213,34 +212,63 @@ async fn reindex(
     State(state): State<AppState>,
     _a: AdminUser,
 ) -> Result<Json<ReindexResult>, AppError> {
-    // Pull all live + public posts; cap at 50k to avoid OOM. Above that
-    // volume we'd want a paged background job — not yet needed.
-    let rows: Vec<ReindexRow> = sqlx::query_as(
-        r#"
-        SELECT p.id, p.author_id, u.username, p.body, p.created_at,
-               p.reactions_count, p.replies_count
-        FROM posts p JOIN users u ON u.id = p.author_id
-        WHERE p.deleted_at IS NULL
-          AND p.moderation_state = 'live'
-          AND p.visibility = 'public'
-          AND u.role <> 'suspended'
-        ORDER BY p.created_at DESC
-        LIMIT 50000
-        "#,
-    )
-    .fetch_all(&state.pg)
-    .await?;
+    const BATCH: i64 = 1_000;
+    let mut cursor: Option<(DateTime<Utc>, Uuid)> = None;
+    let mut indexed = 0usize;
 
-    let docs: Vec<PostDoc> = rows
-        .into_iter()
-        .map(|(id, author_id, username, body, created, rc, repc)| {
-            PostDoc::from_parts(
-                id, author_id, &username, &body, "public", "live", rc, repc, created,
-            )
-        })
-        .collect();
+    loop {
+        let before_created = cursor.as_ref().map(|(created, _)| created.to_owned());
+        let before_id = cursor.as_ref().map(|(_, id)| *id);
+        let rows: Vec<ReindexRow> = sqlx::query_as(
+            r#"
+            SELECT p.id, p.author_id, u.username, p.body, p.created_at,
+                   p.reactions_count, p.replies_count
+            FROM posts p JOIN users u ON u.id = p.author_id
+            WHERE p.deleted_at IS NULL
+              AND p.moderation_state = 'live'
+              AND p.visibility = 'public'
+              AND u.role <> 'suspended'
+              AND (
+                  $1::timestamptz IS NULL
+                  OR (p.created_at, p.id) < ($1::timestamptz, $2::uuid)
+              )
+            ORDER BY p.created_at DESC, p.id DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(before_created)
+        .bind(before_id)
+        .bind(BATCH)
+        .fetch_all(&state.pg)
+        .await?;
 
-    let n = state.search.index_many(&docs).await;
-    tracing::info!(indexed = n, "reindex complete");
-    Ok(Json(ReindexResult { indexed: n }))
+        if rows.is_empty() {
+            break;
+        }
+        let batch_len = rows.len();
+        cursor = rows.last().map(|row| (row.4.to_owned(), row.0));
+        let docs: Vec<PostDoc> = rows
+            .into_iter()
+            .map(|(id, author_id, username, body, created, rc, repc)| {
+                PostDoc::from_parts(
+                    id, author_id, &username, &body, "public", "live", rc, repc, created,
+                )
+            })
+            .collect();
+        let accepted = state.search.index_many(&docs).await;
+        if accepted != batch_len {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "meilisearch rejected reindex batch"
+            )));
+        }
+        indexed += accepted;
+        tracing::info!(indexed, batch = accepted, "reindex batch accepted");
+
+        if batch_len < BATCH as usize {
+            break;
+        }
+    }
+
+    tracing::info!(indexed, "reindex complete");
+    Ok(Json(ReindexResult { indexed }))
 }

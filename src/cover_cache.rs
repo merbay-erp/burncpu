@@ -37,7 +37,12 @@ pub async fn optimize(state: &AppState, image_url: &str) -> Option<String> {
     // file and we can short-circuit before any network call once it's cached.
     let mut h = Sha256::new();
     h.update(image_url.as_bytes());
-    let hex: String = h.finalize().iter().take(16).map(|b| format!("{b:02x}")).collect();
+    let hex: String = h
+        .finalize()
+        .iter()
+        .take(16)
+        .map(|b| format!("{b:02x}"))
+        .collect();
     let filename = format!("{hex}.jpg");
     let dir = std::path::PathBuf::from(&state.config.media_dir).join("c");
     let final_path = dir.join(&filename);
@@ -55,13 +60,18 @@ pub async fn optimize(state: &AppState, image_url: &str) -> Option<String> {
     // Fetch through the SSRF-guarded client (scheme allowlist, private-IP block,
     // IP pinning). Redirects are disabled there; a redirecting cover just falls
     // back to the original URL, which is fine.
-    let (client, url) = net_safety::safe_client_for(image_url, UA, FETCH_TIMEOUT).await.ok()?;
+    let (client, url) = net_safety::safe_client_for(image_url, UA, FETCH_TIMEOUT)
+        .await
+        .ok()?;
     let resp = client.get(url).send().await.ok()?;
     if !resp.status().is_success() {
         return None;
     }
     // Only bother with things that claim to be images (cheap early filter).
-    if let Some(ct) = resp.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok())
+    if let Some(ct) = resp
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
         && !ct.to_ascii_lowercase().starts_with("image/")
     {
         return None;
@@ -69,7 +79,9 @@ pub async fn optimize(state: &AppState, image_url: &str) -> Option<String> {
     let raw = read_capped(resp, MAX_BYTES).await?;
 
     // Decode + downscale + re-encode is CPU-bound → keep it off the async workers.
-    let jpeg = tokio::task::spawn_blocking(move || transcode_to_jpeg(&raw)).await.ok()??;
+    let jpeg = tokio::task::spawn_blocking(move || transcode_to_jpeg(&raw))
+        .await
+        .ok()??;
 
     // Atomic write (.tmp + rename). The pid-suffixed tmp name avoids clobbering a
     // concurrent writer for the same cover.
@@ -104,7 +116,9 @@ async fn touch_mtime(path: std::path::PathBuf) {
 /// Decode (bounded), downscale to `CARD_WIDTH`, and re-encode as baseline JPEG.
 /// Pure-CPU; runs inside `spawn_blocking`. Returns `None` on any decode/encode error.
 fn transcode_to_jpeg(raw: &[u8]) -> Option<Vec<u8>> {
-    let mut reader = ImageReader::new(Cursor::new(raw)).with_guessed_format().ok()?;
+    let mut reader = ImageReader::new(Cursor::new(raw))
+        .with_guessed_format()
+        .ok()?;
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_SRC_DIMENSION);
     limits.max_image_height = Some(MAX_SRC_DIMENSION);
@@ -116,7 +130,11 @@ fn transcode_to_jpeg(raw: &[u8]) -> Option<Vec<u8>> {
     // Fit inside CARD_WIDTH×CARD_WIDTH, preserving aspect — the resize itself is
     // the biggest byte saving (a 1200px cover carries ~2× the pixels we display).
     let img = if img.width() > CARD_WIDTH || img.height() > CARD_WIDTH {
-        img.resize(CARD_WIDTH, CARD_WIDTH, image::imageops::FilterType::Triangle)
+        img.resize(
+            CARD_WIDTH,
+            CARD_WIDTH,
+            image::imageops::FilterType::Triangle,
+        )
     } else {
         img
     };
@@ -126,7 +144,8 @@ fn transcode_to_jpeg(raw: &[u8]) -> Option<Vec<u8>> {
     let mut out: Vec<u8> = Vec::with_capacity(32 * 1024);
     {
         let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY);
-        enc.encode(rgb.as_raw(), w, h, image::ExtendedColorType::Rgb8).ok()?;
+        enc.encode(rgb.as_raw(), w, h, image::ExtendedColorType::Rgb8)
+            .ok()?;
     }
     Some(out)
 }
@@ -166,7 +185,11 @@ mod tests {
         assert_eq!(&out[..2], &[0xFF, 0xD8], "output must be JPEG");
         // Downscaled to the card width, aspect preserved.
         let decoded = image::load_from_memory(&out).unwrap();
-        assert!(decoded.width() <= CARD_WIDTH, "width {} > cap", decoded.width());
+        assert!(
+            decoded.width() <= CARD_WIDTH,
+            "width {} > cap",
+            decoded.width()
+        );
         assert_eq!(decoded.width(), CARD_WIDTH); // 1600→800
     }
 
@@ -193,8 +216,16 @@ mod tests {
 
         touch_mtime(path.clone()).await;
 
-        let age = std::fs::metadata(&path).unwrap().modified().unwrap().elapsed().unwrap();
-        assert!(age < Duration::from_secs(60), "mtime should be ~now, got age {age:?}");
+        let age = std::fs::metadata(&path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .elapsed()
+            .unwrap();
+        assert!(
+            age < Duration::from_secs(60),
+            "mtime should be ~now, got age {age:?}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

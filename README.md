@@ -135,7 +135,7 @@ Detaylar için → **[ARCHITECTURE.md](ARCHITECTURE.md)**
 
 ### Önkoşullar
 
-- Rust (edition 2024 / `rustup` güncel), Node.js 20+
+- Rust (edition 2024 / `rustup` güncel), Node.js 24.3+
 - PostgreSQL 16, Redis 7, Meilisearch v1.10 (lokal veya Docker)
 
 ### Backend
@@ -145,16 +145,17 @@ git clone https://github.com/merbay-erp/burncpu.git
 cd burncpu
 cp .env.example .env
 # Boot için tek zorunlu: DATABASE_URL. Tüm değişkenler → docs/CONFIGURATION.md
+docker compose -f docker-compose.dev.yml up -d --wait
 
 cargo run --release            # migration'lar açılışta otomatik koşar
-curl localhost:3050/healthz    # {"status":"ok",...}
+curl localhost:3050/healthz    # {"ok":true,"service":"burncpu"}
 ```
 
 ### Frontend
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev                    # http://localhost:5173
 # vite dev sunucusu /api isteklerini burncpu.com'a proxy'ler (web/vite.config.ts)
 ```

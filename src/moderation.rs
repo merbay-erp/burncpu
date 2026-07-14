@@ -185,14 +185,18 @@ pub async fn auto_suspend(state: &AppState, user_id: Uuid, reason: &str) {
     if suspended == 0 {
         return; // admin, already suspended, or gone — no-op (and no duplicate log)
     }
-    let _ = sqlx::query("UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL")
-        .bind(user_id)
-        .execute(&state.pg)
-        .await;
-    let _ = sqlx::query("UPDATE api_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL")
-        .bind(user_id)
-        .execute(&state.pg)
-        .await;
+    let _ = sqlx::query(
+        "UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(&state.pg)
+    .await;
+    let _ = sqlx::query(
+        "UPDATE api_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(&state.pg)
+    .await;
     // Pull their posts from search off the request path — only active users'
     // public posts are indexed (mirrors admin sync_user_search's suspend branch).
     let pg = state.pg.clone();
@@ -208,7 +212,16 @@ pub async fn auto_suspend(state: &AppState, user_id: Uuid, reason: &str) {
             search.delete_post(id).await;
         }
     });
-    log_action(state, "user", user_id, "auto_suspend", Actor::Ai, Some(reason), None).await;
+    log_action(
+        state,
+        "user",
+        user_id,
+        "auto_suspend",
+        Actor::Ai,
+        Some(reason),
+        None,
+    )
+    .await;
     tracing::warn!(%user_id, reason, "account auto-suspended (heat threshold)");
 }
 
@@ -270,7 +283,16 @@ pub async fn shadow_ban(state: &AppState, user_id: Uuid, actor: Actor, reason: &
             search.delete_post(id).await;
         }
     });
-    log_action(state, "user", user_id, "shadow_ban", actor, Some(reason), None).await;
+    log_action(
+        state,
+        "user",
+        user_id,
+        "shadow_ban",
+        actor,
+        Some(reason),
+        None,
+    )
+    .await;
     tracing::warn!(%user_id, reason, "account shadow-banned");
 }
 
@@ -310,7 +332,16 @@ pub async fn unshadow_ban(state: &AppState, user_id: Uuid, actor: Actor, reason:
             crate::routes::admin::sync_post_search(pg.clone(), search.clone(), id).await;
         }
     });
-    log_action(state, "user", user_id, "unshadow_ban", actor, Some(reason), None).await;
+    log_action(
+        state,
+        "user",
+        user_id,
+        "unshadow_ban",
+        actor,
+        Some(reason),
+        None,
+    )
+    .await;
     tracing::info!(%user_id, reason, "account shadow-ban lifted");
 }
 

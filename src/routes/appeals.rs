@@ -311,7 +311,11 @@ async fn resolve(
     };
 
     let actor = Actor::Admin(admin.0.user_id);
-    let decision = if grant { "appeal_granted" } else { "appeal_denied" };
+    let decision = if grant {
+        "appeal_granted"
+    } else {
+        "appeal_denied"
+    };
 
     // Account appeal — granting lifts the suspension and re-indexes the account.
     if target_kind == "account" {

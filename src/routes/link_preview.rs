@@ -91,7 +91,9 @@ pub async fn get_preview(
 ) -> Result<Json<PreviewResponse>, AppError> {
     let raw = q.url.trim();
     if raw.is_empty() || raw.len() > 2048 {
-        return Err(AppError::BadRequest("url is required (max 2048 chars)".into()));
+        return Err(AppError::BadRequest(
+            "url is required (max 2048 chars)".into(),
+        ));
     }
     // Reject anything that isn't a public http(s) URL up front — cheap, and keeps
     // junk out of the cache. (Full SSRF validation happens again per fetch hop.)
@@ -328,7 +330,11 @@ async fn resolve_inner(raw: &str) -> anyhow::Result<Option<LinkPreview>> {
         }
 
         // Only parse HTML. Empty content-type → try anyway (some servers omit it).
-        if let Some(ct) = resp.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok()) {
+        if let Some(ct) = resp
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+        {
             let ct = ct.to_ascii_lowercase();
             if !ct.is_empty() && !ct.contains("html") && !ct.contains("xml") {
                 return Ok(None);
@@ -454,8 +460,11 @@ fn parse_metadata(html: &str, final_url: &Url) -> Option<LinkPreview> {
         "twitter:image",
         "twitter:image:src",
     ]);
-    let site_name = pick(&["og:site_name", "application-name"])
-        .or_else(|| final_url.host_str().map(|h| h.trim_start_matches("www.").to_string()));
+    let site_name = pick(&["og:site_name", "application-name"]).or_else(|| {
+        final_url
+            .host_str()
+            .map(|h| h.trim_start_matches("www.").to_string())
+    });
 
     let image = image_raw.and_then(|i| absolutize(final_url, &i));
     let favicon = find_favicon(head, final_url);
@@ -480,7 +489,10 @@ fn find_favicon(head: &str, base: &Url) -> Option<String> {
     let mut icon: Option<String> = None;
     for m in link_tag_re().find_iter(head) {
         let a = attrs_of(m.as_str());
-        let rel = a.get("rel").map(|r| r.to_ascii_lowercase()).unwrap_or_default();
+        let rel = a
+            .get("rel")
+            .map(|r| r.to_ascii_lowercase())
+            .unwrap_or_default();
         let href = match a.get("href") {
             Some(h) if !h.trim().is_empty() => h,
             _ => continue,
@@ -541,7 +553,9 @@ fn decode_entities(s: &str) -> String {
                 "apos" => Some('\''),
                 "nbsp" => Some(' '),
                 _ if ent.starts_with("#x") || ent.starts_with("#X") => {
-                    u32::from_str_radix(&ent[2..], 16).ok().and_then(char::from_u32)
+                    u32::from_str_radix(&ent[2..], 16)
+                        .ok()
+                        .and_then(char::from_u32)
                 }
                 _ if ent.starts_with('#') => ent[1..].parse::<u32>().ok().and_then(char::from_u32),
                 _ => None,
@@ -606,9 +620,15 @@ mod tests {
         let p = parse_metadata(html, &url("https://example.com/post/1")).unwrap();
         assert_eq!(p.title.as_deref(), Some("Real & Proper Title"));
         assert_eq!(p.description.as_deref(), Some("A short description here."));
-        assert_eq!(p.image.as_deref(), Some("https://example.com/img/cover.png"));
+        assert_eq!(
+            p.image.as_deref(),
+            Some("https://example.com/img/cover.png")
+        );
         assert_eq!(p.site_name.as_deref(), Some("Example"));
-        assert_eq!(p.favicon.as_deref(), Some("https://example.com/favicon.ico"));
+        assert_eq!(
+            p.favicon.as_deref(),
+            Some("https://example.com/favicon.ico")
+        );
     }
 
     #[test]

@@ -7,14 +7,20 @@
 
 use axum::{
     Json,
+    body::Body,
     extract::State,
-    http::{StatusCode, header},
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 
 use crate::state::AppState;
 
 const ANDROID_PACKAGE: &str = "com.burncpu.app";
+const SECURITY_TXT: &str = "Contact: mailto:mustafa@mustafaerbay.com.tr\n\
+Expires: 2027-07-14T00:00:00Z\n\
+Canonical: https://burncpu.com/.well-known/security.txt\n\
+Policy: https://github.com/merbay-erp/burncpu/security/policy\n\
+Preferred-Languages: tr, en\n";
 
 /// `GET /.well-known/apple-app-site-association`
 /// → applinks for `/auth/verify/*` + `/invite/*`, plus webcredentials for passkeys.
@@ -62,4 +68,20 @@ pub async fn android_assetlinks(State(state): State<AppState>) -> Response {
         Json(body),
     )
         .into_response()
+}
+
+/// RFC 9116 security contact. Nginx deliberately proxies all `/.well-known`
+/// requests to this service, so this belongs beside the other association
+/// endpoints instead of in the SPA's static public directory.
+pub async fn security_txt() -> Response {
+    let mut response = Response::new(Body::from(SECURITY_TXT));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=3600"),
+    );
+    response
 }

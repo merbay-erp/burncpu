@@ -1,5 +1,0 @@
-Contact: mailto:mustafa@mustafaerbay.com.tr
-Expires: 2027-07-14T00:00:00Z
-Canonical: https://burncpu.com/.well-known/security.txt
-Policy: https://github.com/merbay-erp/burncpu/security/policy
-Preferred-Languages: tr, en

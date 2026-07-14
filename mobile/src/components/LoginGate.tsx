@@ -14,7 +14,12 @@ export default function LoginGate() {
       <Ionicons name="lock-closed-outline" size={42} color={colors.fg3} />
       <Text style={s.title}>{t('login.gate_title')}</Text>
       <Text style={s.body}>{t('login.gate_body')}</Text>
-      <Pressable style={s.btn} onPress={() => router.push('/login')}>
+      <Pressable
+        style={s.btn}
+        onPress={() => router.push('/login')}
+        accessibilityRole="button"
+        accessibilityLabel={t('nav.login')}
+      >
         <Text style={s.btnText}>{t('nav.login')}</Text>
       </Pressable>
     </View>

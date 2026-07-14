@@ -1,0 +1,18 @@
+appId: com.burncpu.app
+tags:
+  - regression
+  - auth
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Global"
+    timeout: 20000
+- tapOn: "Bildirimler"
+- assertVisible: "Bu bölüm için giriş gerekli"
+- tapOn: "Giriş"
+- assertVisible: "E-posta"
+- assertVisible: "Magic-link gönder"
+- tapOn: "Kapat"
+- tapOn: "Profil"
+- assertVisible: "Bu bölüm için giriş gerekli"

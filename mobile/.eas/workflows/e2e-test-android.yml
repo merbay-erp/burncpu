@@ -1,0 +1,26 @@
+name: Android native E2E
+
+on:
+  pull_request:
+    branches: ['main']
+
+jobs:
+  build_android_for_e2e:
+    type: build
+    params:
+      platform: android
+      profile: e2e-test
+
+  maestro_android:
+    needs: [build_android_for_e2e]
+    type: maestro
+    params:
+      build_id: ${{ needs.build_android_for_e2e.outputs.build_id }}
+      flow_path: .maestro
+      shards: 2
+      retries: 1
+      retry_failed_only: true
+      record_screen: true
+      maestro_version: 2.6.1
+      android_system_image_package: system-images;android-36;google_apis;x86_64
+      device_identifier: pixel_6

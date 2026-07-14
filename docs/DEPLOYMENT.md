@@ -164,7 +164,7 @@ the SPA `location /`:
 ```nginx
 # /etc/nginx/snippets/burncpu-headers.conf  — included into location /
 add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
-add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-…'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-…'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
 add_header X-Content-Type-Options "nosniff" always;
 add_header X-Frame-Options "DENY" always;
 add_header Referrer-Policy "no-referrer" always;
@@ -180,6 +180,19 @@ location / {
     include snippets/burncpu-headers.conf;   # <-- restores the security headers
 }
 ```
+
+### Self-hosted web fonts
+
+The web app does not call Google Fonts at runtime. `@fontsource-variable/geist`,
+`@fontsource-variable/geist-mono` and `@fontsource-variable/material-symbols-outlined`
+are pinned in `web/package-lock.json`; Vite bundles their OFL-1.1 WOFF2 files
+under the application origin. `web/vite.config.ts` adds hashed, same-origin
+preload hints for the critical text faces (including Turkish Latin-ext) and Fontsource's CSS keeps
+`font-display: swap`. `npm run verify:font-assets` fails the build if a Google URL,
+external CSS font URL, missing preload asset or non-swap font declaration appears.
+
+The `font-src 'self' data:` CSP is therefore sufficient; no `fonts.googleapis.com`
+or `fonts.gstatic.com` exception is allowed.
 
 > ⚠️ **CSP / inline-script coupling.** `web/index.html` has one **inline**
 > theme-init script (runs before paint to avoid a theme flash). Under CSP it

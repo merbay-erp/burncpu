@@ -8,6 +8,11 @@
 .vscode/
 /dist
 /data
+/web/playwright-report/
+/web/test-results/
+/mobile/dist/
+/mobile/playwright-report/
+/mobile/test-results/
 # Local session scratch + Claude tooling config — not for version control
 HANDOFF.md
 .claude/

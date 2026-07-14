@@ -37,6 +37,11 @@ npm run build    # tsc -b && vite build  →  dist/
 npm run preview  # serve the production build on :4173
 ```
 
+Fontsource's pinned OFL-1.1 Geist, Geist Mono and Material Symbols packages
+are bundled into same-origin WOFF2 assets. The production build injects critical
+font preloads and `npm run verify:font-assets` checks license metadata,
+`font-display: swap`, preload files and absence of Google font URLs.
+
 ## Structure
 
 ```

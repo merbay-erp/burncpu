@@ -5,21 +5,30 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "test": "vitest run",
-    "preview": "vite preview --port 4173"
+    "build": "tsc -b && vite build && npm run verify:font-assets",
+    "test": "vitest run src",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
+    "preview": "vite preview --port 4173",
+    "verify:font-assets": "node scripts/verify-font-assets.mjs",
+    "verify:fonts": "npm run verify:font-assets"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "5.2.9",
+    "@fontsource-variable/geist-mono": "5.2.8",
+    "@fontsource-variable/material-symbols-outlined": "5.2.45",
     "@solidjs/router": "^0.15.3",
     "qrcode": "^1.5.4",
     "solid-js": "^1.9.4"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "@tailwindcss/forms": "^0.5.11",
     "@types/qrcode": "^1.5.6",
     "autoprefixer": "^10.5.0",
     "jsdom": "^27.0.1",
     "postcss": "^8.5.14",
+    "serve": "14.2.6",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.7.3",
     "vite": "^6.4.3",

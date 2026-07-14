@@ -21,6 +21,16 @@
         "simulator": false
       }
     },
+    "e2e-test": {
+      "distribution": "internal",
+      "withoutCredentials": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      }
+    },
     "production": {
       "channel": "production",
       "autoIncrement": true,

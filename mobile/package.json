@@ -41,9 +41,11 @@
     "react-native-worklets": "0.8.3"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "@types/react": "~19.2.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~56.0.4",
+    "serve": "14.2.6",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -52,7 +54,10 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "export:web": "expo export --platform web --output-dir dist",
+    "lint": "expo lint",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium webkit"
   },
   "overrides": {
     "uuid": "11.1.1"

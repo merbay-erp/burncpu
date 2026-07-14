@@ -113,7 +113,13 @@ export default function Login() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={s.screen}
     >
-      <Pressable style={s.close} onPress={() => router.back()} hitSlop={10}>
+      <Pressable
+        style={s.close}
+        onPress={() => router.back()}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel={t('common.close')}
+      >
         <Ionicons name="close" size={24} color={colors.onSurfaceVariant} />
       </Pressable>
 
@@ -156,6 +162,8 @@ export default function Login() {
               style={[s.submit, (!email.trim() || busy) && { opacity: 0.4 }]}
               onPress={submit}
               disabled={!email.trim() || busy}
+              accessibilityRole="button"
+              accessibilityLabel={t('login.submit')}
             >
               <Text style={s.submitText}>{busy ? t('login.sending') : t('login.submit')}</Text>
             </Pressable>

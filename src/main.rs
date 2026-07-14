@@ -141,6 +141,10 @@ async fn main() -> Result<()> {
             "/.well-known/assetlinks.json",
             get(routes::applinks::android_assetlinks),
         )
+        .route(
+            "/.well-known/security.txt",
+            get(routes::applinks::security_txt),
+        )
         .nest("/ap", routes::federation::router())
         .nest("/rss", routes::rss::router())
         .nest("/api/v1", routes::api::router(state.clone()))

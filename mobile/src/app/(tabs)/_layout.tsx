@@ -9,9 +9,11 @@ import { useUnread, startUnreadPolling } from '@/unread';
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
 function tabIcon(active: IoniconName, inactive: IoniconName) {
-  return ({ color, size, focused }: { color: ColorValue; size: number; focused: boolean }) => (
+  const TabIcon = ({ color, size, focused }: { color: ColorValue; size: number; focused: boolean }) => (
     <Ionicons name={focused ? active : inactive} size={size} color={color as string} />
   );
+  TabIcon.displayName = `TabIcon(${active})`;
+  return TabIcon;
 }
 
 export default function TabsLayout() {

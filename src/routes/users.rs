@@ -719,9 +719,16 @@ async fn suggestions(
         FROM users u
         WHERE u.id <> $1
           AND u.role <> 'suspended'
-          -- No hard "must have posted" gate: on a young instance that empties
-          -- the pool. Activity is a *ranking* signal below, not a filter, so
-          -- posters surface first but real lurkers can still be suggested.
+          -- Require either real activity or a completed profile. This keeps a
+          -- young instance populated without recommending empty throwaway
+          -- accounts that have no posts, avatar or meaningful bio.
+          AND (
+              u.posts_count > 0
+              OR (
+                  NULLIF(BTRIM(u.avatar_url), '') IS NOT NULL
+                  AND LENGTH(BTRIM(COALESCE(u.bio, ''))) >= 20
+              )
+          )
           AND NOT EXISTS (
               SELECT 1 FROM follows f
               WHERE f.follower_id = $1 AND f.followee_id = u.id
@@ -1118,5 +1125,7 @@ async fn revoke_other_sessions(
     .execute(&state.pg)
     .await?
     .rows_affected();
-    Ok(Json(RevokedCount { revoked: revoked as i64 }))
+    Ok(Json(RevokedCount {
+        revoked: revoked as i64,
+    }))
 }

@@ -5,7 +5,9 @@ export default defineConfig({
   plugins: [solid()],
   build: {
     target: 'es2022',
-    sourcemap: true,
+    // Do not publish source maps with the public production assets. Add a
+    // private error-reporting upload step before re-enabling them.
+    sourcemap: false,
   },
   server: {
     port: 5173,

@@ -3,7 +3,7 @@
 # Build kullanım: ~600MB (cache layer'a düşer 2. build'de saniyeler)
 
 # ── Stage 1: Build ──────────────────────────────────────────────
-FROM rust:1.93-slim-bookworm AS builder
+FROM rust:1.93-slim-bookworm@sha256:5b9332190bb3b9ece73b810cd1f1e9f06343b294ce184bcb067f0747d7d333ea AS builder
 
 # Native deps for sqlx (offline mode kullanmıyoruz; build-time pg yok)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,7 +35,7 @@ RUN cargo build --release --locked && \
     strip target/release/burncpu
 
 # ── Stage 2: Runtime ────────────────────────────────────────────
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS runtime
 
 # ffmpeg (+ffprobe) powers the background video transcode worker (`transcode`),
 # normalising uploaded clips to H.264/AAC MP4 and extracting poster frames.

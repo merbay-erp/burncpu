@@ -35,7 +35,12 @@ is false.
 | `BURNCPU_ENC_KEY` | for 2FA | — | 32-byte key as **64 hex chars**. Encrypts stored TOTP secrets. Generate: `openssl rand -hex 32`. |
 | `INVITES_REQUIRED` | | `false` | Require an invite code to sign up. |
 | `BOOTSTRAP_ADMIN_EMAIL` | | — | Email auto-promoted to admin on first sign-in. |
-| `ALLOWED_ORIGINS` | | — | Comma-separated extra CORS origins beyond `SITE_ORIGIN`. |
+| `ALLOWED_ORIGINS` | | — | Comma-separated trusted browser origins accepted by the CSRF guard in addition to `SITE_ORIGIN`. This does not enable cross-origin browser API access. |
+
+The public API is intentionally same-origin for browser clients and does not
+emit CORS response headers. Native clients are not subject to browser CORS. If
+third-party browser clients are supported later, add a strict allowlisted CORS
+layer and preflight tests; do not use a wildcard with credentialed requests.
 
 ## Media
 

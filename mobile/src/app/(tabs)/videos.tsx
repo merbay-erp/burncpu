@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -68,11 +68,11 @@ export default function Videos() {
   }, []);
 
   // The first ≥80%-visible page is the active one — only its video plays.
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
-  const onViewRef = useRef((info: { viewableItems: Array<{ item?: PostView }> }) => {
+  const viewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 80 }), []);
+  const onViewableItemsChanged = useCallback((info: { viewableItems: { item?: PostView }[] }) => {
     const first = info.viewableItems[0]?.item?.id;
     if (first) setActiveId(first);
-  });
+  }, []);
 
   return (
     <View style={s.screen} onLayout={(e) => setH(e.nativeEvent.layout.height)}>
@@ -95,7 +95,7 @@ export default function Videos() {
           showsVerticalScrollIndicator={false}
           getItemLayout={(_, index) => ({ length: h, offset: h * index, index })}
           viewabilityConfig={viewabilityConfig}
-          onViewableItemsChanged={onViewRef.current}
+          onViewableItemsChanged={onViewableItemsChanged}
           windowSize={3}
           maxToRenderPerBatch={2}
           initialNumToRender={1}

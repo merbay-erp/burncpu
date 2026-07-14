@@ -99,10 +99,16 @@ mod tests {
     #[test]
     fn trust_boundary() {
         for t in ["127.0.0.1", "::1", "10.1.2.3", "172.18.0.5", "192.168.1.9"] {
-            assert!(is_trusted_proxy(t.parse().unwrap()), "{t} should be trusted");
+            assert!(
+                is_trusted_proxy(t.parse().unwrap()),
+                "{t} should be trusted"
+            );
         }
         for u in ["8.8.8.8", "203.0.113.1", "2606:4700:4700::1111"] {
-            assert!(!is_trusted_proxy(u.parse().unwrap()), "{u} should be untrusted");
+            assert!(
+                !is_trusted_proxy(u.parse().unwrap()),
+                "{u} should be untrusted"
+            );
         }
     }
 }

@@ -9,7 +9,7 @@ import Post from './Post';
 import Sheet from './Sheet';
 import { api, type Author, type Profile, type PostView, type PostBrief, type Timeline } from '@/api';
 import { useMe } from '@/auth';
-import { fonts, radius, useTheme, type Palette } from '@/theme';
+import { fonts, useTheme, type Palette } from '@/theme';
 import { t, useLocale } from '@/i18n';
 
 export default function ProfileView({ username }: { username: string }) {

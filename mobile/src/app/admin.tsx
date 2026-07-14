@@ -80,12 +80,6 @@ export default function Admin() {
     await api.patch(`/admin/users/${u.id}`, { role: next }).catch(() => {});
   };
 
-  const TabBtn = ({ k, label }: { k: Tab; label: string }) => (
-    <Pressable style={[s.tab, tab === k && s.tabActive]} onPress={() => setTab(k)}>
-      <Text style={[s.tabText, tab === k && s.tabTextActive]}>{label}</Text>
-    </Pressable>
-  );
-
   return (
     <View style={s.screen}>
       <View style={[s.header, { paddingTop: insets.top + 8 }]}>
@@ -97,10 +91,16 @@ export default function Admin() {
       </View>
 
       <View style={s.tabs}>
-        <TabBtn k="stats" label={t('admin.stats')} />
-        <TabBtn k="reports" label={t('admin.reports')} />
-        <TabBtn k="federation" label={t('admin.federation')} />
-        <TabBtn k="users" label={t('admin.users')} />
+        {([
+          ['stats', t('admin.stats')],
+          ['reports', t('admin.reports')],
+          ['federation', t('admin.federation')],
+          ['users', t('admin.users')],
+        ] as [Tab, string][]).map(([key, label]) => (
+          <Pressable key={key} style={[s.tab, tab === key && s.tabActive]} onPress={() => setTab(key)}>
+            <Text style={[s.tabText, tab === key && s.tabTextActive]}>{label}</Text>
+          </Pressable>
+        ))}
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 30 }} keyboardShouldPersistTaps="handled">

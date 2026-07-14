@@ -15,6 +15,7 @@ on:
       - 'Cargo.lock'
       - 'Dockerfile'
       - 'migrations/**'
+      - 'static/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
@@ -31,7 +32,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       # All deploy logic lives in /usr/local/bin/deploy-burncpu.sh on the host
       # (root-owned, allowlisted for the runner via sudoers — same least-privilege
@@ -43,5 +44,9 @@ jobs:
 
       - name: Verify deploy
         run: |
-          # Public health endpoint (nginx → app)
-          curl -fsS https://burncpu.com/healthz || echo "::warning::Public health fail (CF cache?)"
+          # Fail closed: a release is not successful until the public path
+          # (Cloudflare → nginx → app → Postgres/Redis) is healthy.
+          curl --fail --show-error --silent \
+            --retry 8 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 5 --max-time 15 \
+            https://burncpu.com/healthz

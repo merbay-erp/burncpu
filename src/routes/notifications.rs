@@ -23,7 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::{convert::Infallible, time::Duration};
-use tokio_stream::wrappers::BroadcastStream;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::{BroadcastStream, ReceiverStream, errors::BroadcastStreamRecvError};
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
@@ -41,35 +42,98 @@ async fn stream(
     State(state): State<AppState>,
     user: CurrentUser,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let rx = state.notif_tx.subscribe();
-    let stream = BroadcastStream::new(rx).filter_map(move |item| {
-        let uid = user.user_id;
+    let uid = user.user_id;
+    let (user_rx, user_sender) = state.notif_hub.subscribe_user(uid);
+    let public_rx = state.notif_hub.subscribe_public();
+
+    let user_events = BroadcastStream::new(user_rx).filter_map(move |item| {
+        // Retain the channel sender for as long as this stream is alive.
+        let keepalive = user_sender.clone();
         async move {
+            let _keepalive = keepalive;
             match item {
-                // Firehose: a new public post fans out to every connected
-                // client except its author (they already see it prepended).
-                Ok(ev) if ev.kind == "new_post" => {
-                    if ev.actor_id == Some(uid) {
-                        None
-                    } else {
-                        Event::default().event("notification").json_data(&ev).ok().map(Ok)
-                    }
-                }
-                Ok(ev) if ev.user_id == uid => Event::default()
+                Ok(ev) => Event::default()
                     .event("notification")
                     .json_data(&ev)
                     .ok()
                     .map(Ok),
-                Ok(_) => None,  // event for a different user
-                Err(_) => None, // lagged — silently drop
+                Err(BroadcastStreamRecvError::Lagged(skipped)) => Some(Ok(Event::default()
+                    .event("resync")
+                    .data(skipped.to_string()))),
             }
         }
     });
+    let public_events = BroadcastStream::new(public_rx).filter_map(move |item| async move {
+        match item {
+            // Authors already see their own post prepended optimistically.
+            Ok(ev) if ev.actor_id == Some(uid) => None,
+            Ok(ev) => Event::default()
+                .event("notification")
+                .json_data(&ev)
+                .ok()
+                .map(Ok),
+            Err(BroadcastStreamRecvError::Lagged(skipped)) => Some(Ok(Event::default()
+                .event("resync")
+                .data(skipped.to_string()))),
+        }
+    });
+    let stream = futures::stream::select(user_events, public_events);
     Sse::new(stream).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text(":ka"),
     )
+}
+
+#[derive(Debug)]
+pub struct NotificationDeliveryJob {
+    user_id: Uuid,
+    kind: String,
+    actor_username: Option<String>,
+    target_kind: String,
+    target_id: Uuid,
+    payload: JsonValue,
+}
+
+/// Run outbound notification delivery behind bounded queue and concurrency.
+/// A burst can consume at most 1,024 queued jobs (configured in main) and 32
+/// active outbound fan-outs instead of spawning one task per notification.
+pub fn spawn_delivery_worker(state: AppState, rx: mpsc::Receiver<NotificationDeliveryJob>) {
+    tokio::spawn(async move {
+        ReceiverStream::new(rx)
+            .for_each_concurrent(32, |job| {
+                let state = state.clone();
+                async move {
+                    let actor = job.actor_username.as_deref();
+                    crate::routes::webhooks::dispatch_event(
+                        &state,
+                        job.user_id,
+                        &job.kind,
+                        &job.payload,
+                    )
+                    .await;
+                    crate::routes::push::send_to_user(
+                        &state,
+                        job.user_id,
+                        &job.kind,
+                        actor,
+                        &job.target_kind,
+                        job.target_id,
+                    )
+                    .await;
+                    crate::routes::push::send_to_device_tokens(
+                        &state,
+                        job.user_id,
+                        &job.kind,
+                        actor,
+                        &job.target_kind,
+                        job.target_id,
+                    )
+                    .await;
+                }
+            })
+            .await;
+    });
 }
 
 // ── GET /notifications ──────────────────────────────────────────
@@ -304,40 +368,30 @@ pub async fn notify(
         "metadata": metadata,
     });
 
-    let actor_username_clone = actor_username.clone();
-    let _ = state.notif_tx.send(crate::state::NotificationEvent {
+    state.notif_hub.send_user(
+        user_id,
+        crate::state::NotificationEvent {
+            user_id,
+            kind: kind.to_string(),
+            actor_id,
+            actor_username: actor_username.clone(),
+            target_kind: target_kind.to_string(),
+            target_id,
+            created_at: sqlx::types::chrono::Utc::now().to_rfc3339(),
+        },
+    );
+
+    let job = NotificationDeliveryJob {
         user_id,
         kind: kind.to_string(),
-        actor_id,
         actor_username,
         target_kind: target_kind.to_string(),
         target_id,
-        created_at: sqlx::types::chrono::Utc::now().to_rfc3339(),
-    });
-
-    // Off the hot path: webhook + push fan-out each does a DB lookup plus
-    // outbound HTTP (Expo, subscriber endpoints, web-push). Awaiting them inline
-    // made every post/reaction/follow/DM block on a 100–500ms round-trip. The SSE
-    // broadcast above already delivered the in-app notification instantly; the
-    // rest is fire-and-forget.
-    let state = state.clone();
-    let kind = kind.to_string();
-    let target_kind = target_kind.to_string();
-    tokio::spawn(async move {
-        let actor = actor_username_clone.as_deref();
-        crate::routes::webhooks::dispatch_event(&state, user_id, &kind, &payload).await;
-        crate::routes::push::send_to_user(&state, user_id, &kind, actor, &target_kind, target_id)
-            .await;
-        crate::routes::push::send_to_device_tokens(
-            &state,
-            user_id,
-            &kind,
-            actor,
-            &target_kind,
-            target_id,
-        )
-        .await;
-    });
+        payload,
+    };
+    if let Err(e) = state.notification_delivery_tx.try_send(job) {
+        tracing::warn!(%e, %user_id, kind, "notification delivery queue full; delivery shed");
+    }
 }
 
 async fn notification_suppressed(state: &AppState, user_id: Uuid, actor_id: Uuid) -> bool {

@@ -175,7 +175,16 @@ async fn confirm(
 ) -> Result<StatusCode, AppError> {
     let (ua, ip) = req_ctx(&headers, &peer);
     if over_limit(&state, &format!("rl:2fa:confirm:{}", user.user_id)).await? {
-        log_attempt(&state, None, "totp", "rate_limited", &ip, &ua, Some(user.user_id)).await;
+        log_attempt(
+            &state,
+            None,
+            "totp",
+            "rate_limited",
+            &ip,
+            &ua,
+            Some(user.user_id),
+        )
+        .await;
         return Err(AppError::RateLimited);
     }
 
@@ -195,7 +204,16 @@ async fn confirm(
     let step = match totp::verify_code(&secret, &nonce, &body.code, last_step) {
         Ok(s) => s,
         Err(_) => {
-            log_attempt(&state, None, "totp", "invalid", &ip, &ua, Some(user.user_id)).await;
+            log_attempt(
+                &state,
+                None,
+                "totp",
+                "invalid",
+                &ip,
+                &ua,
+                Some(user.user_id),
+            )
+            .await;
             return Err(AppError::Unauthorized);
         }
     };
@@ -328,7 +346,16 @@ async fn disable(
 ) -> Result<StatusCode, AppError> {
     let (ua, ip) = req_ctx(&headers, &peer);
     if over_limit(&state, &format!("rl:2fa:disable:{}", user.user_id)).await? {
-        log_attempt(&state, None, "totp", "rate_limited", &ip, &ua, Some(user.user_id)).await;
+        log_attempt(
+            &state,
+            None,
+            "totp",
+            "rate_limited",
+            &ip,
+            &ua,
+            Some(user.user_id),
+        )
+        .await;
         return Err(AppError::RateLimited);
     }
 
@@ -340,7 +367,16 @@ async fn disable(
     .await?;
     let (secret, nonce, last_step) = row.ok_or(AppError::NotFound)?;
     if totp::verify_code(&secret, &nonce, &body.code, last_step).is_err() {
-        log_attempt(&state, None, "totp", "invalid", &ip, &ua, Some(user.user_id)).await;
+        log_attempt(
+            &state,
+            None,
+            "totp",
+            "invalid",
+            &ip,
+            &ua,
+            Some(user.user_id),
+        )
+        .await;
         return Err(AppError::Unauthorized);
     }
     sqlx::query("DELETE FROM user_totp WHERE user_id = $1")

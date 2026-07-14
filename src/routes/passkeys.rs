@@ -133,10 +133,11 @@ async fn register_finish(
 ) -> Result<StatusCode, AppError> {
     let uid = user.user_id;
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = $1")
-        .bind(uid)
-        .fetch_one(&state.pg)
-        .await?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = $1")
+            .bind(uid)
+            .fetch_one(&state.pg)
+            .await?;
     if count >= MAX_PASSKEYS_PER_USER {
         return Err(AppError::BadRequest("passkey limit reached".into()));
     }
@@ -244,25 +245,34 @@ async fn login_finish(
         .filter_map(|(id, v)| serde_json::from_value::<Passkey>(v).ok().map(|pk| (id, pk)))
         .collect();
 
-    let dkeys: Vec<DiscoverableKey> = passkeys.iter().map(|(_, pk)| DiscoverableKey::from(pk)).collect();
+    let dkeys: Vec<DiscoverableKey> = passkeys
+        .iter()
+        .map(|(_, pk)| DiscoverableKey::from(pk))
+        .collect();
     let result = wa
         .finish_discoverable_authentication(&body.credential, auth_state, &dkeys)
         .map_err(wa_err)?;
 
     // Persist a counter bump (replay/clone detection) on the credential used.
-    if let Some((id, pk)) = passkeys.iter_mut().find(|(_, pk)| pk.cred_id() == result.cred_id()) {
+    if let Some((id, pk)) = passkeys
+        .iter_mut()
+        .find(|(_, pk)| pk.cred_id() == result.cred_id())
+    {
         if result.needs_update() && pk.update_credential(&result).is_some() {
             let v = serde_json::to_value(&*pk).map_err(into_internal)?;
-            let _ = sqlx::query("UPDATE webauthn_credentials SET passkey = $1, last_used_at = NOW() WHERE id = $2")
-                .bind(v)
-                .bind(*id)
-                .execute(&state.pg)
-                .await;
+            let _ = sqlx::query(
+                "UPDATE webauthn_credentials SET passkey = $1, last_used_at = NOW() WHERE id = $2",
+            )
+            .bind(v)
+            .bind(*id)
+            .execute(&state.pg)
+            .await;
         } else {
-            let _ = sqlx::query("UPDATE webauthn_credentials SET last_used_at = NOW() WHERE id = $1")
-                .bind(*id)
-                .execute(&state.pg)
-                .await;
+            let _ =
+                sqlx::query("UPDATE webauthn_credentials SET last_used_at = NOW() WHERE id = $1")
+                    .bind(*id)
+                    .execute(&state.pg)
+                    .await;
         }
     }
 

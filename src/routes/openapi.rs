@@ -12,8 +12,7 @@ static SPEC: LazyLock<String> = LazyLock::new(build_spec);
 
 fn build_spec() -> String {
     let raw = include_str!("openapi.json");
-    let mut doc: serde_json::Value =
-        serde_json::from_str(raw).expect("openapi.json is valid JSON");
+    let mut doc: serde_json::Value = serde_json::from_str(raw).expect("openapi.json is valid JSON");
     doc["info"]["version"] = serde_json::Value::String(env!("CARGO_PKG_VERSION").to_string());
     serde_json::to_string(&doc).expect("serialize openapi spec")
 }
@@ -73,10 +72,7 @@ mod tests {
         assert!(!refs.is_empty());
         for r in refs {
             let pointer = r.strip_prefix('#').expect("local ref");
-            assert!(
-                doc.pointer(pointer).is_some(),
-                "broken $ref: {r}"
-            );
+            assert!(doc.pointer(pointer).is_some(), "broken $ref: {r}");
         }
     }
 
@@ -170,10 +166,8 @@ mod tests {
         for (path, item) in doc["paths"].as_object().unwrap() {
             for method in item.as_object().unwrap().keys() {
                 if http.contains(&method.as_str()) {
-                    documented.insert((
-                        method.to_uppercase(),
-                        norm_path(&format!("/api/v1{path}")),
-                    ));
+                    documented
+                        .insert((method.to_uppercase(), norm_path(&format!("/api/v1{path}"))));
                 }
             }
         }

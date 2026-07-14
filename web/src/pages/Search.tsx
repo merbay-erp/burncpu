@@ -1,4 +1,4 @@
-import { createSignal, createResource, For, Show } from 'solid-js';
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from 'solid-js';
 import { A, useSearchParams } from '@solidjs/router';
 import { api, type SearchResponse, type SearchHit } from '../api';
 import { relTime, linkifyTags } from '../util';
@@ -6,17 +6,37 @@ import Avatar from '../components/Avatar';
 import { PostSkeletonList } from '../components/Skeleton';
 import { t } from '../i18n';
 
+export type LoadedSearchResponse = { query: string; response: SearchResponse };
+
+export function currentSearchResponse(
+  activeQuery: string,
+  loaded: LoadedSearchResponse | undefined,
+): SearchResponse | undefined {
+  return loaded?.query === activeQuery ? loaded.response : undefined;
+}
+
 export default function Search() {
   // Read the initial query from the URL so the top-nav search (which routes to
   // /search?q=…) and deep links land on results, not an empty box.
   const [searchParams, setSearchParams] = useSearchParams<{ q?: string }>();
-  const initialQ = (searchParams.q ?? '').trim();
-  const [q, setQ] = createSignal(initialQ);
-  const [trigger, setTrigger] = createSignal(initialQ);
-  const [results] = createResource<SearchResponse, string>(
-    () => trigger() || (null as unknown as string),
-    (qs: string) => api.get<SearchResponse>(`/search?q=${encodeURIComponent(qs)}`),
+  const activeQuery = createMemo(() => (searchParams.q ?? '').trim());
+  const [q, setQ] = createSignal(activeQuery());
+  const [resource] = createResource<LoadedSearchResponse, string>(
+    () => activeQuery() || undefined,
+    async (query: string) => ({
+      query,
+      response: await api.get<SearchResponse>('/search?q=' + encodeURIComponent(query)),
+    }),
   );
+  // Keep the URL as the single source of truth. A second trigger signal could
+  // diverge after route updates and leave a previous response on screen.
+  createEffect(() => {
+    const fromUrl = activeQuery();
+    if (q() !== fromUrl) setQ(fromUrl);
+  });
+  const results = () => {
+    return currentSearchResponse(activeQuery(), resource());
+  };
 
   let debounce: ReturnType<typeof setTimeout> | undefined;
   const onInput = (v: string) => {
@@ -24,10 +44,12 @@ export default function Search() {
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(() => {
       const term = v.trim();
-      setTrigger(term);
       setSearchParams({ q: term || undefined });
     }, 300);
   };
+  onCleanup(() => {
+    if (debounce) clearTimeout(debounce);
+  });
   const snippet = (hit: SearchHit) =>
     (hit._formatted?.body ?? hit.body).replaceAll('<mark>', '').replaceAll('</mark>', '');
 
@@ -49,7 +71,7 @@ export default function Search() {
         />
       </div>
 
-      <Show when={trigger() && results.loading && !results()}>
+      <Show when={activeQuery() && resource.loading && !results()}>
         <div class="mt-5"><PostSkeletonList count={3} /></div>
       </Show>
 
@@ -88,7 +110,7 @@ export default function Search() {
         )}
       </Show>
 
-      <Show when={!trigger() && !results()}>
+      <Show when={!activeQuery() && !results()}>
         <p class="text-on-surface-variant text-[13px] mt-5 px-1">
           {t('search.hint_prefix')} <code>federation</code>, <code>rust</code>, <code>1 vps</code> {t('search.hint_suffix')}
         </p>

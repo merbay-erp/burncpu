@@ -276,7 +276,13 @@ async fn test_webhook(
     let secret = crate::auth::totp::decrypt_blob(&enc, &nonce)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("webhook secret: {e}")))?;
     let sig = sign_hmac(&secret, &bytes);
-    let job = WebhookJob { id, url, event: "test".into(), body: bytes, sig };
+    let job = WebhookJob {
+        id,
+        url,
+        event: "test".into(),
+        body: bytes,
+        sig,
+    };
     if state.webhook_tx.try_send(job).is_err() {
         return Err(AppError::RateLimited);
     }
@@ -326,7 +332,13 @@ pub fn spawn_dispatcher(pg: sqlx::PgPool) -> tokio::sync::mpsc::Sender<WebhookJo
 }
 
 async fn deliver(pg: &sqlx::PgPool, job: WebhookJob) {
-    let WebhookJob { id, url, event, body, sig } = job;
+    let WebhookJob {
+        id,
+        url,
+        event,
+        body,
+        sig,
+    } = job;
     let (http, safe_url) = match crate::net_safety::safe_client_for(
         &url,
         "burncpu-webhook/1",
@@ -462,7 +474,13 @@ pub async fn dispatch_event(state: &AppState, user_id: Uuid, event: &str, payloa
             }
         };
         let sig = sign_hmac(&secret, &bytes);
-        let job = WebhookJob { id, url, event: event.to_string(), body: bytes, sig };
+        let job = WebhookJob {
+            id,
+            url,
+            event: event.to_string(),
+            body: bytes,
+            sig,
+        };
         if let Err(e) = state.webhook_tx.try_send(job) {
             tracing::warn!(%e, webhook_id = %id, "webhook queue full; delivery shed");
         }
@@ -515,7 +533,11 @@ mod tests {
         // The hex secret handed to the webhook owner once at creation.
         let secret = "deadbeefcafef00ddeadbeefcafef00d";
         let (enc, nonce) = crate::auth::totp::encrypt_blob(secret.as_bytes()).unwrap();
-        assert_ne!(enc.as_slice(), secret.as_bytes(), "stored form is ciphertext");
+        assert_ne!(
+            enc.as_slice(),
+            secret.as_bytes(),
+            "stored form is ciphertext"
+        );
 
         let recovered = crate::auth::totp::decrypt_blob(&enc, &nonce).unwrap();
         assert_eq!(recovered, secret.as_bytes(), "decrypt recovers the secret");
@@ -524,6 +546,9 @@ mod tests {
         // computes from the plaintext it was given — encryption at rest must not
         // change signing behaviour.
         let body = b"delivery-payload";
-        assert_eq!(sign_hmac(&recovered, body), sign_hmac(secret.as_bytes(), body));
+        assert_eq!(
+            sign_hmac(&recovered, body),
+            sign_hmac(secret.as_bytes(), body)
+        );
     }
 }

@@ -35,12 +35,18 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/threads", get(list_threads))
         .route("/threads/clear", post(bulk_clear))
-        .route("/threads/{username}", get(thread).post(send).delete(clear_thread))
+        .route(
+            "/threads/{username}",
+            get(thread).post(send).delete(clear_thread),
+        )
         .route("/threads/{username}/read", patch(mark_read))
         .route("/threads/{username}/typing", post(typing))
         .route("/messages/delete", post(bulk_delete))
         .route("/messages/{id}", delete(delete_message))
-        .route("/messages/{id}/react", post(react_message).delete(unreact_message))
+        .route(
+            "/messages/{id}/react",
+            post(react_message).delete(unreact_message),
+        )
 }
 
 const MAX_DM_LEN: usize = 5000;
@@ -178,8 +184,13 @@ pub struct DmReactionView {
 }
 
 // Same small reaction allowlist as posts: fire / turtle / handshake / pray / joy.
-const VALID_DM_EMOJI: &[&str] =
-    &["\u{1F525}", "\u{1F422}", "\u{1F91D}", "\u{1F64F}", "\u{1F602}"];
+const VALID_DM_EMOJI: &[&str] = &[
+    "\u{1F525}",
+    "\u{1F422}",
+    "\u{1F91D}",
+    "\u{1F64F}",
+    "\u{1F602}",
+];
 
 async fn thread(
     State(state): State<AppState>,
@@ -325,7 +336,11 @@ async fn send(
     Json(input): Json<SendBody>,
 ) -> Result<(StatusCode, Json<DmMessage>), AppError> {
     let body = input.body.trim();
-    let media_url = input.media_url.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let media_url = input
+        .media_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     // Validate any attachment against the media table: it must be a /media/ file
     // the SENDER uploaded, and the *stored* kind (not the client's claim) is what
     // we record. Stops forging arbitrary URLs or mislabeling kinds.
@@ -335,7 +350,9 @@ async fn send(
             .strip_prefix("/media/")
             .filter(|f| !f.is_empty() && !f.contains('/'));
         let Some(fname) = fname else {
-            return Err(AppError::BadRequest("media_url must be a /media/ path".into()));
+            return Err(AppError::BadRequest(
+                "media_url must be a /media/ path".into(),
+            ));
         };
         match sqlx::query_as::<_, MediaMeta>(
             "SELECT kind, processing_state, transcoded_filename, poster_filename, duration_ms FROM media WHERE owner_id = $1 AND filename = $2",
@@ -446,15 +463,18 @@ async fn send(
         .await
         .unwrap_or_default();
     if !is_muted(&state, other.0, user.user_id).await {
-        let _ = state.notif_tx.send(NotificationEvent {
-            user_id: other.0,
-            kind: "dm".into(),
-            actor_id: Some(user.user_id),
-            actor_username: Some(sender_username.clone()),
-            target_kind: "thread".into(),
-            target_id: thread_id,
-            created_at: Utc::now().to_rfc3339(),
-        });
+        state.notif_hub.send_user(
+            other.0,
+            NotificationEvent {
+                user_id: other.0,
+                kind: "dm".into(),
+                actor_id: Some(user.user_id),
+                actor_username: Some(sender_username.clone()),
+                target_kind: "thread".into(),
+                target_id: thread_id,
+                created_at: Utc::now().to_rfc3339(),
+            },
+        );
         // Native push (Expo → FCM/APNs) so the recipient is alerted — with sound —
         // even with the app closed. No-op until they've registered a device token.
         crate::routes::push::send_to_device_tokens(
@@ -494,20 +514,24 @@ async fn typing(
     if mutual_follow(&state, user.user_id, other.0).await
         && !is_muted(&state, other.0, user.user_id).await
     {
-        let sender_username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
-            .bind(user.user_id)
-            .fetch_one(&state.pg)
-            .await
-            .unwrap_or_default();
-        let _ = state.notif_tx.send(NotificationEvent {
-            user_id: other.0,
-            kind: "typing".into(),
-            actor_id: Some(user.user_id),
-            actor_username: Some(sender_username),
-            target_kind: "thread".into(),
-            target_id: Uuid::nil(),
-            created_at: Utc::now().to_rfc3339(),
-        });
+        let sender_username: String =
+            sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+                .bind(user.user_id)
+                .fetch_one(&state.pg)
+                .await
+                .unwrap_or_default();
+        state.notif_hub.send_user(
+            other.0,
+            NotificationEvent {
+                user_id: other.0,
+                kind: "typing".into(),
+                actor_id: Some(user.user_id),
+                actor_username: Some(sender_username),
+                target_kind: "thread".into(),
+                target_id: Uuid::nil(),
+                created_at: Utc::now().to_rfc3339(),
+            },
+        );
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -708,7 +732,11 @@ async fn clear_thread(
     }
     let (a, b) = canonical_pair(user.user_id, other.0);
     // `col` is one of two fixed identifiers, never user input — safe to format in.
-    let col = if user.user_id == a { "a_cleared_at" } else { "b_cleared_at" };
+    let col = if user.user_id == a {
+        "a_cleared_at"
+    } else {
+        "b_cleared_at"
+    };
     let sql = format!("UPDATE dm_threads SET {col} = NOW() WHERE a_id = $1 AND b_id = $2");
     sqlx::query(&sql).bind(a).bind(b).execute(&state.pg).await?;
     Ok(StatusCode::NO_CONTENT)

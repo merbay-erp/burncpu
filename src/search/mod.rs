@@ -92,37 +92,41 @@ impl Search {
         }
     }
 
+    fn with_auth(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if self.key.trim().is_empty() {
+            request
+        } else {
+            request.bearer_auth(&self.key)
+        }
+    }
+
     /// Idempotent — creates the index and applies settings. Call at startup.
     pub async fn ensure_ready(&self) -> anyhow::Result<()> {
         // Create index (200 OK if already exists; 202 task accepted otherwise)
         let _ = self
-            .http
-            .post(format!("{}/indexes", self.base))
-            .bearer_auth(&self.key)
+            .with_auth(self.http.post(format!("{}/indexes", self.base)))
             .json(&json!({ "uid": INDEX, "primaryKey": "id" }))
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
 
         // Searchable attributes (ranked left → right)
         let _ = self
-            .http
-            .put(format!(
+            .with_auth(self.http.put(format!(
                 "{}/indexes/{INDEX}/settings/searchable-attributes",
                 self.base
-            ))
-            .bearer_auth(&self.key)
+            )))
             .json(&json!(["body", "tags", "author_username"]))
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
 
         // Filterable: tags + visibility + moderation_state
         let _ = self
-            .http
-            .put(format!(
+            .with_auth(self.http.put(format!(
                 "{}/indexes/{INDEX}/settings/filterable-attributes",
                 self.base
-            ))
-            .bearer_auth(&self.key)
+            )))
             .json(&json!([
                 "tags",
                 "visibility",
@@ -130,31 +134,33 @@ impl Search {
                 "author_id"
             ]))
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
 
         // Sortable: created_at (timeline-style results)
         let _ = self
-            .http
-            .put(format!(
+            .with_auth(self.http.put(format!(
                 "{}/indexes/{INDEX}/settings/sortable-attributes",
                 self.base
-            ))
-            .bearer_auth(&self.key)
+            )))
             .json(&json!(["created_at", "reactions_count"]))
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
 
         Ok(())
     }
 
     pub async fn index_post(&self, doc: &PostDoc) {
         let r = self
-            .http
-            .post(format!("{}/indexes/{INDEX}/documents", self.base))
-            .bearer_auth(&self.key)
+            .with_auth(
+                self.http
+                    .post(format!("{}/indexes/{INDEX}/documents", self.base)),
+            )
             .json(&[doc])
             .send()
-            .await;
+            .await
+            .and_then(reqwest::Response::error_for_status);
         if let Err(e) = r {
             tracing::warn!(?e, id = %doc.id, "meilisearch index_post failed");
         }
@@ -165,13 +171,14 @@ impl Search {
             return 0;
         }
         let r = self
-            .http
-            .post(format!("{}/indexes/{INDEX}/documents", self.base))
-            .bearer_auth(&self.key)
+            .with_auth(
+                self.http
+                    .post(format!("{}/indexes/{INDEX}/documents", self.base)),
+            )
             .json(docs)
             .send()
             .await;
-        match r {
+        match r.and_then(reqwest::Response::error_for_status) {
             Ok(_) => docs.len(),
             Err(e) => {
                 tracing::warn!(?e, n = docs.len(), "meilisearch index_many failed");
@@ -182,11 +189,13 @@ impl Search {
 
     pub async fn delete_post(&self, id: Uuid) {
         let r = self
-            .http
-            .delete(format!("{}/indexes/{INDEX}/documents/{id}", self.base))
-            .bearer_auth(&self.key)
+            .with_auth(
+                self.http
+                    .delete(format!("{}/indexes/{INDEX}/documents/{id}", self.base)),
+            )
             .send()
-            .await;
+            .await
+            .and_then(reqwest::Response::error_for_status);
         if let Err(e) = r {
             tracing::warn!(?e, %id, "meilisearch delete_post failed");
         }
@@ -221,9 +230,10 @@ impl Search {
             "highlightPostTag": "</mark>",
         });
         let resp: SearchResponse = self
-            .http
-            .post(format!("{}/indexes/{INDEX}/search", self.base))
-            .bearer_auth(&self.key)
+            .with_auth(
+                self.http
+                    .post(format!("{}/indexes/{INDEX}/search", self.base)),
+            )
             .json(&body)
             .send()
             .await?

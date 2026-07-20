@@ -5,7 +5,7 @@ description: "How I built a small, self-hosted social platform with Rust, SolidJ
 tags: rust, solidjs, reactnative, opensource
 ---
 
-🇹🇷 [Türkçe sürüm](DEVTO-ANNOUNCEMENT.tr.md)
+🇹🇷 [Türkçe sürüm](https://github.com/merbay-erp/burncpu/blob/main/docs/DEVTO-ANNOUNCEMENT.tr.md)
 
 # burncpu: a one-VPS social network built for high-signal conversations
 
@@ -135,8 +135,10 @@ npm run dev
 ```
 
 The full setup and environment reference are in the repository's
-[README](../README.md), [configuration guide](CONFIGURATION.md),
-[API reference](API.md) and [deployment runbook](DEPLOYMENT.md).
+[README](https://github.com/merbay-erp/burncpu/blob/main/README.md),
+[configuration guide](https://github.com/merbay-erp/burncpu/blob/main/docs/CONFIGURATION.md),
+[API reference](https://github.com/merbay-erp/burncpu/blob/main/docs/API.md) and
+[deployment runbook](https://github.com/merbay-erp/burncpu/blob/main/docs/DEPLOYMENT.md).
 
 The application code is MIT-licensed. The `burncpu` name, logo and mascot are
 brand assets with separate rights; please do not assume the brand license from

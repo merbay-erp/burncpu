@@ -13,7 +13,7 @@ exactly like the web's `burncpu_session` cookie.
 
 ```bash
 cd mobile
-npm install            # if node_modules isn't present
+npm ci                  # reproducible install from package-lock.json
 npx expo start         # then press i (iOS sim) / a (Android) / scan in Expo Go
 ```
 
@@ -47,7 +47,14 @@ Typecheck / bundle:
 ```bash
 npx tsc --noEmit
 npx expo export --platform ios   # validates the Metro bundle
+npm run test:e2e                  # Expo web browser E2E (Android + iOS viewports)
 ```
+
+Native smoke/regression flows live in `.maestro/` and are executed by the
+EAS workflows in `.eas/workflows/` on pull requests. The workflows build the
+`e2e-test` profile, run Android and iOS Maestro on managed devices, shard the
+flows, retry failed cases once, and record screens. A local Mac does not need
+Maestro or an emulator to validate the repository's browser E2E gate.
 
 ## What's here (v1 foundation)
 

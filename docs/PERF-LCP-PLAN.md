@@ -1,8 +1,9 @@
 # burncpu — Mobil LCP / SSR İyileştirme Planı
 
-> Tarih: 2026-06-06. PageSpeed mobil incelemesinin devamı. Bu doküman **kod
-> değiştirmez** — kalan tek anlamlı LCP kaldıracını (SSR) gerçekçi maliyet/risk
-> ile scope'lar. Karar verildiğinde ayrı, planlı bir PR olarak ele alınmalı.
+> Tarihsel ölçüm: 2026-06-06. Durum yenilemesi: 2026-07-20.
+> Bu doküman **kod değiştirmez** — SSR hâlâ ayrı bir karar/PR konusudur.
+> Font self-hosting, preload ve `font-display: swap` çalışması tamamlandı; aşağıdaki
+> LCP ölçümleri yeni bir Lighthouse koşusu yapılana kadar tarihsel lab verisidir.
 
 ## 1) Ölçülmüş durum (neyi çözüyoruz)
 

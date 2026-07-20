@@ -10,7 +10,7 @@
 [![Rust](https://img.shields.io/badge/rust-edition_2024-orange.svg)](Cargo.toml)
 [![SolidJS](https://img.shields.io/badge/solidjs-1.9-2c4f7c.svg)](web/)
 
-🌐 **[burncpu.com](https://burncpu.com)** · 🐢 [Mustafa Erbay](https://mustafaerbay.com.tr) · 📜 MIT (kod) · 📚 [Dokümanlar](https://burncpu.com/docs)
+🌐 **[burncpu.com](https://burncpu.com)** · 🐢 [Mustafa Erbay](https://mustafaerbay.com.tr) · 📜 MIT (kod) · 📚 [Dokümanlar](https://burncpu.com/docs) · 📝 [Dev.to tanıtım taslağı](docs/DEVTO-ANNOUNCEMENT.md)
 
 </div>
 
@@ -49,6 +49,7 @@ paylaşılan, küçük ama yüksek-sinyalli bir alan.** Az kişi, çok değer.
 
 **Hesap & kimlik**
 - 🔑 Şifresiz **magic-link** auth (15 dk TTL, tek kullanımlık, IP+email rate-limit)
+- 🔐 **Passkey / WebAuthn** (discoverable, phishing-resistant first factor; TOTP varsa ikinci faktör korunur)
 - 🌐 **Sosyal login** — Google · GitHub · Microsoft (OAuth2 authorization-code + PKCE + state; doğrulanmış e-postayla hesap eşleme/oluşturma, `oauth_identities`)
 - 🚪 **Açık kayıt** (davet gerekmez) — web + mobil
 - 🛡️ Admin için **TOTP 2FA** (RFC 6238, recovery kodları, XChaCha20-Poly1305 ile şifreli saklanan secret)
@@ -86,7 +87,7 @@ paylaşılan, küçük ama yüksek-sinyalli bir alan.** Az kişi, çok değer.
 - 🆕 **Yeni mesaj** (kullanıcı arama) · ✍️ "yazıyor" göstergesi (SSE) · 🔔 yeni-mesaj sesi
 
 **Mobil uygulama**
-- 📱 **React Native / Expo** (SDK 56, expo-router) — Android APK sideload (Play Store/ücret gerekmez)
+- 📱 **React Native / Expo** (SDK 56, expo-router) — Android APK sideload + EAS iOS build workflow
 - 🔔 **Native push** (Expo → FCM/APNs, sesli) — bildirime basınca ilgili sohbete derin link
 - 🧵 Web ile parite: akış · profil · DM (medya/reaksiyon/durum/sil) · bildirimler — sekme **okunmamış rozetleri**
 - 🔗 Universal-link / assetlinks ile derin bağlantı
@@ -102,6 +103,8 @@ paylaşılan, küçük ama yüksek-sinyalli bir alan.** Az kişi, çok değer.
 - 📝 Audit log + login_attempts, `x-request-id` izlenebilirliği
 - 🌙 Gece yarısı Postgres yedekleri (7 gün rotasyon)
 - 🚀 Push-to-`main` ile self-hosted CI deploy (backend + frontend + migrations)
+- ✅ Web + mobil browser E2E, native Maestro/EAS akışları ve yüksek bağlantılı SSE/HTTP yük kapıları
+- 🔤 Web fontları same-origin WOFF2 olarak self-host edilir; lisans, preload ve Google Fonts yokluğu build'de doğrulanır
 
 ## Stack
 
@@ -116,17 +119,20 @@ paylaşılan, küçük ama yüksek-sinyalli bir alan.** Az kişi, çok değer.
 | **Auth / kripto** | magic-link · **OAuth2** (Google/GitHub/Microsoft, PKCE) · TOTP (totp-rs) · XChaCha20-Poly1305 · Argon2 · RSA (HTTP Signatures) |
 | **İçerik** | pulldown-cmark (markdown) · ammonia (sanitize) · image (medya) |
 | **E-posta** | lettre (async SMTP) |
-| **Edge** | Cloudflare (WAF/DDoS) → nginx (TLS) → Axum (127.0.0.1) |
+| **Edge** | Cloudflare (WAF/DDoS) → nginx (TLS) → host loopback `:3060` → Axum container `:3050` |
 
-Çalışma-zamanı bağımlılıkları **tamamen VPS'te**: harici SaaS yok.
+Çekirdek çalışma zamanı **tek VPS'te self-hosted**: PostgreSQL, Redis, Meilisearch,
+Rust API ve web statikleri aynı operasyon sınırında çalışır. Cloudflare edge,
+SMTP ve etkin OAuth sağlayıcıları ise açıkça tanımlı dış entegrasyonlardır; bunlar
+çekirdek veri katmanının yerine geçmez.
 
 ## Mimari prensipler
 
 1. **1 VPS yeter** — doğru ölçü, dikkatli mühendislik
-2. **No third-party auth** — magic-link, şifre yok, OAuth çöplüğü yok
+2. **No password dependency** — magic-link ve passkey birinci sınıf; OAuth yalnızca açıkça etkinleştirilen sağlayıcılar için
 3. **Spam-resistant by design** — moderasyon bir pazarlama değil, mimari karar
 4. **Tek dil per katman** — backend: Rust, frontend: TypeScript
-5. **Self-hosted** — tüm bağımlılıklar tek sunucuda, harici servis yok
+5. **Self-hosted core** — Postgres/Redis/Meilisearch ve uygulama tek VPS'te; edge, e-posta ve OAuth sınırları görünür
 6. **Defense in depth** — SSRF guard, sanitize, rate-limit, audit, 2FA gate
 
 Detaylar için → **[ARCHITECTURE.md](ARCHITECTURE.md)**
@@ -135,7 +141,7 @@ Detaylar için → **[ARCHITECTURE.md](ARCHITECTURE.md)**
 
 ### Önkoşullar
 
-- Rust (edition 2024 / `rustup` güncel), Node.js 24.3+
+- Rust (edition 2024 / `rustup` güncel), Node.js 20+ (CI, Node 24.3 ile doğrulanır)
 - PostgreSQL 16, Redis 7, Meilisearch v1.10 (lokal veya Docker)
 
 ### Backend
@@ -186,7 +192,7 @@ burncpu/
 │   ├── search/             # Meilisearch indeksleme + sorgu
 │   ├── net_safety.rs       # SSRF-güvenli HTTP client
 │   └── state.rs            # paylaşılan AppState + SSE broadcast
-├── migrations/             # sqlx SQL migration'ları (0001 → 0023)
+├── migrations/             # sqlx SQL migration'ları (0001 → 0040)
 ├── web/                    # SolidJS frontend
 │   └── src/{pages,components,...}
 ├── mobile/                 # React Native / Expo (Android) — expo-router
@@ -226,6 +232,7 @@ Tüm uç noktalar `/api/v1` altında. Tam referans → **[docs/API.md](docs/API.
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Geliştirme akışı, kod standartları, commit & PR kuralları |
 | **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** | Topluluk davranış kuralları |
 | **[web/README.md](web/README.md)** | Frontend stack, dev server, theming, i18n |
+| **[docs/DEVTO-ANNOUNCEMENT.md](docs/DEVTO-ANNOUNCEMENT.md)** | Dev.to için doğrulanabilir proje tanıtım taslağı |
 | **[THREAT_MODEL.md](THREAT_MODEL.md)** | STRIDE tehdit modeli, güven sınırları, kabul edilen riskler |
 | **[SECURITY.md](SECURITY.md)** | Güvenlik açığı bildirimi |
 | **[CHANGELOG.md](CHANGELOG.md)** | Sürüm geçmişi |

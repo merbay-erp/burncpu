@@ -1,19 +1,36 @@
 # burncpu — 100k-Ölçek Denetimi
 
-> Tarih: 2026-06-08. Kapsam: scalability (tek VPS, 100k kullanıcı) + üst-düzey güvenlik +
-> otonom moderasyon + kusursuzluk (correctness). 3 paralel derin-dalış ajanıyla,
-> file:line düzeyinde, salt-okunur denetim. Kod değiştirilmedi.
+> Tarihsel snapshot: 2026-06-08. Kapsam: scalability (tek VPS, 100k kullanıcı) +
+> üst-düzey güvenlik + otonom moderasyon + correctness. Bu dosya ilk salt-okunur
+> kapasite incelemesinin kanıt arşividir; güncel üretim kararı için
+> [14 Temmuz canlı denetim raporuna](AUDIT-2026-07-14.md) bakın.
 
-## Genel hüküm
+> **Durum yenilemesi — 2026-07-20:** Sonraki migration'lar ve düzeltme paketleri
+> sayaç/index/partition/trending, moderasyon eskalasyonu, federation güvenliği,
+> E2E, yük kapıları ve CI bulgularının önemli bölümünü kapattı. Aşağıdaki
+> “önce yapılmalı” listesi tarihsel önceliklendirmeyi korur; otomatik olarak
+> güncel backlog kabul edilmemelidir.
+
+## Genel hüküm (08 Haziran 2026 snapshot'ı)
 
 | Boyut | Durum |
 |---|---|
 | **Güvenlik** | 🟢 **Mükemmel.** Critical/High **YOK**. Zor olan her şey (SSRF, federation imza doğrulama, sanitizer, secret-at-rest, IDOR/visibility, SQL parametrizasyon) **doğru ve defansif** yapılmış. Sadece 2 MEDIUM + birkaç LOW (defense-in-depth). |
 | **Correctness** | 🟢 **Yüksek bar.** Kullanıcı-girdisiyle çökme **yok**, sayaçlar çoğu atomik/recount, çok-adımlı yazımlar transaction'lı. Birkaç MEDIUM (aşağıda). |
 | **Scale (100k)** | 🟠 **İş var.** Darboğazlar: (1) Postgres tune edilmemiş, (2) her istekte yazma amplifikasyonu, (3) okuma cache'i yok. Hepsi çözülebilir. |
-| **Moderasyon** | 🔴 **~%30 otonom.** Tek otomatik aksiyon: yeni-hesap spam quarantine. Gerisi %100 manuel admin işi. 100k'da kırılır. Net roadmap var. |
+| **Moderasyon** | 🔴 **~%30 otonom.** O tarihte yalnız yeni-hesap quarantine vardı; güncel sistemde heat, domain reputation, report threshold, shadow-ban, appeals ve hash-blocklist katmanları da bulunuyor. |
 
 **Ops bağlamı:** VPS 18 çekirdek / 94GB RAM / 678GB disk — donanım 100k için fazlasıyla yeter; ama log5651 ile **paylaşımlı** (izolasyon gerekli). Mevcut ölçek minik (318 post). Yani bu, 100k'ya **hazırlık** denetimi.
+
+### Güncel açık sınırlar
+
+- Tek VPS ve tek admin hâlâ bilinçli operasyon modelidir; yatay ölçek ve
+  ayrıntılı RBAC hedef değildir.
+- Origin-served media için CDN yoktur; upload ve transcode sınırları vardır.
+- Learned AI/ML sınıflandırması yoktur; üretim heuristik ve insan itirazı ile
+  çalışır.
+- 10k SSE/HTTP profili izole CI/local ortamda koşar; üretim domain'ine yük
+  gönderilmez.
 
 ---
 

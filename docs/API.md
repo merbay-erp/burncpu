@@ -2,6 +2,9 @@
 
 Base URL: `https://burncpu.com/api/v1`
 Companion to the [README](../README.md) and [ARCHITECTURE](../ARCHITECTURE.md).
+The machine-readable contract is also available at
+`GET https://burncpu.com/api/v1/openapi.json`; route modules and tests are the
+final source of truth when examples and prose diverge.
 
 ## Conventions
 
@@ -48,6 +51,21 @@ matched or created by **verified email** (`oauth_identities`).
 | `GET` | `/oauth/{provider}/callback` | 🔓 | Provider redirect target → exchange code, start a session. |
 | `POST` | `/oauth/exchange` | 🔓 | Native (mobile) code exchange → returns a `Set-Cookie` session. |
 
+## Passkeys — `/auth/passkeys`
+
+Discoverable WebAuthn credentials are a phishing-resistant first factor. If
+the account has TOTP enabled, passkey login still creates a `pending_2fa`
+session and cannot bypass the second factor.
+
+| Method | Path | | Description |
+|--------|------|--|-------------|
+| `GET` | `/auth/passkeys` | 🔒 | List your registered passkeys. |
+| `POST` | `/auth/passkeys/register/start` | 🔒 | Begin registration; ceremony state is short-lived and single-use. |
+| `POST` | `/auth/passkeys/register/finish` | 🔒 | Verify and store a credential. |
+| `POST` | `/auth/passkeys/login/start` | 🔓 | Begin discoverable passkey login. |
+| `POST` | `/auth/passkeys/login/finish` | 🔓 | Verify the assertion and create a session. |
+| `DELETE` | `/auth/passkeys/{id}` | 🔒 | Remove one of your passkeys. |
+
 ## Posts — `/posts`
 
 | Method | Path | | Description |
@@ -55,12 +73,15 @@ matched or created by **verified email** (`oauth_identities`).
 | `GET` | `/posts` | 🔓 | Public global timeline (keyset: `?limit=&before=&before_id=`). |
 | `POST` | `/posts` | 🔒 | Create a post (markdown, sanitized). Public top-level posts fan out over SSE. |
 | `GET` | `/posts/{id}` | 🔓 | Single post. |
+| `PATCH` | `/posts/{id}` | 🔒 | Edit your post; previous versions remain in edit history. |
 | `DELETE` | `/posts/{id}` | 🔒 | Soft-delete (author or admin) → trash. |
 | `POST` | `/posts/{id}/restore` | 🔒 | Restore a soft-deleted post from trash. |
+| `GET` | `/posts/{id}/history` | 🔓 | Read visible previous versions of an edited post. |
 | `POST` | `/posts/{id}/react` | 🔒 | React (single-emoji). |
 | `DELETE` | `/posts/{id}/react` | 🔒 | Remove your reaction. |
 | `GET` | `/posts/{id}/reactions` | 🔓 | Reaction tally + the viewer's reaction. |
 | `POST` | `/posts/{id}/replies` | 🔒 | Reply to a post. |
+| `GET` | `/posts/{id}/replies` | 🔓 | Direct replies (paginated). |
 | `GET` | `/posts/{id}/thread` | 🔓 | Full conversation (root + descendants). |
 | `POST` | `/posts/{id}/repost` | 🔒 | Repost. |
 
@@ -75,7 +96,9 @@ matched or created by **verified email** (`oauth_identities`).
 | `POST` | `/users/{username}/follow` | 🔒 | Follow. |
 | `DELETE` | `/users/{username}/follow` | 🔒 | Unfollow. |
 | `GET` | `/users/lookup?prefix=` | 🔓 | Username prefix lookup (mentions, command palette). |
+| `GET` | `/users/suggestions` | 🔒 | Suggested active accounts for onboarding and an empty home feed. |
 | `PATCH` | `/users/me` | 🔒 | Update display_name / bio / avatar_url. |
+| `DELETE` | `/users/me` | 🔒 | Permanently delete your account; requires `X-Confirm-Username`. |
 | `GET` | `/users/me/activity` | 🔒 | Your account activity. |
 | `GET` | `/users/me/security` | 🔒 | Active sessions + login/magic-link/2FA event log. |
 | `DELETE` | `/users/me/sessions/{id}` | 🔒 | Revoke one session (device). |
@@ -83,6 +106,7 @@ matched or created by **verified email** (`oauth_identities`).
 | `GET` | `/users/me/trash` | 🔒 | Your soft-deleted posts. |
 | `GET` | `/users/me/export` | 🔒 | Export your account data. |
 | `POST` | `/users/me/pin/{post_id}` | 🔒 | Pin a post to your profile. |
+| `DELETE` | `/users/me/pin/{post_id}` | 🔒 | Unpin a profile post. |
 
 ## Relations — `/users/{username}/…`
 
@@ -106,7 +130,7 @@ matched or created by **verified email** (`oauth_identities`).
 | `POST` / `DELETE` | `/hashtags/{tag}/follow` | 🔒 | Follow / unfollow a topic (its public posts surface in `/feed`). |
 | `GET` | `/trending/hashtags?window=` | 🔓 | Trending hashtags (`1h`/`24h`/`7d`). |
 | `GET` | `/trending/posts?window=` | 🔓 | Trending posts. |
-| `GET` | `/link_preview?url=` | 🔓 | SSRF-safe Open Graph unfurl (cached). |
+| `GET` | `/link_preview?url=` | 🔓 | SSRF-safe Open Graph unfurl (cached; anonymous requests have a stricter IP rate limit). |
 
 ## Social
 
@@ -164,9 +188,12 @@ matched or created by **verified email** (`oauth_identities`).
 | `PATCH` | `/webhooks/{id}` | 🔒 | Update a webhook. |
 | `GET` | `/webhooks/{id}/deliveries` | 🔒 | Recent delivery log (last 20: event, status, ok, reason). |
 | `POST` | `/webhooks/{id}/test` | 🔒 | Enqueue a signed test ping (rate-limited). |
+| `POST` | `/search/reindex` | 🛡️ | Re-index live public posts; intended for operator recovery. |
 | `GET` | `/push/vapid-public-key` | 🔓 | VAPID public key for Web Push. |
 | `POST` | `/push/subscribe` | 🔒 | Register a push subscription. |
 | `DELETE` | `/push/unsubscribe` | 🔒 | Remove a push subscription. |
+| `POST` | `/push/device` | 🔒 | Register a native APNs/FCM device token. |
+| `DELETE` | `/push/device/{token}` | 🔒 | Remove a native device token. |
 
 ### Example: publish from an external service
 
@@ -191,6 +218,25 @@ Role `admin` **and** a 2FA-satisfied session required.
 | `GET` | `/admin/sessions` | Active sessions. |
 | `GET` | `/admin/moderation_log` | Moderation log. |
 | `GET` | `/admin/reports` · `PATCH /admin/reports/{id}` | Triage reports. |
+| `PATCH` | `/admin/users/{id}/shadow` | Toggle a reversible shadow-ban state. |
+| `GET` | `/admin/federation/instances` | Known remote instances and block state. |
+| `POST` / `DELETE` | `/admin/federation/blocks[/{host}]` | Block or unblock an instance host. |
+| `GET` / `POST` / `DELETE` | `/admin/federation/relays` | Inspect, subscribe to or remove a relay. |
+| `GET` / `PATCH` | `/admin/federation/remote_posts` | Review or hide an ingested remote post. |
+
+## Appeals — `/appeals`
+
+Appeals are rate-limited and append decisions to the moderation history. A
+suspended account can use the unauthenticated account route because it cannot
+log in to reach the authenticated flow.
+
+| Method | Path | | Description |
+|--------|------|--|-------------|
+| `POST` | `/appeals` | 🔒 | Appeal your quarantined or removed post. |
+| `GET` | `/appeals/eligible` | 🔒 | List your posts that can be appealed. |
+| `POST` | `/appeals/account` | 🔓 | Submit an account-suspension appeal by email; response is enumeration-safe. |
+| `GET` | `/admin/appeals` | 🛡️ | List the moderation appeal queue. |
+| `PATCH` | `/admin/appeals/{id}` | 🛡️ | Grant or deny an appeal. |
 
 ## Top-level (outside `/api/v1`)
 
@@ -201,6 +247,8 @@ Role `admin` **and** a 2FA-satisfied session required.
 | `GET` | `/embed/posts/{id}` | Embeddable post. |
 | `GET` | `/rss/all` · `/rss/user/{u}` · `/rss/hashtag/{tag}` | Atom feeds. |
 | `GET` | `/.well-known/webfinger` · `/nodeinfo/2.1` · `/ap/*` | ActivityPub federation. |
+| `GET` | `/.well-known/security.txt` | Vulnerability disclosure policy (RFC 9116). |
+| `GET` | `/.well-known/apple-app-site-association` · `/.well-known/assetlinks.json` | Native universal/app-link association files. |
 
 ---
 

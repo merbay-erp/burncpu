@@ -20,6 +20,7 @@ is false.
 | `REDIS_URL` | | `redis://127.0.0.1:6380` | Redis for rate-limits + ephemeral lookups. |
 | `SITE_ORIGIN` | | `https://burncpu.com` | Canonical origin (links, CORS, cookie scope). |
 | `RUST_LOG` | | — | `tracing` filter, e.g. `burncpu=debug,tower_http=info`. |
+| `DB_MAX_CONNECTIONS` | | `48` | Maximum Postgres pool size. Keep below the database/container budget. |
 
 ## Search
 
@@ -36,6 +37,8 @@ is false.
 | `INVITES_REQUIRED` | | `false` | Require an invite code to sign up. |
 | `BOOTSTRAP_ADMIN_EMAIL` | | — | Email auto-promoted to admin on first sign-in. |
 | `ALLOWED_ORIGINS` | | — | Comma-separated trusted browser origins accepted by the CSRF guard in addition to `SITE_ORIGIN`. This does not enable cross-origin browser API access. |
+| `IOS_APP_ID` | | — | Apple Team ID + bundle ID (for example `TEAMID.com.burncpu.app`) used by the universal-link association file. Unset keeps the route disabled. |
+| `ANDROID_CERT_FINGERPRINTS` | | — | Comma-separated SHA-256 signing fingerprints for Android app links. Unset keeps the route disabled. |
 
 The public API is intentionally same-origin for browser clients and does not
 emit CORS response headers. Native clients are not subject to browser CORS. If
@@ -57,6 +60,10 @@ layer and preflight tests; do not use a wildcard with credentialed requests.
 |----------|:--------:|---------|-------------|
 | `SPAM_THRESHOLD` | | `4` | Spam score at/above which a top-level public post is quarantined (lands in the admin review queue). Lower = stricter. |
 | `SPAM_DENYLIST` | | — | Comma-separated phrases that strongly flag a post as spam (case-insensitive substring match). |
+| `TOXICITY_DENYLIST` | | — | Comma-separated phrases used by the explainable toxicity/harassment heuristic. |
+| `REPORT_QUARANTINE_THRESHOLD` | | `4` | Distinct open reports that automatically quarantine a target. |
+| `SHADOW_BAN_THRESHOLD` | | `8` | Account heat at which autonomous shadow-ban escalation begins; `0` disables it. |
+| `HEAT_SUSPEND_THRESHOLD` | | `12` | Account heat at which autonomous suspension escalation begins; `0` disables the hard tier. |
 
 ## Email
 
@@ -90,6 +97,18 @@ The sender picks a backend from `EMAIL_BACKEND`:
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
 | `FEDERATION_ENABLED` | | `false` | Enable ActivityPub server-to-server. |
+
+## OAuth social login (optional)
+
+Each provider is enabled only when both credentials are present. OAuth uses
+authorization-code + PKCE, a short-lived state value and verified-email
+matching. Do not put these secrets in the repository.
+
+| Variables | Provider |
+|-----------|----------|
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub |
+| `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` | Microsoft |
 
 ## Minimal local setup
 

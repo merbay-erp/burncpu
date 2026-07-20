@@ -7,6 +7,17 @@ ships continuously to [burncpu.com](https://burncpu.com) from `main`.
 ## [Unreleased]
 
 ### Added
+- **Reproducible local stack** — digest-pinned PostgreSQL, Redis and
+  Meilisearch services in `docker-compose.dev.yml`, plus deterministic load
+  fixtures and a guarded high-concurrency runner.
+- **Browser and native E2E coverage** — Playwright flows for web and Expo web
+  (desktop/mobile viewports), with Maestro/EAS Android and iOS workflows for
+  native smoke and regression coverage.
+- **Self-hosted web fonts** — pinned OFL-1.1 Fontsource Geist, Geist Mono and
+  Material Symbols assets with build-time license, preload and same-origin
+  checks.
+- **Passkey authentication** — discoverable WebAuthn registration/login with
+  origin binding, clone-detection counters and TOTP step-up preservation.
 - **Multi-layered spam scoring** — top-level public posts are scored across
   independent layers (account trust, link density, mention flooding, shouting,
   a configurable `SPAM_DENYLIST`) and quarantined at/above `SPAM_THRESHOLD`,
@@ -41,6 +52,12 @@ ships continuously to [burncpu.com](https://burncpu.com) from `main`.
   toolbar + draft autosave.
 
 ### Changed
+- **CI is a release gate** — Rust fmt/tests/Clippy, RustSec and supply-chain
+  policy, gitleaks, web/mobile audit-build-lint, browser E2E and isolated load
+  profiles now run from pinned Actions and image inputs.
+- **Production hardening** — deploy health checks fail closed, public source
+  maps stay disabled, security.txt is served by the backend, and the live
+  nginx CSP no longer permits Google Fonts for BurnCPU.
 - "post" → **"sinyal"** wording across the UI (web + mobile).
 - Read receipts shown as single / double ticks — read = sky-blue double check
   (WhatsApp-style) — instead of flat status text.

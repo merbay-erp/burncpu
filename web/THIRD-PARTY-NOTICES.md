@@ -1,5 +1,7 @@
 # Web font notices
 
+🇹🇷 [Türkçe sürüm](THIRD-PARTY-NOTICES.tr.md)
+
 The web bundle includes these self-hosted fonts through the pinned Fontsource
 packages in `package-lock.json`:
 

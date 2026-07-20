@@ -1,5 +1,7 @@
 # burncpu — mobile (React Native / Expo)
 
+🇹🇷 [Türkçe sürüm](README.tr.md)
+
 Native iOS + Android client for [burncpu](https://burncpu.com), built with Expo
 (SDK 56) + expo-router. The design is ported **1:1** from the web app: the same
 Ember palette (`src/theme.ts` mirrors the web's `styles.css` tokens exactly),

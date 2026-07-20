@@ -1,9 +1,11 @@
-# burncpu — Mastodon hesabımı kaybettikten sonra doğan tek-VPS sosyal ağ
+# Mastodon hesabımı kaybettikten sonra doğan sosyal ağ
 
-[English draft](DEVTO-ANNOUNCEMENT.md) · Bu dosya doğrudan Dev.to'ya yapıştırılabilir
-Türkçe sürümdür; front matter'da `published: false` bırakılmıştır.
+[English draft](DEVTO-ANNOUNCEMENT.md) · Bu dosya Dev.to'ya yapıştırılabilir Türkçe
+sürümdür; yayınlamadan önce taslak olarak inceleyin.
 
 ![burncpu — tek VPS yeter](https://burncpu.com/og-card.png)
+
+> Yeni bir akış istemedim. Kendi çıkış kapımı istedim.
 
 ## Bu proje neden doğdu?
 
@@ -12,55 +14,121 @@ uyarı olmadan kapatıldı.
 
 Bunu tek bir platformun kararını tartışmak için yazmıyorum. Her servisin kendi
 moderasyon sınırları ve her topluluğun uyması gereken kuralları var. Bende kalan
-asıl duygu, kendi sosyal kimliğimin etrafındaki sistemi anlayamamak, barındıramamak
-ve karara itiraz edememekti. Yazılarım, bağlantılarım ve bağlamım bir anda benim
-kontrolümün dışındaki bir yerde kaldı.
+asıl duygu, kendi sosyal kimliğimin etrafındaki sistemi anlayamamak,
+barındıramamak ve karara itiraz edememekti. Yazılarım, bağlantılarım ve bağlamım
+bir anda benim kontrolümün dışındaki bir yerde kaldı.
 
-Bu deneyim şu soruyu görmezden gelmeyi imkânsız hâle getirdi: Sosyal medya
-topluluklarımızın ve çalışmalarımızın yaşadığı yerse, neden daha fazla insan
-çalıştığı yeri kendisi çalıştıramasın?
+Bu deneyim şu soruyu görmezden gelmeyi imkânsız hâle getirdi:
 
-**burncpu bu soruya verdiğim cevap.** Bir kişinin tek VPS üzerinde çalıştırabileceği
-açık kaynaklı bir sosyal ağ temeli. Aynı yapı; üreticiler, araştırmacılar,
-eğitimciler, yerel topluluklar veya kendi kurallarına ve kimliğine ihtiyaç duyan
-her sektör için özel ağlara dönüştürülebilir.
+> Sosyal medya topluluklarımızın ve çalışmalarımızın yaşadığı yerse, neden daha
+> fazla insan çalıştığı yeri kendisi çalıştıramasın?
+
+**burncpu bu soruya verdiğim cevap.** Bir kişinin tek VPS üzerinde
+çalıştırabileceği açık kaynaklı bir sosyal ağ temeli. Aynı yapı; üreticiler,
+araştırmacılar, eğitimciler, yerel topluluklar veya kendi kurallarına ve
+kimliğine ihtiyaç duyan her sektör için özel ağlara dönüştürülebilir.
 
 Amaç yeni bir dikkat/bağımlılık makinesi kurmak değil; insanların kendi sosyal
 alanını kurabilmesini mümkün kılmak.
 
 ## Özgürlük operasyonel olmalı
 
-Özgürlük yalnızca README'de yazan bir slogan olmamalı. İsteğin sistemdeki yolunu
-inceleyebilmek, hesabı dışa aktarabilmek ve silebilmek, moderasyon kararının
-nedenini anlayabilmek, itiraz edebilmek ve servisi kontrol edilen altyapıya
-taşıyabilmek demek. Bu yüzden çekirdek self-hosted, kod MIT lisanslı, moderasyon
-izlenebilir ve tek VPS kısıtı bir eksik değil tasarım özelliği.
+Özgürlük yalnızca README'de yazan bir slogan olmamalı. Şunları yapabilmek demek:
 
-## Tek VPS ile yüksek sinyalli sosyal alan
+- isteğin sistemdeki yolunu ve güven sınırlarını incelemek;
+- hesap verisini dışa aktarmak, silmek ve taşımak;
+- moderasyon kararının nedenini anlamak ve itiraz etmek; ve
+- servisi kontrol edilen altyapıda çalıştırmak.
 
-burncpu, Rust/Axum API, SolidJS web ve Expo mobil istemcisini tek VPS üzerinde
-çalıştıran MIT lisanslı açık kaynak bir sosyal platformdur. Amaç trafik rekoru
-değil; gerçek insanların düşünerek yazdığı, okunabilir ve denetlenebilir bir
-alan kurmaktır.
+Bu yüzden burncpu'nun çekirdeği self-hosted, kodu MIT lisanslı, moderasyon
+kararları izlenebilir ve tek VPS kısıtı bir eksik değil tasarım özelliği.
 
-## Öne çıkanlar
+## Tek temel, birçok topluluk
 
-Şifresiz magic-link, WebAuthn passkey ve isteğe bağlı OAuth/PKCE; thread/repost/
-bookmark/trash; Meilisearch arama; SSE bildirimleri; medya ve reaksiyonlu DM;
-ActivityPub/RSS; native push ve universal link desteği bulunur. Spam, toksisite,
-domain itibarı, rapor eşiği ve hesap ısısı katmanları quarantine → shadow-ban →
-askıya alma akışını üretir; kararlar audit edilir ve itiraz edilebilir.
+Aynı temel herkesi tek bir küresel akışa zorlamadan farklı topluluklara hizmet
+edebilir:
 
-## Operasyon ve güvenlik
+- bağımsız üreticiler ve küçük ürün ekipleri;
+- düşük gürültülü bir tartışma alanı isteyen araştırmacılar;
+- öğretmenler, öğrenciler ve yerel öğrenme toplulukları;
+- kendi moderasyon kurallarına sahip meslek birlikleri; veya
+- sosyal katmanını kendisi yönetmek isteyen mahalle, etkinlik ve kuruluşlar.
 
-Cloudflare → nginx → loopback `:3060` → Axum container `:3050` zinciri vardır.
-Postgres/Redis/Meilisearch private Docker ağındadır. CI format/test/clippy,
-güvenlik/lisans/secret taraması, web/mobile audit-build-lint, browser E2E,
-Maestro/EAS akışları ve 1k/2k ile 10k/10k yük gate'lerini çalıştırır. Web fontları
-same-origin WOFF2 olarak self-host edilir; Google Fonts yokluğu build'de doğrulanır.
+Önemli olan logo ya da varsayılan renk paleti değil; kuralları çatallayabilmek,
+servisi çalıştırabilmek ve “sağlıklı sohbet”in ne olduğuna kullanıcılarla birlikte
+karar verebilmek.
 
-## Sınırlar
+## Neden tek VPS?
 
-Yük testi üretime uygulanmaz. Media CDN, öğrenilmiş ML moderasyonu ve multi-admin
-RBAC kapsam dışıdır. Cloudflare, SMTP ve etkin OAuth sağlayıcıları açıkça dış
-entegrasyon sınırlarıdır.
+“Tek VPS yeter” her sistemin sonsuza kadar küçük kalması gerektiği iddiası değil,
+ilk kurulumu anlaşılır tutan bir mühendislik kısıtı:
+
+```text
+Cloudflare → nginx → Rust/Axum
+                         ├── PostgreSQL 16
+                         ├── Redis 7
+                         └── Meilisearch
+```
+
+API tek Rust binary'sidir. Üretim container'ı `3050` portunu dinler ve yalnızca
+VPS loopback'ine yayınlanır; dışarıya açık tek giriş nginx'tir. Migration'lar
+açılışta ileri yönde uygulanır. Kubernetes, service mesh veya işletilecek bir
+message broker yoktur.
+
+## Kullanıcılar neler yapabilir?
+
+- Tek kullanımlık magic-link, passkey veya isteğe bağlı OAuth ile giriş yapabilir.
+- Temizlenmiş Markdown post, yanıt ve repost yazabilir.
+- Kişi/hashtag takip edebilir, arama yapabilir, trendleri görebilir.
+- Karşılıklı takipte DM, görsel/video eki, reaksiyon, okundu ve yazıyor durumu
+  kullanabilir.
+- Web Push veya native APNs/FCM bildirimi alabilir.
+- ActivityPub açıkken federe hesapları ve postları keşfedebilir.
+- Hesabını dışa aktarabilir/silebilir, oturumları iptal edebilir, 2FA ve passkey
+  yönetebilir.
+
+Moderasyon sonradan eklenen bir özellik değil, tasarımın parçasıdır. Hesap
+güveni, link/domain itibarı, denylist, toksisite ipuçları, hesap ısısı ve rapor
+eşikleri; quarantine, shadow-ban veya askıya alma üretebilir. Kararlar geri
+alınabilir, denetlenebilir ve itiraz edilebilir.
+
+## Açıklayabildiğim güvenlik
+
+Uygulama varsayılan olarak şifresizdir. Oturum çerezleri `HttpOnly`, `Secure` ve
+`SameSite=Lax`; magic-link token'ları kısa ömürlü, tek kullanımlık ve yalnızca
+hash olarak saklanır. Admin rotaları admin rolü ve 2FA-satisfied session ister.
+
+Kullanıcı Markdown'ı sunucuda temizlenir. Link preview istemcisi IP-pinned,
+redirect-checked ve byte-capped'dir; upload'lar sniff/re-encode/size limitleriyle
+korunur. SQL parametreli sorgular kullanır; her istekte `x-request-id` vardır.
+Web bundle Google Fonts çağırmaz, WOFF2 fontlar same-origin sunulur ve CSP
+`font-src 'self' data:` ile sınırlıdır.
+
+## Sıkıcı kısımlar testli
+
+47 Rust testi, Clippy/format, web Vitest ve Playwright, Expo web E2E, Maestro/EAS
+native akışları, dependency/license/gitleaks kontrolleri ve izole yük kapıları
+CI'da çalışır. PR profili 1.000 SSE + 2.000 HTTP; soak profili 10.000 SSE +
+10.000 HTTP istektir. Üretime yük testi gönderilmez.
+
+## Yerelde çalıştır
+
+```bash
+git clone https://github.com/merbay-erp/burncpu.git
+cd burncpu
+cp .env.example .env
+docker compose -f docker-compose.dev.yml up -d --wait
+cargo run --release
+```
+
+İkinci terminalde:
+
+```bash
+cd web
+npm ci
+npm run dev
+```
+
+Kod MIT lisanslıdır. `burncpu` adı, logosu ve maskotu ayrı marka haklarına
+tabidir. Bu fikri büyütürseniz neleri basit tuttuğunuzu ve neleri bilinçli olarak
+dışarıda bıraktığınızı duymak isterim.

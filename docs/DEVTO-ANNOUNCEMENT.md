@@ -1,7 +1,7 @@
 ---
-title: "burncpu: A One-VPS Social Network Built for High-Signal Conversations"
+title: "burncpu: Building a One-VPS Social Network After Losing My Mastodon Account"
 published: false
-description: "How I built a small, self-hosted social platform with Rust, SolidJS, React Native and an intentionally boring operations model."
+description: "The story behind a self-hosted, open-source social platform built so anyone can run a community of their own."
 tags: rust, solidjs, reactnative, opensource
 cover_image: https://burncpu.com/og-card.png
 ---
@@ -11,9 +11,38 @@ cover_image: https://burncpu.com/og-card.png
 **Live demo:** [burncpu.com](https://burncpu.com)<br>
 **Source:** [github.com/merbay-erp/burncpu](https://github.com/merbay-erp/burncpu)
 
-The internet does not need another engagement-optimized feed. It needs more
-small places where people can write something thoughtful, find other builders,
-and leave without being measured every second.
+![burncpu — one VPS is enough](https://burncpu.com/og-card.png)
+
+## The story behind burncpu
+
+This project started with a quiet, unsettling moment: my Mastodon account was
+closed without warning.
+
+I am not writing this to litigate one platform's decision. Every service has
+moderation boundaries, and every community needs rules. What stayed with me was
+the feeling of losing the ability to understand, host and appeal the system
+around my own social identity. The posts, connections and context were suddenly
+somewhere I could no longer control.
+
+That experience made one question impossible to ignore: if social media is where
+our communities and work live, why can't more of us own the place where it runs?
+
+**burncpu is my answer.** It is an open-source blueprint for a social network
+that one person can run on one VPS. A small team can turn the same foundation
+into a sector-specific network for makers, researchers, educators, local
+communities or any group that needs its own rules, identity and moderation model.
+
+The point is not to build another attention machine. The point is to make
+publishing and community ownership possible for more people.
+
+## Freedom has to be operational
+
+For me, freedom is not only a slogan in a README. It means being able to inspect
+the request path, export and delete an account, understand why moderation acted,
+appeal a decision, and move the service to infrastructure I control. That is why
+the core is self-hosted, the code is MIT-licensed, the moderation path is
+auditable, and the one-VPS constraint is treated as a feature rather than an
+embarrassment.
 
 That is the idea behind **burncpu**: a deliberately compact social platform for
 people who still think before posting. The tagline is simple: **one VPS is

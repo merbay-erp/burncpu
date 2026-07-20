@@ -1,7 +1,40 @@
-# burncpu — Dev.to tanıtım taslağı
+# burncpu — Mastodon hesabımı kaybettikten sonra doğan tek-VPS sosyal ağ
 
 [English draft](DEVTO-ANNOUNCEMENT.md) · Bu dosya doğrudan Dev.to'ya yapıştırılabilir
 Türkçe sürümdür; front matter'da `published: false` bırakılmıştır.
+
+![burncpu — tek VPS yeter](https://burncpu.com/og-card.png)
+
+## Bu proje neden doğdu?
+
+Bu proje sakin ama sarsıcı bir deneyimle başladı: Mastodon hesabım herhangi bir
+uyarı olmadan kapatıldı.
+
+Bunu tek bir platformun kararını tartışmak için yazmıyorum. Her servisin kendi
+moderasyon sınırları ve her topluluğun uyması gereken kuralları var. Bende kalan
+asıl duygu, kendi sosyal kimliğimin etrafındaki sistemi anlayamamak, barındıramamak
+ve karara itiraz edememekti. Yazılarım, bağlantılarım ve bağlamım bir anda benim
+kontrolümün dışındaki bir yerde kaldı.
+
+Bu deneyim şu soruyu görmezden gelmeyi imkânsız hâle getirdi: Sosyal medya
+topluluklarımızın ve çalışmalarımızın yaşadığı yerse, neden daha fazla insan
+çalıştığı yeri kendisi çalıştıramasın?
+
+**burncpu bu soruya verdiğim cevap.** Bir kişinin tek VPS üzerinde çalıştırabileceği
+açık kaynaklı bir sosyal ağ temeli. Aynı yapı; üreticiler, araştırmacılar,
+eğitimciler, yerel topluluklar veya kendi kurallarına ve kimliğine ihtiyaç duyan
+her sektör için özel ağlara dönüştürülebilir.
+
+Amaç yeni bir dikkat/bağımlılık makinesi kurmak değil; insanların kendi sosyal
+alanını kurabilmesini mümkün kılmak.
+
+## Özgürlük operasyonel olmalı
+
+Özgürlük yalnızca README'de yazan bir slogan olmamalı. İsteğin sistemdeki yolunu
+inceleyebilmek, hesabı dışa aktarabilmek ve silebilmek, moderasyon kararının
+nedenini anlayabilmek, itiraz edebilmek ve servisi kontrol edilen altyapıya
+taşıyabilmek demek. Bu yüzden çekirdek self-hosted, kod MIT lisanslı, moderasyon
+izlenebilir ve tek VPS kısıtı bir eksik değil tasarım özelliği.
 
 ## Tek VPS ile yüksek sinyalli sosyal alan
 

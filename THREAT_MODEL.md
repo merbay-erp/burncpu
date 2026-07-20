@@ -1,7 +1,7 @@
 # burncpu — threat model
 
 > Live document. Updated as features land.
-> Last revised: 2026-06-02
+> Last revised: 2026-07-20
 
 ## Scope
 
@@ -10,12 +10,12 @@ single Postgres, single admin (initially). All assets covered:
 
 - Edge: Cloudflare (proxy, WAF rules, basic DDoS)
 - Origin: nginx (TLS termination, security headers, real-IP)
-- App: Rust/Axum on `127.0.0.1:3060`
+- App: Rust/Axum on container port `3050`, published only as host loopback `127.0.0.1:3060`
 - Data: Postgres 16, Redis 7, Meilisearch v1.10 (all on docker bridge)
 
-Federation (ActivityPub) and SMTP delivery are now implemented and in
-scope. Out of scope (current): media CDN, multi-admin RBAC, AI/heuristic
-spam filtering.
+Federation (ActivityPub), SMTP delivery and heuristic spam moderation are in
+scope. Out of scope (current): media CDN, multi-admin RBAC and learned
+AI/ML classification.
 
 ## Actors
 
@@ -31,14 +31,14 @@ spam filtering.
 ## Trust boundaries
 
 ```
-Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis (docker net)
+Internet ─► Cloudflare ─► nginx (TLS) ─► host loopback:3060 ─► Axum:3050 ─► PG/Redis
               [WAF]        [headers]       [auth]        [no public port]
 ```
 
 - **CF → nginx**: nginx trusts CF-Connecting-IP only from CF IP ranges
   (configured via `cloudflare/cloudflare-ips.conf`).
-- **nginx → app**: app trusts `CF-Connecting-IP` / `X-Real-IP` headers
-  because port 3060 is bound to 127.0.0.1 only.
+- **nginx → app**: nginx overwrites the forwarded client-IP headers and the
+  host publishes the container only on loopback `127.0.0.1:3060`.
 - **app → DB**: docker bridge `burncpu-net`. No public exposure of PG/Redis.
 
 ## Asset inventory & sensitivity
@@ -62,7 +62,7 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 
 | Threat | Vector | Mitigation |
 |--------|--------|------------|
-| Session hijack | Stolen cookie | HttpOnly + Secure + SameSite=Lax; UA/IP delta flag on session |
+| Session hijack | Stolen cookie | HttpOnly + Secure + SameSite=Lax; User-Agent changes raise a session flag and IP drift is retained for admin review |
 | Magic-link replay | Stolen email / MITM | One-shot (consumed_at), 15-min TTL, TLS-only delivery |
 | IP spoofing via headers | Forged X-Forwarded-For | nginx accepts CF headers only from CF IPs |
 | Account takeover via email change | Future feature | Pending: require re-verify of new email |
@@ -88,7 +88,7 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 | Threat | Vector | Mitigation |
 |--------|--------|------------|
 | Email enumeration on /auth/request | 200 vs 404 timing | Always returns 204; rate-limited per (IP, email) |
-| Token leak via logs | Magic link in URL → access log | Path `/auth/verify/{token}` is logged in audit_log; tokens are one-shot + short TTL. **Mitigation gap: rotate logs / consider masking** |
+| Token leak via logs | Magic link in URL → access log | Sensitive verify paths are redacted before audit persistence; tokens are one-shot, hashed at rest and short-lived |
 | Stack traces to client | Panic mid-request | `AppError` masks internals; `tracing` records details server-side |
 | PG/Redis exposure | Misconfigured port | Ports bound to 127.0.0.1 only; docker network isolated |
 | Cookie leak via Referer | Outbound link | `Referrer-Policy: no-referrer` set globally |
@@ -115,7 +115,7 @@ Internet ─► Cloudflare ─► nginx (TLS) ─► Axum (3060) ─► PG/Redis
 ## Specific risks accepted (for now)
 
 1. **Federation is live but young.** ActivityPub (HTTP Signatures, WebFinger, NodeInfo) is **enabled in production** (`FEDERATION_ENABLED=true`). It carries a long tail of abuse vectors (relay spam, remote-content cache, illegal content propagation); remote actor fetches are now size-capped via a streaming read (`net_safety::read_capped_bytes`), and an admin instance-level defederation blocklist (`federation_blocks`) lets a malicious host be cut off — its inbound activities are rejected and it is skipped on outbound fanout. The surface is still maturing; moderation tooling grows alongside it.
-2. **AI/ML spam classification is still future.** A first heuristic layer now exists — a trust gate sends brand-new accounts' top-level public posts to a moderation queue (`moderation_state='quarantine'`) for admin approval — on top of invite-gating and per-(IP, email) rate limits. A learned/scored classifier (`spam_score`) is the next layer.
+2. **Learned AI/ML classification is still future.** Production uses layered, explainable heuristics — account trust, link/domain reputation, mention/shouting signals, denylist, toxicity hints, account heat and report thresholds — with reversible quarantine, shadow-ban and suspension decisions. A learned classifier remains optional follow-up work.
 3. **No custom WAF rules beyond Cloudflare defaults.** Tailored rules need real traffic patterns to observe first.
 4. **Single admin / no fine-grained RBAC.** One admin role gated by 2FA; multi-admin separation of duties is future work.
 5. **No media CDN.** Uploads are served from the origin (EXIF-stripped, re-encoded, size-capped); a CDN is deferred.
@@ -166,7 +166,9 @@ live. The threat tables above reflect these as active mitigations.
 
 - Secrets only in `/opt/burncpu/.env` (chmod 600, root-owned).
 - `.env` and `*.env*` covered by `.gitignore`.
-- CI runs `cargo audit`, `cargo deny`, `gitleaks` on every push (see `.github/workflows/security.yml`).
+- CI runs RustSec/license/source checks, fmt, tests, Clippy, gitleaks, web/mobile
+  audits and builds, browser E2E and isolated SSE/HTTP load gates (see
+  `.github/workflows/security.yml` and `.github/workflows/load.yml`).
 - HSTS preload enabled (2 years).
 - TLS via Let's Encrypt, auto-renewed.
 

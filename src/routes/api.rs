@@ -47,7 +47,7 @@ pub fn router(_state: AppState) -> Router<AppState> {
                         "GET    /api/v1/feed":                 "personal home timeline (auth)",
                         "GET    /api/v1/feed/federated":       "federated explore timeline",
                         "GET    /api/v1/feed/videos":          "public video timeline",
-                        "GET    /api/v1/link_preview ?url=":   "Open Graph link preview (auth, cached)",
+                        "GET    /api/v1/link_preview ?url=":   "Open Graph link preview (anonymous or authenticated, cached; anonymous rate-limited)",
                         "GET    /api/v1/users/{username}":     "profile",
                         "GET    /api/v1/users/{username}/posts":     "author posts",
                         "GET    /api/v1/users/{username}/followers": "followers list",

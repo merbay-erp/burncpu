@@ -30,7 +30,9 @@ git push origin main
   it (least privilege).
 - **Concurrency.** `group: burncpu-deploy`, `cancel-in-progress: false` — runs
   serialize; a deploy never interrupts another.
-- **Timing.** Backend change ≈9 min (Rust rebuild); frontend-only ≈1 min.
+- **Timing.** Frontend-only deploys are usually a few minutes; a cold Rust
+  dependency rebuild can use the full 60-minute workflow budget. The runner
+  health-gates the container and then the public HTTPS path.
 
 ### What triggers a deploy
 
@@ -63,8 +65,10 @@ For a backend change, also sanity-check a route that exercises the new code
 └── .env            # secrets — chmod 600, root-owned, NEVER in git
 ```
 
-The app listens on `127.0.0.1:<BIND_ADDR port>`; nginx terminates TLS and
-proxies to it; Cloudflare fronts nginx on `:443`.
+The container listens on `0.0.0.0:3050`; production Docker publishes that port
+only to host loopback as `127.0.0.1:3060`. nginx terminates TLS and proxies to
+the loopback mapping; Cloudflare fronts nginx on `:443`. No application or
+data port is publicly reachable.
 
 ## Secrets
 
@@ -148,8 +152,14 @@ Runs on every push, every PR, and daily (06:17 UTC):
 |-----|------|------|
 | `cargo audit` | RustSec advisory DB | known-vuln crates |
 | `cargo deny` | advisories · licenses · bans · sources | supply-chain policy |
-| `build-check` | `cargo check` · `cargo test --no-run` · `clippy -D warnings` | compile + lint |
+| `build-check` | fmt · all-target tests · Clippy `-D warnings` | compile + lint |
+| `web-mobile` | npm audit · Vitest · production build · mobile typecheck/lint | client quality + dependency gate |
+| `web-mobile-e2e` | Playwright desktop/mobile browser flows | critical UI regressions |
 | `secret-scan` | gitleaks | committed secrets |
+
+`load.yml` separately runs the isolated 1k/2k pull-request gate and the
+weekly/manual 10k/10k SSE/HTTP soak profile. Its URL guard refuses
+`burncpu.com`, so load traffic cannot accidentally target production.
 
 A red `security.yml` should block merge.
 
@@ -191,8 +201,10 @@ preload hints for the critical text faces (including Turkish Latin-ext) and Font
 `font-display: swap`. `npm run verify:font-assets` fails the build if a Google URL,
 external CSS font URL, missing preload asset or non-swap font declaration appears.
 
-The `font-src 'self' data:` CSP is therefore sufficient; no `fonts.googleapis.com`
-or `fonts.gstatic.com` exception is allowed.
+The `font-src 'self' data:` CSP is therefore sufficient; no
+`fonts.googleapis.com` or `fonts.gstatic.com` exception is allowed. The live
+BurnCPU nginx server and SPA snippet were synchronized to this policy on
+2026-07-14 and must be re-checked after any host rebuild.
 
 > ⚠️ **CSP / inline-script coupling.** `web/index.html` has one **inline**
 > theme-init script (runs before paint to avoid a theme flash). Under CSP it
@@ -211,7 +223,8 @@ or `fonts.gstatic.com` exception is allowed.
 > Then `nginx -t && systemctl reload nginx`, and verify:
 > `curl -sI --resolve burncpu.com:443:127.0.0.1 https://burncpu.com/ | grep -i content-security`.
 > The snippet lives outside the repo (host config), so it is **not** redeployed
-> by CI — edit it on the host.
+> by CI — edit it on the host, keep a root-owned backup, run `nginx -t`, reload,
+> and verify the public header before closing the change.
 
 ## Incident response
 

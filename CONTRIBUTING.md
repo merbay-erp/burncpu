@@ -3,9 +3,10 @@
 burncpu'ya katkıda bulunmak istediğin için teşekkürler. 🐢
 Bu doküman geliştirme ortamını, kod standartlarını ve PR sürecini anlatır.
 
-> **TL;DR:** `cargo clippy --all-targets -- -D warnings` ve
-> `cd web && npx tsc -b && npm run build` temiz geçmeli; commit'ler küçük ve
-> odaklı olmalı; UI değişikliklerini açık + koyu temada ve mobilde doğrula.
+> **TL;DR:** `cargo fmt --all -- --check`, `cargo test --all-targets`,
+> `cargo clippy --all-targets --all-features -- -D warnings`, web build/audit
+> ve mobile typecheck/lint temiz geçmeli; commit'ler küçük ve odaklı olmalı;
+> UI değişikliklerini açık + koyu temada ve mobilde doğrula.
 
 ## İçindekiler
 
@@ -31,7 +32,7 @@ Taciz, spam ve kötü niyet hoş görülmez. Tam metin →
 | Araç | Sürüm |
 |------|-------|
 | Rust | `rustup` güncel (edition 2024) |
-| Node.js | 20+ |
+| Node.js | 20+ (CI: 24.3) |
 | PostgreSQL | 16 |
 | Redis | 7 |
 | Meilisearch | v1.10 |
@@ -49,7 +50,7 @@ curl localhost:3050/healthz
 
 # Frontend (ayrı terminal)
 cd web
-npm install
+npm ci
 npm run dev                   # http://localhost:5173
 ```
 
@@ -61,7 +62,8 @@ Detay: [web/README.md](web/README.md).
 
 **Rust**
 - `cargo fmt` ile formatla.
-- **`cargo clippy --all-targets -- -D warnings` sıfır uyarı ile geçmeli.**
+- **`cargo clippy --all-targets --all-features --locked -- -D warnings` sıfır
+  uyarı ile geçmeli.**
 - SQL **her zaman** sqlx parametreli bind kullanır — asla string interpolation.
 - Handler'lar ince olsun; `Result<T, AppError>` döndür, internal sızdırma.
 - Uzun işleri (indexleme, fanout, e-posta) `tokio::spawn` ile arka plana al.
@@ -83,11 +85,25 @@ Detay: [web/README.md](web/README.md).
 
 ```bash
 # Backend
-cargo clippy --all-targets -- -D warnings
-cargo test                    # (varsa) birim/entegrasyon testleri
+cargo fmt --all -- --check
+cargo test --all-targets --locked
+cargo clippy --all-targets --all-features --locked -- -D warnings
 
 # Frontend
-cd web && npx tsc -b && npm run build
+(cd web && npm ci && npm audit --audit-level=high && npm test && npm run build)
+
+# Web browser E2E (desktop + mobile viewport)
+(cd web && npx playwright install chromium webkit && npm run test:e2e)
+
+# Mobile (Expo web + Android/iOS viewports)
+(cd mobile && npm ci && npm audit --audit-level=high && npx tsc --noEmit && npm run lint && npm run test:e2e)
+
+# High-concurrency gate (after building/running the app on port 3050;
+# see docs/LOAD_TESTING.md for the complete isolated command)
+docker compose -f docker-compose.dev.yml up -d --wait
+docker compose -f docker-compose.dev.yml exec -T postgres \
+  psql -U burncpu -d burncpu < load/seed.sql
+node load/high-concurrency.mjs
 ```
 
 **UI değişiklikleri için** — burncpu görsel kaliteye önem verir. Bir UI PR'ı
@@ -114,12 +130,13 @@ with fixed positioning instead.
 
 ## Pull request süreci
 
-1. `main`'den bir dal aç: `git checkout -b kisa-aciklayici-ad`.
+1. `main`'den bir dal aç: `git switch -c codex/kisa-aciklayici-ad`.
 2. Değişikliğini yap; yukarıdaki kontrolleri (clippy/tsc/build) yerel çalıştır.
 3. PR aç — şablon ([.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md))
    neyi/niçin değiştirdiğini ve nasıl doğruladığını sorar.
-4. CI yeşil olmalı: `security.yml` (cargo audit/deny, gitleaks) ve
-   gerekiyorsa build.
+4. CI yeşil olmalı: `security.yml` (RustSec/license/source, fmt/test/clippy,
+   gitleaks, web/mobile audit-build-lint ve browser E2E) ve backend/load
+   değişikliklerinde `load.yml`.
 5. Gözden geçirme sonrası `main`'e merge edilir ve self-hosted runner
    otomatik deploy eder.
 

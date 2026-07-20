@@ -6,13 +6,13 @@
     "summary": "Public HTTP API for the burncpu social platform.",
     "description": "Machine-readable description of the burncpu API.\n\n## Authentication\n\nTwo schemes are supported:\n\n- **cookieAuth** — the `burncpu_session` HttpOnly cookie set by the magic-link\n  flow (`/auth/verify/{token}`). Required for all account-sensitive and admin\n  endpoints. State-changing requests are also CSRF-protected (same-origin).\n- **bearerAuth** — `Authorization: Bearer <token>` using an API token from\n  `POST /tokens`. Works on scoped, non-session endpoints only (e.g. read\n  timelines, create posts); it does **not** satisfy admin or 2FA-gated routes.\n\nEndpoints with no `security` are public. The `version` field is stamped from\nthe running server build.",
     "contact": { "name": "burncpu", "url": "https://burncpu.com" },
-    "license": { "name": "Proprietary" }
+    "license": { "name": "MIT", "url": "https://github.com/merbay-erp/burncpu/blob/main/LICENSE" }
   },
   "servers": [
     { "url": "https://burncpu.com/api/v1", "description": "Production" }
   ],
   "tags": [
-    { "name": "Auth", "description": "Passwordless magic-link auth + TOTP 2FA" },
+    { "name": "Auth", "description": "Passwordless magic-link, passkeys and TOTP 2FA" },
     { "name": "Posts", "description": "Create, read, react, reply, repost" },
     { "name": "Feed", "description": "Personal home timeline" },
     { "name": "Users", "description": "Profiles, follows, account" },
@@ -27,6 +27,7 @@
     { "name": "Tokens", "description": "API bearer tokens" },
     { "name": "Webhooks", "description": "Outgoing event webhooks" },
     { "name": "Reports", "description": "User reports" },
+    { "name": "Appeals", "description": "Post and account moderation appeals" },
     { "name": "Admin", "description": "Moderation + operations (admin session)" },
     { "name": "OAuth", "description": "Social login (Google, GitHub, Microsoft)" },
     { "name": "Push", "description": "Web Push + native device tokens" }
@@ -97,6 +98,10 @@
       "patch": { "tags": ["Posts"], "summary": "Edit a post (author only)", "description": "Sets `edited_at`.", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["body"], "properties": { "body": { "type": "string" }, "content_warning": { "type": "string" } } } } } }, "responses": { "200": { "description": "Updated post", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } } },
       "delete": { "tags": ["Posts"], "summary": "Soft-delete a post (author or admin)", "responses": { "204": { "description": "Deleted." }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } } }
     },
+    "/posts/{id}/restore": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "post": { "tags": ["Posts"], "summary": "Restore your soft-deleted post", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Restored post", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
     "/posts/{id}/react": {
       "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
       "post": { "tags": ["Posts"], "summary": "React with an emoji", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["emoji"], "properties": { "emoji": { "type": "string" } } } } } }, "responses": { "200": { "description": "Reaction recorded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReactionTally" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
@@ -133,7 +138,7 @@
       "get": { "tags": ["Feed"], "summary": "Federated explore timeline", "security": [], "parameters": [ { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Before" } ], "responses": { "200": { "description": "Remote posts ingested from ActivityPub", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FederatedTimeline" } } } } } }
     },
     "/link_preview": {
-      "get": { "tags": ["Posts"], "summary": "Open Graph link preview (cached)", "parameters": [ { "name": "url", "in": "query", "required": true, "schema": { "type": "string", "format": "uri" } } ], "responses": { "200": { "description": "OG metadata", "content": { "application/json": { "schema": { "type": "object", "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "image": { "type": "string" }, "site_name": { "type": "string" } } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+      "get": { "tags": ["Posts"], "summary": "Open Graph link preview (cached)", "security": [], "parameters": [ { "name": "url", "in": "query", "required": true, "schema": { "type": "string", "format": "uri" } } ], "responses": { "200": { "description": "OG metadata", "content": { "application/json": { "schema": { "type": "object", "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "image": { "type": "string" }, "site_name": { "type": "string" } } } } } }, "429": { "$ref": "#/components/responses/RateLimited" } } }
     },
 
     "/users/{username}": {
@@ -160,6 +165,9 @@
     "/users/lookup": {
       "get": { "tags": ["Users"], "summary": "Username typeahead", "parameters": [ { "name": "prefix", "in": "query", "required": true, "schema": { "type": "string" } } ], "responses": { "200": { "description": "Matches", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Author" } } } } } } }
     },
+    "/users/suggestions": {
+      "get": { "tags": ["Users"], "summary": "Suggested active accounts", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Suggestions", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Author" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
     "/users/me": {
       "patch": { "tags": ["Users"], "summary": "Edit your profile", "description": "An external https avatar_url is re-hosted through the media pipeline.", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "display_name": { "type": "string" }, "bio": { "type": "string" }, "avatar_url": { "type": "string", "format": "uri" } } } } } }, "responses": { "200": { "description": "Updated profile", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Profile" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
       "delete": { "tags": ["Users"], "summary": "Delete your account", "description": "Requires the `X-Confirm-Username` header to match.", "security": [ { "cookieAuth": [] } ], "parameters": [ { "name": "X-Confirm-Username", "in": "header", "required": true, "schema": { "type": "string" } } ], "responses": { "204": { "description": "Account deleted." }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
@@ -176,6 +184,12 @@
     },
     "/users/me/export": {
       "get": { "tags": ["Users"], "summary": "GDPR data export (JSON)", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Full account export", "content": { "application/json": { "schema": { "type": "object" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/users/me/trash": {
+      "get": { "tags": ["Users"], "summary": "Your soft-deleted posts", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Trash", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/users/me/activity": {
+      "get": { "tags": ["Users"], "summary": "Your account activity", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Activity summary", "content": { "application/json": { "schema": { "type": "object" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
     },
     "/users/me/pin/{post_id}": {
       "parameters": [ { "name": "post_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } ],
@@ -373,6 +387,9 @@
       "get": { "tags": ["Reports"], "summary": "Own posts that can be appealed", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Eligible posts", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
     },
 
+    "/admin/stats": {
+      "get": { "tags": ["Admin"], "summary": "Instance and operational statistics", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Stats", "content": { "application/json": { "schema": { "type": "object" } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
     "/admin/posts": {
       "get": { "tags": ["Admin"], "summary": "Moderation queue", "security": [ { "cookieAuth": [] } ], "parameters": [ { "name": "state", "in": "query", "schema": { "type": "string", "enum": ["live", "quarantine", "removed"] } }, { "$ref": "#/components/parameters/Limit" } ], "responses": { "200": { "description": "Posts", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/AdminPost" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
     },
@@ -386,6 +403,10 @@
     "/admin/users/{id}": {
       "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
       "patch": { "tags": ["Admin"], "summary": "Suspend / unsuspend a user", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "role": { "type": "string" } } } } } }, "responses": { "204": { "description": "Updated." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/users/{id}/shadow": {
+      "parameters": [ { "$ref": "#/components/parameters/IdPath" } ],
+      "patch": { "tags": ["Admin"], "summary": "Toggle a reversible shadow-ban", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["shadow_banned"], "properties": { "shadow_banned": { "type": "boolean" }, "reason": { "type": "string" } } } } } }, "responses": { "204": { "description": "Updated." }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } } }
     },
     "/admin/login_attempts": {
       "get": { "tags": ["Admin"], "summary": "Recent login attempts", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Attempts", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } }
@@ -422,6 +443,15 @@
     "/admin/federation/blocks/{host}": {
       "parameters": [ { "name": "host", "in": "path", "required": true, "schema": { "type": "string" } } ],
       "delete": { "tags": ["Admin"], "summary": "Re-federate (unblock) an instance", "security": [ { "cookieAuth": [] } ], "responses": { "204": { "description": "Unblocked." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/federation/relays": {
+      "get": { "tags": ["Admin"], "summary": "List relay subscriptions", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Relay subscriptions", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } },
+      "post": { "tags": ["Admin"], "summary": "Subscribe to a relay actor", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["actor_uri"], "properties": { "actor_uri": { "type": "string", "format": "uri" } } } } } }, "responses": { "202": { "description": "Follow sent; activation awaits relay Accept." }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } } },
+      "delete": { "tags": ["Admin"], "summary": "Remove a relay subscription", "security": [ { "cookieAuth": [] } ], "parameters": [ { "name": "actor_uri", "in": "query", "required": true, "schema": { "type": "string", "format": "uri" } } ], "responses": { "204": { "description": "Removed." }, "403": { "$ref": "#/components/responses/Forbidden" } } }
+    },
+    "/admin/federation/remote_posts": {
+      "get": { "tags": ["Admin"], "summary": "List ingested remote posts", "security": [ { "cookieAuth": [] } ], "responses": { "200": { "description": "Remote posts", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } },
+      "patch": { "tags": ["Admin"], "summary": "Hide or show an ingested remote post", "security": [ { "cookieAuth": [] } ], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["uri", "hidden"], "properties": { "uri": { "type": "string", "format": "uri" }, "hidden": { "type": "boolean" } } } } } }, "responses": { "204": { "description": "Updated." }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } } }
     }
   },
   "components": {

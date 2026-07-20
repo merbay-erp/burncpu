@@ -2,7 +2,7 @@
 
 > How the pieces fit. Companion to the [README](README.md),
 > [API reference](docs/API.md), and [threat model](THREAT_MODEL.md).
-> Last revised: 2026-06-02.
+> Last revised: 2026-07-20.
 
 The guiding constraint is **one VPS**. Every design choice flows from it:
 a single binary, a single Postgres, an in-process broadcast bus instead of
@@ -15,7 +15,7 @@ Scale vertically and stay legible.
                         ┌────────────────────────────────────────────┐
   Internet ─► Cloudflare │ nginx (:443, TLS, security headers, real-IP)│
               [WAF/DDoS] └───────────────┬────────────────────────────┘
-                                         │ proxy_pass 127.0.0.1:3060
+                                         │ proxy_pass 127.0.0.1:3060 (host loopback)
                             ┌────────────▼─────────────┐
                             │   Axum app (single bin)   │
                             │  routes · middleware · SSE │
@@ -31,10 +31,11 @@ Scale vertically and stay legible.
 - **Edge** — Cloudflare proxies `:443` and provides WAF + basic DDoS.
 - **Origin** — nginx terminates TLS, sets security headers, forwards the
   real client IP (`CF-Connecting-IP`, trusted only from Cloudflare ranges).
-- **App** — one Rust/Axum binary on `127.0.0.1:3060`. Not publicly bound.
+- **App** — one Rust/Axum binary. The production compose publishes its
+  container port `3050` to host loopback `127.0.0.1:3060`; it is never public.
 - **Data** — Postgres (source of truth), Redis (rate-limit + ephemeral
-  lookups), Meilisearch (typo-tolerant search). All on a private docker
-  bridge with no exposed ports.
+  lookups), Meilisearch (typo-tolerant search). All live on a private Docker
+  bridge with no public ports.
 
 ## 2. Request lifecycle
 
@@ -111,6 +112,13 @@ sqlx migrations in `migrations/`, run automatically on startup.
 | `0010_safety` | blocks, mutes, reports |
 | `0011_token_scopes` | scoped API token grants |
 | `0012_report_dedupe_and_indexes` | report dedupe + hot-path indexes |
+| `0013`–`0019` | encrypted webhook secrets/deliveries, hashtag follows, federation blocks, WebAuthn, post edits, device push tokens |
+| `0020`–`0025` | OAuth identities, DM media/reactions/clear, video media, hashtag index, transcode queue |
+| `0026`–`0036` | scale indexes, counter triggers, account heat, link reputation, shadow-ban, appeals, blocked media, denormalized counts, partitions, trending materialized view |
+| `0037`–`0040` | account appeals, remote federation posts, instance actor/relay controls, remote metadata and video indexes |
+
+The repository currently ships migration `0040_remote_metadata_and_video_index`;
+the application runs all pending migrations before serving traffic.
 
 Principles: UUID primary keys, `created_at`/`deleted_at` timestamps
 (soft-delete via `deleted_at`), JSONB for flexible metadata, and
@@ -217,13 +225,18 @@ A SolidJS SPA in `web/` (TypeScript, Vite, Tailwind). See
 
 ## 11. Deployment & CI
 
-Two GitHub Actions workflows:
+Three GitHub Actions workflows:
 
 - **`deploy.yml`** — on push to `main`, a **self-hosted runner** on VPS3 runs
   `deploy-burncpu.sh` (builds backend + frontend, runs migrations, restarts),
-  then verifies `/healthz`. Backend changes ≈9 min; frontend-only ≈1 min.
-- **`security.yml`** — `cargo audit`, `cargo deny`, and `gitleaks` on every
-  push.
+  then verifies `/healthz`. Frontend-only changes usually finish in a few
+  minutes; a cold Rust dependency rebuild can use the 60-minute job budget.
+- **`security.yml`** — RustSec audit, license/source policy, fmt, all-target
+  tests, Clippy `-D warnings`, gitleaks, web/mobile audits and builds, plus
+  browser E2E for desktop and mobile viewports.
+- **`load.yml`** — isolated, pinned dependency stack with a pull-request gate
+  (1,000 SSE + 2,000 HTTP requests) and a weekly/manual soak profile
+  (10,000 SSE + 10,000 HTTP requests). The runner refuses production domains.
 
 **Verifying a deploy:** `/healthz` returns `200`, and the live JS bundle hash
 (`index-*.js` referenced by `/`) matches the locally built `web/dist`.
@@ -243,6 +256,9 @@ Full operations runbook (host layout, backup/restore, rollback) →
   retention jobs in `cleanup.rs`.
 - **Health** — `/healthz` pings Postgres + Redis; returns `503` if unhealthy.
 - **Backups** — nightly `pg_dump` with 7-day rotation.
+- **Off-site backup** — the operator pulls the backup directory to a separate
+  workstation with 90-day local retention; restore drills are documented in
+  [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 - **Incident response** — see [THREAT_MODEL.md → Incident response](THREAT_MODEL.md#incident-response).
 
 ---

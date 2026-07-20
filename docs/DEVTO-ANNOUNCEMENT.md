@@ -3,11 +3,10 @@ title: "burncpu: A One-VPS Social Network Built for High-Signal Conversations"
 published: false
 description: "How I built a small, self-hosted social platform with Rust, SolidJS, React Native and an intentionally boring operations model."
 tags: rust, solidjs, reactnative, opensource
+cover_image: https://burncpu.com/og-card.png
 ---
 
 🇹🇷 [Türkçe sürüm](https://github.com/merbay-erp/burncpu/blob/main/docs/DEVTO-ANNOUNCEMENT.tr.md)
-
-# burncpu: a one-VPS social network built for high-signal conversations
 
 **Live demo:** [burncpu.com](https://burncpu.com)<br>
 **Source:** [github.com/merbay-erp/burncpu](https://github.com/merbay-erp/burncpu)

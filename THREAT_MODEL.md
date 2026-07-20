@@ -2,6 +2,8 @@
 
 > Live document. Updated as features land.
 > Last revised: 2026-07-20
+>
+> 🇹🇷 [Türkçe sürüm](THREAT_MODEL.tr.md)
 
 ## Scope
 

@@ -5,6 +5,8 @@ description: "How I built a small, self-hosted social platform with Rust, SolidJ
 tags: rust, solidjs, reactnative, opensource
 ---
 
+🇹🇷 [Türkçe sürüm](DEVTO-ANNOUNCEMENT.tr.md)
+
 # burncpu: a one-VPS social network built for high-signal conversations
 
 **Live demo:** [burncpu.com](https://burncpu.com)<br>

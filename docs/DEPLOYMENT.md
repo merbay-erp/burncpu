@@ -1,5 +1,7 @@
 # burncpu — Deployment & Operations
 
+🇹🇷 [Türkçe sürüm](DEPLOYMENT.tr.md)
+
 How burncpu ships and how to operate it. Complements
 [ARCHITECTURE.md](../ARCHITECTURE.md) and [CONFIGURATION.md](CONFIGURATION.md).
 

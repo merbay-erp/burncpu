@@ -1,44 +1,30 @@
-# Davranış Kuralları
+# Code of Conduct
 
-burncpu, **low ego, high signal** bir topluluk olmayı hedefler. Bu doküman
-hem bu repoda hem burncpu.com üzerinde geçerli temel beklentileri özetler.
+burncpu aims to be a **low-ego, high-signal** community. These rules apply to
+the repository and to burncpu.com. [Türkçe](CODE_OF_CONDUCT.tr.md)
 
-## Özet
+## Expected behavior
 
-İnsan ol. Düşünerek yaz. Saygılı, somut ve yapıcı ol.
+- Be human, thoughtful, respectful and concrete.
+- Give good-faith feedback and focus disagreements on ideas, not people.
+- Be patient with newcomers and kind when someone makes a mistake.
 
-## Kabul edilen
+## Unacceptable behavior
 
-- Net, iyi niyetli, somut geri bildirim.
-- Anlaşmazlıkta fikre odaklanmak, kişiye değil.
-- Hata yaptığında kabul etmek; başkasının hatasında nazik olmak.
-- Yeni başlayanlara sabır.
+- Harassment, insults, personal attacks, hate speech or discrimination based on
+  gender, origin, belief, orientation, disability or any other protected trait.
+- Spam, AI-generated engagement farming, manipulation or doxxing.
+- Repeatedly destructive or bad-faith participation.
 
-## Kabul edilmeyen
+These rules cover issues, pull requests, comments, commit messages and content
+or interactions on burncpu.com.
 
-- Taciz, hakaret, kişisel saldırı, nefret söylemi.
-- Cinsiyet, köken, inanç, yönelim, engellilik vb. üzerinden ayrımcılık.
-- Spam, AI-üretimi engagement farming, manipülasyon.
-- Başkasının özel bilgisini izinsiz paylaşmak (doxxing).
-- Sürekli yıkıcı / kötü niyetli davranış (trolling).
+## Enforcement
 
-## Kapsam
+Report violations privately to **mustafa@mustafaerbay.com.tr**. Reports are kept
+confidential. Depending on severity and context, maintainers may issue a private
+warning, apply a temporary interaction restriction or permanently ban an account.
+Actions are proportionate and presume good faith.
 
-Bu kurallar tüm proje alanlarında geçerlidir: issue'lar, pull request'ler,
-yorumlar, commit mesajları ve burncpu.com üzerindeki içerik & etkileşim.
-
-## Uygulama
-
-İhlalleri **mustafa@mustafaerbay.com.tr** adresine bildirebilirsiniz.
-Bildirimler gizli tutulur. Yöneticilik, duruma göre şu adımları uygular:
-
-1. **Uyarı** — özel, açıklayıcı bir uyarı.
-2. **Geçici kısıtlama** — etkileşimden geçici men.
-3. **Kalıcı men** — tekrarlayan veya ağır ihlallerde.
-
-Kararlar orantılıdır ve iyi niyet esas alınır.
-
-## İlham
-
-Bu metin [Contributor Covenant](https://www.contributor-covenant.org/)
-ruhundan esinlenmiştir; burncpu'nun sade diline uyarlanmıştır.
+This document is inspired by the [Contributor Covenant](https://www.contributor-covenant.org/)
+and adapted to burncpu's concise style.

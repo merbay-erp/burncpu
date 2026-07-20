@@ -1,5 +1,7 @@
 # High-concurrency load testing
 
+🇹🇷 [Türkçe sürüm](LOAD_TESTING.tr.md)
+
 The load gate runs against an isolated local production build. It never sends
 synthetic traffic to `burncpu.com`.
 

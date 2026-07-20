@@ -1,5 +1,7 @@
 # burncpu — API Reference
 
+🇹🇷 [Türkçe sürüm](API.tr.md)
+
 Base URL: `https://burncpu.com/api/v1`
 Companion to the [README](../README.md) and [ARCHITECTURE](../ARCHITECTURE.md).
 The machine-readable contract is also available at

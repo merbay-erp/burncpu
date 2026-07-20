@@ -1,5 +1,7 @@
 # burncpu — web
 
+🇹🇷 [Türkçe sürüm](README.tr.md)
+
 The SolidJS frontend. A small, reactive SPA served by nginx in production and
 proxied to the live API in development.
 

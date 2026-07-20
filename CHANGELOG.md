@@ -1,5 +1,7 @@
 # Changelog
 
+> 🇹🇷 [Türkçe özet](CHANGELOG.tr.md)
+
 All notable changes to burncpu are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); the project is pre-1.0 and
 ships continuously to [burncpu.com](https://burncpu.com) from `main`.
@@ -121,3 +123,6 @@ ships continuously to [burncpu.com](https://burncpu.com) from `main`.
 ---
 
 [Unreleased]: https://github.com/merbay-erp/burncpu/compare/main...HEAD
+# Changelog
+
+> 🇹🇷 [Türkçe özet](CHANGELOG.tr.md)

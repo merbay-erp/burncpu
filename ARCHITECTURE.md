@@ -3,6 +3,8 @@
 > How the pieces fit. Companion to the [README](README.md),
 > [API reference](docs/API.md), and [threat model](THREAT_MODEL.md).
 > Last revised: 2026-07-20.
+>
+> 🇹🇷 [Türkçe sürüm](ARCHITECTURE.tr.md)
 
 The guiding constraint is **one VPS**. Every design choice flows from it:
 a single binary, a single Postgres, an in-process broadcast bus instead of

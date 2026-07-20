@@ -1,5 +1,7 @@
 # burncpu — Configuration
 
+🇹🇷 [Türkçe sürüm](CONFIGURATION.tr.md)
+
 All runtime configuration comes from **environment variables**. Locally,
 `cargo run` loads a project-root `.env` (via `dotenvy`); in production systemd
 provides them through `EnvironmentFile=/opt/burncpu/.env`.

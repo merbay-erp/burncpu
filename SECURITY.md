@@ -1,60 +1,40 @@
-# Güvenlik Politikası
+# Security policy
 
-Bir güvenlik açığı keşfettiyseniz, **lütfen GitHub Issue açmayın**.
+Please do **not** open a public GitHub issue for a vulnerability. Email
+**mustafa@mustafaerbay.com.tr** instead. [Türkçe](SECURITY.tr.md)
 
-## Bildirim
+If possible, encrypt the report with the maintainer's key at
+[keys.openpgp.org](https://keys.openpgp.org/search?q=mustafa@mustafaerbay.com.tr).
 
-E-mail: **mustafa@mustafaerbay.com.tr**
+## Response targets
 
-Mümkünse mesajı PGP ile şifreleyin (anahtar [keys.openpgp.org](https://keys.openpgp.org/search?q=mustafa@mustafaerbay.com.tr) üzerinden).
+| Stage | Target |
+|---|---|
+| Initial acknowledgement | 48 hours |
+| Triage and reproduction | 1 week |
+| Fix and deployment | severity-dependent; critical issues target 72 hours |
 
-## Beklenen yanıt süresi
+## In scope
 
-| Aşama | Süre |
-|-------|------|
-| İlk yanıt | 48 saat |
-| Triage + reproduce | 1 hafta |
-| Fix + deploy | Severity'ye bağlı (kritik: 72 saat) |
+RCE, SQL injection, XSS, SSRF, authentication bypass, magic-link/session token
+leak or replay, moderation bypass and rate-limit bypass affecting
+`https://burncpu.com`.
 
-## Kapsam
+## Out of scope
 
-**Dahil:**
-- `https://burncpu.com` üzerindeki herhangi bir RCE / SQLi / XSS / SSRF / auth bypass
-- Magic-link veya session token leak / fixation / replay
-- AI moderation bypass (spam yayınlama yolu)
-- Rate limiting bypass
+Spam reports (use the in-app flag), DoS/DDoS, public CVEs in third-party
+libraries before upstream coordination, social engineering and physical attacks.
 
-**Hariç:**
-- Spam içerik raporu (oradan flag butonu kullan)
-- DoS / DDoS (Cloudflare WAF zaten karşılıyor)
-- 3rd party kütüphanedeki public CVE'ler (önce upstream'e bildir)
-- Sosyal mühendislik / fiziksel saldırı
+## Safe harbor
 
-## Güvenli liman (safe harbor)
+Good-faith research is welcome when you use only your own test account, do not
+access or alter other users' data, do not harm confidentiality/integrity/
+availability, do not run automated load or DoS tests, and allow coordinated
+disclosure time before publishing. Raw scanner output without context or a
+reproducible impact is not actionable.
 
-İyi niyetli güvenlik araştırması memnuniyetle karşılanır. Aşağıdaki
-kurallara uyduğunuz sürece, bildiriminizi yasal işlem başlatmadan
-karşılarız:
+See [THREAT_MODEL.md](THREAT_MODEL.md) for trust boundaries and accepted risks.
 
-- Yalnızca **kendi** test hesabınızla çalışın; başka kullanıcıların
-  verisine erişmeyin, değiştirmeyin, sızdırmayın.
-- Gizlilik / veri bütünlüğü / hizmet sürekliliğini bozmayın
-  (otomatik yük testi / DoS yapmayın).
-- Açığı kamuya açıklamadan önce bize **koordineli açıklama** süresi tanıyın
-  (varsayılan: fix + deploy sonrası).
+## Hall of fame
 
-## Yapay zeka / otomatik tarama
-
-Düşük-sinyalli, otomatik tarayıcı çıktısı (örn. ham ZAP/nuclei raporu)
-**bağlam ve doğrulama olmadan** kabul edilmez. Gerçek bir etki ve net bir
-yeniden-üretim adımı paylaşın.
-
-## Mimari & kapsam
-
-Sistem güven sınırları ve kabul edilen riskler için
-[THREAT_MODEL.md](THREAT_MODEL.md)'e bakın.
-
-## Hall of Fame
-
-Geçerli güvenlik bildiriminde bulunanlar burada listelenecek.
-(Şu an boş — siz ilk olabilirsiniz 🐢)
+Valid reporters will be listed here. (Currently empty — you could be first. 🐢)

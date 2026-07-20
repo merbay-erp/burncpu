@@ -1,7 +1,7 @@
 ---
-title: "burncpu: Building a One-VPS Social Network After Losing My Mastodon Account"
+title: "I Lost My Mastodon Account — So I Built a Social Network That Fits on One VPS"
 published: false
-description: "The story behind a self-hosted, open-source social platform built so anyone can run a community of their own."
+description: "The origin story of a self-hosted, open-source social platform built so anyone can run a community of their own."
 tags: rust, solidjs, reactnative, opensource
 cover_image: https://burncpu.com/og-card.png
 ---
@@ -13,9 +13,11 @@ cover_image: https://burncpu.com/og-card.png
 
 ![burncpu — one VPS is enough](https://burncpu.com/og-card.png)
 
-## The story behind burncpu
+> I didn't want another feed. I wanted an exit.
 
-This project started with a quiet, unsettling moment: my Mastodon account was
+## The moment that started it
+
+This project began with a quiet, unsettling moment: my Mastodon account was
 closed without warning.
 
 I am not writing this to litigate one platform's decision. Every service has
@@ -24,35 +26,51 @@ the feeling of losing the ability to understand, host and appeal the system
 around my own social identity. The posts, connections and context were suddenly
 somewhere I could no longer control.
 
-That experience made one question impossible to ignore: if social media is where
-our communities and work live, why can't more of us own the place where it runs?
+That experience made one question impossible to ignore:
+
+> If social media is where our communities and work live, why can't more of us
+> own the place where it runs?
 
 **burncpu is my answer.** It is an open-source blueprint for a social network
 that one person can run on one VPS. A small team can turn the same foundation
 into a sector-specific network for makers, researchers, educators, local
 communities or any group that needs its own rules, identity and moderation model.
 
-The point is not to build another attention machine. The point is to make
-publishing and community ownership possible for more people.
+The goal is not another attention machine. The goal is to make publishing and
+community ownership possible for more people.
 
 ## Freedom has to be operational
 
-For me, freedom is not only a slogan in a README. It means being able to inspect
-the request path, export and delete an account, understand why moderation acted,
-appeal a decision, and move the service to infrastructure I control. That is why
-the core is self-hosted, the code is MIT-licensed, the moderation path is
-auditable, and the one-VPS constraint is treated as a feature rather than an
-embarrassment.
+For me, freedom is not only a slogan in a README. It means being able to:
 
-That is the idea behind **burncpu**: a deliberately compact social platform for
-people who still think before posting. The tagline is simple: **one VPS is
-enough**.
+- inspect the request path and the trust boundaries;
+- export, delete and move your account data;
+- understand why moderation acted and appeal a decision; and
+- run the service on infrastructure you control.
 
-This is not a claim that one server can replace every distributed system. It is
-a design constraint that keeps the system understandable, affordable and
-operable by one person.
+That is why burncpu keeps the core self-hosted, releases the code under the MIT
+license, records moderation decisions, and treats the one-VPS constraint as a
+feature rather than an embarrassment.
 
-## The architecture is intentionally boring
+## One foundation, many communities
+
+The same foundation can serve very different communities without forcing them
+into one global feed. Imagine a network for:
+
+- independent makers and small product teams;
+- researchers who want a focused, low-noise discussion space;
+- teachers, students and local learning communities;
+- professional associations with their own moderation rules; or
+- a neighbourhood, event or organisation that wants to own its social layer.
+
+The important part is not the logo or the default colour palette. It is the
+ability to fork the rules, run the service, and decide what “healthy
+conversation” means for the people who use it.
+
+## Why one VPS?
+
+“One VPS is enough” is an engineering constraint, not a claim that every system
+should stay small forever. It keeps the first deployment legible:
 
 ```text
 Cloudflare
@@ -74,18 +92,17 @@ The core is self-hosted on the VPS. Cloudflare, SMTP and optional OAuth
 providers are explicit integration boundaries, not hidden dependencies in the
 data path.
 
-## What users can actually do
+## What people can actually do
 
 - Sign in with a one-shot magic link, passkey or optional OAuth provider.
-- Write sanitized Markdown posts, replies and reposts.
-- Follow people and hashtags, search public posts, and browse trending topics.
+- Write sanitised Markdown posts, replies and reposts.
+- Follow people and hashtags, search public posts and browse trends.
 - Send mutual-follow direct messages with image/video attachments, reactions,
   read receipts and typing indicators.
-- Upload images and short videos with EXIF stripping, size limits and a bounded
-  transcode path.
-- Subscribe to Web Push or native APNs/FCM device notifications.
-- Follow ActivityPub actors and discover federated posts when federation is
-  enabled by the operator.
+- Upload media with EXIF stripping, size limits and a bounded transcode path.
+- Subscribe to Web Push or native APNs/FCM notifications.
+- Follow ActivityPub actors and discover federated posts when enabled by the
+  operator.
 - Export or delete an account, revoke sessions, use 2FA and manage passkeys.
 
 Moderation is part of the design, not an afterthought. Explainable signals
@@ -93,16 +110,16 @@ Moderation is part of the design, not an afterthought. Explainable signals
 heat and report thresholds) can quarantine, shadow-ban or suspend content and
 accounts. Decisions remain reversible and auditable; appeals are first-class.
 
-## Security boundaries I wanted to be able to explain
+## Security I can explain
 
 The application is passwordless by default. Session cookies are `HttpOnly`,
 `Secure` and `SameSite=Lax`; magic-link tokens are short-lived, one-shot and
 stored only as hashes. Admin routes require both the admin role and a
 2FA-satisfied session. Passkeys are a first factor, never a way around TOTP.
 
-User-authored Markdown is rendered and sanitized server-side. Link previews use
-an IP-pinned, redirect-checked, byte-capped HTTP client so the server is not an
-open proxy. Uploads are sniffed, re-encoded and bounded. SQL uses parameterized
+User-authored Markdown is rendered and sanitised server-side. Link previews use
+an IP-pinned, redirect-checked, byte-capped client so the server is not an open
+proxy. Uploads are sniffed, re-encoded and bounded. SQL uses parameterised
 queries. Every request has an `x-request-id`, and security-sensitive paths are
 redacted in the audit log.
 
@@ -111,38 +128,34 @@ Symbols are pinned OFL-1.1 Fontsource packages, emitted as same-origin WOFF2
 assets, preloaded where useful and checked during the build. The production CSP
 allows `font-src 'self' data:` only.
 
-## Tests that protect the boring parts
-
-The repository has more than a compile check:
+## The boring parts are tested
 
 - 47 Rust tests, formatting and Clippy with warnings denied.
-- Web Vitest regression tests and 28 Playwright flows across desktop and a
-  mobile viewport.
-- Expo web Playwright flows across Android and iOS-sized viewports.
+- Web Vitest regression tests and 28 Playwright flows across desktop and mobile
+  viewports.
+- Expo web Playwright flows for Android- and iOS-sized viewports.
 - Maestro flows for native Android and iOS, executed by EAS workflows on
   managed devices.
 - Dependency audits, license/source policy, gitleaks and production builds in
   GitHub Actions.
-- A guarded concurrent runner that holds authenticated notification SSE
-  connections while exercising health, timeline, search and sitemap HTTP
-  paths.
+- A guarded runner that holds authenticated notification SSE connections while
+  exercising health, timeline, search and sitemap HTTP paths.
 
-The pull-request load profile is **1,000 SSE connections + 2,000 HTTP
-requests**. A weekly/manual isolated soak profile is **10,000 SSE + 10,000
-HTTP requests** for 60 seconds. The runner refuses `burncpu.com` and other
-production domains by design; production is not a load-test target.
+The pull-request profile is **1,000 SSE connections + 2,000 HTTP requests**.
+The isolated soak profile is **10,000 SSE + 10,000 HTTP requests** for 60
+seconds. The runner refuses `burncpu.com` and other production domains by
+design; production is never a load-test target.
 
-## The trade-offs are visible
+## Trade-offs, intentionally visible
 
 burncpu is not pretending to be a hyperscale platform. It has one VPS, one
-admin role and no media CDN. Learned ML moderation is intentionally not a
-requirement; the current moderation layer is explainable heuristics plus human
-appeals. Native device E2E needs the EAS device environment, while browser E2E
-runs locally and in GitHub Actions.
+admin role and no media CDN. Learned ML moderation is not a requirement; the
+current moderation layer is explainable heuristics plus human appeals. Native
+device E2E needs the EAS device environment, while browser E2E runs locally and
+in GitHub Actions.
 
-Those constraints are useful. They make failure modes easier to inspect, keep
-the monthly bill legible, and make it possible to read the whole request path
-before changing it.
+Those constraints make failure modes easier to inspect, keep the monthly bill
+legible, and let one person read the whole request path before changing it.
 
 ## Run it locally
 
@@ -173,4 +186,4 @@ brand assets with separate rights; please do not assume the brand license from
 the code license.
 
 If you build something with the same “small, legible and high-signal” goal, I
-would love to hear what you kept simple and what you deliberately left out.
+would love to hear what you keep simple — and what you deliberately leave out.
